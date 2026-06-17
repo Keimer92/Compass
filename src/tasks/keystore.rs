@@ -4,6 +4,7 @@ use chrono::Local;
 use inquire::Select;
 
 use crate::utils::{cmd, context::ProjectContext};
+use crate::tasks::signer;
 
 pub fn manage(ctx: &ProjectContext) -> Result<()> {
     loop {
@@ -29,7 +30,7 @@ pub fn manage(ctx: &ProjectContext) -> Result<()> {
 
         match choice {
             "1. Abrir herramienta de firmas (crear/usar/importar)" => {
-                run_signer(ctx)?;
+                signer::create_or_import(ctx)?;
             }
             "2. Respaldar keystore actual" => {
                 backup_keystore(ctx)?;
@@ -43,28 +44,6 @@ pub fn manage(ctx: &ProjectContext) -> Result<()> {
             _ => break,
         }
     }
-    Ok(())
-}
-
-fn run_signer(ctx: &ProjectContext) -> Result<()> {
-    println!();
-    println!("==============================================");
-    println!("CONFIGURAR FIRMAS ANDROID (RELEASE)");
-    println!("==============================================");
-    println!();
-
-    let cargo_toml = ctx.script_dir.join("tauri-android-signer\\Cargo.toml");
-    if !cargo_toml.exists() {
-        eprintln!("[ERROR] No se encontró el proyecto tauri-android-signer en:\n  {:?}", cargo_toml);
-        pause();
-        return Ok(());
-    }
-
-    println!("[INFO] Compilando herramienta de firmas desde código fuente...\n");
-    if let Err(e) = cmd::run_in_dir_status("cargo", &["run", "--manifest-path", cargo_toml.to_str().unwrap()], &ctx.script_dir) {
-        eprintln!("[ERROR] Falló la compilación: {}", e);
-    }
-    pause();
     Ok(())
 }
 

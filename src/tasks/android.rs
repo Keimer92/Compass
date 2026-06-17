@@ -4,6 +4,7 @@ use anyhow::{Context, Result};
 use inquire::Select;
 
 use crate::utils::{cmd, context::ProjectContext};
+use crate::tasks::signer;
 
 fn ensure_node_modules(ctx: &ProjectContext) -> Result<()> {
     if ctx.has_node_modules {
@@ -256,25 +257,7 @@ pub fn debug(_ctx: &ProjectContext) -> Result<()> {
 }
 
 pub fn configure_signing(ctx: &ProjectContext) -> Result<()> {
-    cmd::clear_screen();
-    println!("╔══════════════════════════════════════════════════╗");
-    println!("║     CONFIGURAR FIRMAS ANDROID (RELEASE)          ║");
-    println!("╚══════════════════════════════════════════════════╝");
-    println!();
-
-    let cargo_toml = ctx.script_dir.join("tauri-android-signer\\Cargo.toml");
-    if !cargo_toml.exists() {
-        anyhow::bail!("No se encontró el proyecto tauri-android-signer en: {:?}", cargo_toml);
-    }
-
-    println!("[INFO] Compilando herramienta de firmas desde código fuente...");
-
-    let status = cmd::run_in_dir_status("cargo", &["run", "--manifest-path", cargo_toml.to_str().unwrap()], &ctx.script_dir);
-    if let Err(e) = status {
-        eprintln!("[ERROR] Falló la compilación: {}", e);
-    }
-
-    pause();
+    signer::create_or_import(ctx)?;
     Ok(())
 }
 
