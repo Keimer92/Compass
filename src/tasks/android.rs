@@ -233,10 +233,10 @@ pub fn build_all(ctx: &ProjectContext) -> Result<()> {
 }
 
 pub fn debug(_ctx: &ProjectContext) -> Result<()> {
-    println!();
-    println!("==============================================");
-    println!("DEPURADOR DE CHROME (Android)");
-    println!("==============================================");
+    cmd::clear_screen();
+    println!("╔══════════════════════════════════════════════════╗");
+    println!("║         DEPURADOR DE CHROME (Android)            ║");
+    println!("╚══════════════════════════════════════════════════╝");
     println!("[INFO] La URL chrome://inspect/#devices ha sido copiada al portapapeles.");
     println!("[INFO] 1. Abre Chrome (o Edge).");
     println!("[INFO] 2. Pega la URL en la barra de direcciones (Ctrl+V).");
@@ -256,10 +256,10 @@ pub fn debug(_ctx: &ProjectContext) -> Result<()> {
 }
 
 pub fn configure_signing(ctx: &ProjectContext) -> Result<()> {
-    println!();
-    println!("==============================================");
-    println!("CONFIGURAR FIRMAS ANDROID (RELEASE)");
-    println!("==============================================");
+    cmd::clear_screen();
+    println!("╔══════════════════════════════════════════════════╗");
+    println!("║     CONFIGURAR FIRMAS ANDROID (RELEASE)          ║");
+    println!("╚══════════════════════════════════════════════════╝");
     println!();
 
     let cargo_toml = ctx.script_dir.join("tauri-android-signer\\Cargo.toml");

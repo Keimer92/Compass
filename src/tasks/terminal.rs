@@ -1,6 +1,6 @@
 use std::io::{self, Write};
 use anyhow::Result;
-use crate::utils::context::ProjectContext;
+use crate::utils::{cmd, context::ProjectContext};
 
 const PROFILE_CONTENT: &str = r#"# 1. Autocompletado visual del historial
 Set-PSReadLineOption -PredictionSource History
@@ -14,9 +14,10 @@ Set-PSReadLineKeyHandler -Key RightArrow -Function AcceptNextSuggestionWord
 
 pub fn configure(_ctx: &ProjectContext) -> Result<()> {
     println!();
-    println!("==============================================");
-    println!("CONFIGURAR TERMINAL - AUTOCOMPLETADO");
-    println!("==============================================");
+    cmd::clear_screen();
+    println!("╔══════════════════════════════════════════════════╗");
+    println!("║     CONFIGURAR TERMINAL - AUTOCOMPLETADO         ║");
+    println!("╚══════════════════════════════════════════════════╝");
     println!();
     println!("Esto configurará tu perfil de PowerShell con:");
     println!("  1. Autocompletado visual del historial (PredictionSource History)");

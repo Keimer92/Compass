@@ -1,6 +1,6 @@
 use std::io::{self, Write};
 use anyhow::Result;
-use crate::utils::context::ProjectContext;
+use crate::utils::{cmd, context::ProjectContext};
 
 const GITIGNORE_CONTENT: &str = r#"# ============================================
 # .gitignore para Rust/Tauri + Windows/Android
@@ -63,9 +63,10 @@ Desktop.ini
 
 pub fn create(ctx: &ProjectContext) -> Result<()> {
     println!();
-    println!("==============================================");
-    println!("CREAR .gitignore PARA RUST/TAURI");
-    println!("==============================================");
+    cmd::clear_screen();
+    println!("╔══════════════════════════════════════════════════╗");
+    println!("║        CREAR .gitignore PARA RUST/TAURI          ║");
+    println!("╚══════════════════════════════════════════════════╝");
     println!();
     println!("Se ignorarán archivos de compilación, dependencias, caches");
     println!("y archivos del sistema/IDE.");

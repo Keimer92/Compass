@@ -3,10 +3,10 @@ use anyhow::Result;
 use crate::utils::{cmd, context::ProjectContext};
 
 pub fn build(ctx: &ProjectContext) -> Result<()> {
-    println!();
-    println!("==============================================");
-    println!("COMPILAR MOTOR DE WHATSAPP");
-    println!("==============================================");
+    cmd::clear_screen();
+    println!("╔══════════════════════════════════════════════════╗");
+    println!("║         COMPILAR MOTOR DE WHATSAPP               ║");
+    println!("╚══════════════════════════════════════════════════╝");
 
     let engine_js = ctx.script_dir.join("src-tauri\\whatsapp-engine\\engine.js");
     let bundle_mjs = ctx.script_dir.join("src-tauri\\whatsapp-engine\\bundle.mjs");

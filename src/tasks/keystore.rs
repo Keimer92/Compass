@@ -26,6 +26,8 @@ pub fn manage(ctx: &ProjectContext) -> Result<()> {
             .prompt()?;
 
         cmd::clear_screen();
+
+        match choice {
             "1. Abrir herramienta de firmas (crear/usar/importar)" => {
                 run_signer(ctx)?;
             }
