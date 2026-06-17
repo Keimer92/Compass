@@ -14,6 +14,9 @@ pub fn run(cmd: &str, args: &[&str]) -> Result<Output> {
 }
 
 pub fn run_in_dir(cmd: &str, args: &[&str], dir: &std::path::Path) -> Result<Output> {
+    if !dir.exists() {
+        anyhow::bail!("El directorio no existe: {}", dir.display());
+    }
     Command::new(cmd)
         .args(args)
         .current_dir(dir)
@@ -33,13 +36,52 @@ pub fn run_status(cmd: &str, args: &[&str]) -> Result<()> {
 }
 
 pub fn run_in_dir_status(cmd: &str, args: &[&str], dir: &std::path::Path) -> Result<()> {
+    if !dir.exists() {
+        anyhow::bail!("El directorio no existe: {}", dir.display());
+    }
     let status = Command::new(cmd)
         .args(args)
         .current_dir(dir)
         .status()
-        .with_context(|| format!("Falló al ejecutar: {} {} en {:?}", cmd, args.join(" "), dir))?;
+        .with_context(|| format!("Falló al ejecutar '{}'. Verifica que el programa esté instalado y en el PATH.", cmd))?;
     if !status.success() {
         anyhow::bail!("Comando falló con código: {}", status);
+    }
+    Ok(())
+}
+
+/// Ejecuta npm install en un directorio.
+/// En Windows, npm es npm.cmd y requiere cmd.exe para ejecutarse.
+/// Esta función lo resuelve automáticamente.
+pub fn run_npm_install(dir: &std::path::Path) -> Result<()> {
+    if !dir.exists() {
+        anyhow::bail!("El directorio no existe: {}", dir.display());
+    }
+    if !dir.join("package.json").exists() {
+        anyhow::bail!("No se encontró package.json en: {}", dir.display());
+    }
+
+    let program = if cfg!(windows) { "cmd" } else { "npm" };
+    let args: &[&str] = if cfg!(windows) {
+        &["/c", "npm.cmd", "install"]
+    } else {
+        &["install"]
+    };
+
+    let status = Command::new(program)
+        .args(args)
+        .current_dir(dir)
+        .status()
+        .with_context(|| {
+            format!(
+                "No se pudo ejecutar npm. Verifica que Node.js esté instalado.\n\
+                 Ruta esperada del proyecto: {}",
+                dir.display()
+            )
+        })?;
+
+    if !status.success() {
+        anyhow::bail!("npm install falló en: {}", dir.display());
     }
     Ok(())
 }

@@ -29,12 +29,34 @@ pub fn build(ctx: &ProjectContext) -> Result<()> {
         return Ok(());
     }
 
+    // Verify engine directory exists
+    let engine_dir = ctx.script_dir.join("src-tauri\\whatsapp-engine");
+    if !engine_dir.exists() {
+        eprintln!();
+        eprintln!("[ERROR] No se encontró el directorio del motor.");
+        eprintln!("  Ruta esperada: src-tauri\\whatsapp-engine");
+        eprintln!();
+        eprintln!("  Este proyecto no tiene un motor de WhatsApp integrado.");
+        pause();
+        return Ok(());
+    }
+
+    // Verify package.json exists
+    if !engine_dir.join("package.json").exists() {
+        eprintln!();
+        eprintln!("[ERROR] El directorio del motor no tiene package.json.");
+        eprintln!("  Ruta: src-tauri\\whatsapp-engine");
+        pause();
+        return Ok(());
+    }
+
     // Install engine dependencies
     println!();
     println!("[INFO] Instalando dependencias del motor...");
-    let engine_dir = ctx.script_dir.join("src-tauri\\whatsapp-engine");
-    if engine_dir.exists() {
-        cmd::run_in_dir_status("npm", &["install"], &engine_dir)?;
+    if let Err(e) = cmd::run_npm_install(&engine_dir) {
+        eprintln!("[ERROR] {}", e);
+        pause();
+        return Ok(());
     }
 
     // Build with ncc
