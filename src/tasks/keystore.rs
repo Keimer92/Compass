@@ -7,10 +7,10 @@ use crate::utils::{cmd, context::ProjectContext};
 
 pub fn manage(ctx: &ProjectContext) -> Result<()> {
     loop {
-        println!();
-        println!("==============================================");
-        println!("GESTIÓN DE LLAVES (KEYSTORE)");
-        println!("==============================================");
+        cmd::clear_screen();
+        println!("╔══════════════════════════════════════════════════╗");
+        println!("║           GESTIÓN DE LLAVES (KEYSTORE)          ║");
+        println!("╚══════════════════════════════════════════════════╝");
         println!();
 
         let options = vec![
@@ -25,7 +25,7 @@ pub fn manage(ctx: &ProjectContext) -> Result<()> {
             .with_vim_mode(true)
             .prompt()?;
 
-        match choice {
+        cmd::clear_screen();
             "1. Abrir herramienta de firmas (crear/usar/importar)" => {
                 run_signer(ctx)?;
             }

@@ -45,6 +45,16 @@ impl std::fmt::Display for MenuItem {
 
 pub fn run(ctx: &ProjectContext) -> anyhow::Result<()> {
     loop {
+        cmd::clear_screen();
+        println!("╔══════════════════════════════════════════════════╗");
+        println!("║     GESTOR DE DESARROLLO - TAURI / RUST         ║");
+        println!("║              developing-runner v0.1.0            ║");
+        println!("╚══════════════════════════════════════════════════╝");
+        if ctx.android_home.is_none() {
+            println!("⚠ ADVERTENCIA: ANDROID_HOME no está configurada.\n");
+        }
+        println!();
+
         let items = vec![
             MenuItem::WindowsDev,
             MenuItem::AndroidDev,
@@ -66,6 +76,8 @@ pub fn run(ctx: &ProjectContext) -> anyhow::Result<()> {
             .with_vim_mode(true)
             .with_page_size(14)
             .prompt()?;
+
+        cmd::clear_screen();
 
         match selection {
             MenuItem::Exit => break,

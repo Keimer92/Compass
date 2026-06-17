@@ -38,10 +38,10 @@ fn dir_size(path: &Path) -> u64 {
 }
 
 pub fn clean_cache(ctx: &ProjectContext) -> Result<()> {
-    println!();
-    println!("==============================================");
-    println!("LIMPIEZA DE CACHE Y DEPENDENCIAS");
-    println!("==============================================");
+    cmd::clear_screen();
+    println!("╔══════════════════════════════════════════════════╗");
+    println!("║      LIMPIEZA DE CACHE Y DEPENDENCIAS            ║");
+    println!("╚══════════════════════════════════════════════════╝");
     println!();
 
     let options = vec![
@@ -51,6 +51,8 @@ pub fn clean_cache(ctx: &ProjectContext) -> Result<()> {
 
     let choice = Select::new("Selecciona tipo de limpieza:", options)
         .prompt()?;
+
+    cmd::clear_screen();
 
     match choice {
         "1. Rápida - Solo limpia builds (Android + Windows)" => {
@@ -125,10 +127,10 @@ pub fn clean_cache(ctx: &ProjectContext) -> Result<()> {
 }
 
 pub fn clean_project(ctx: &ProjectContext) -> Result<()> {
-    println!();
-    println!("==============================================");
-    println!("LIMPIAR PROYECTO PARA PORTABILIDAD");
-    println!("==============================================");
+    cmd::clear_screen();
+    println!("╔══════════════════════════════════════════════════╗");
+    println!("║      LIMPIAR PROYECTO PARA PORTABILIDAD          ║");
+    println!("╚══════════════════════════════════════════════════╝");
     println!();
     println!("Se eliminarán TODOS los archivos de compilación y dependencias,\
               dejando solo el código fuente y configuración.");
