@@ -55,6 +55,7 @@ fn run_task_direct(ctx: &crate::utils::context::ProjectContext, task: &str) -> R
         "sign" => tasks::android::configure_signing(ctx),
         "clean-project" => tasks::cleanup::clean_project(ctx),
         "gitignore" => tasks::gitignore::create(ctx),
+        "git-init" => tasks::git::init(ctx),
         "keystore" => tasks::keystore::manage(ctx),
         "whatsapp" => tasks::whatsapp::build(ctx),
         "terminal" => tasks::terminal::configure(ctx),

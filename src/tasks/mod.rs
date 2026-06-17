@@ -1,5 +1,6 @@
 pub mod android;
 pub mod cleanup;
+pub mod git;
 pub mod gitignore;
 pub mod keystore;
 pub mod signer;
