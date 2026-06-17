@@ -5,15 +5,18 @@ use crate::utils::context::ProjectContext;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MenuItem {
+    // Desarrollo
     WindowsDev,
     AndroidDev,
     WindowsBuild,
     AndroidBuildArm64,
     AndroidBuildAll,
+    // Mantenimiento
     CleanCache,
     DebugAndroid,
     ConfigureSigning,
     CleanProject,
+    // Otros
     CreateGitignore,
     ManageKeystore,
     BuildWhatsApp,
@@ -23,37 +26,45 @@ pub enum MenuItem {
 
 impl std::fmt::Display for MenuItem {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let s = match self {
-            Self::WindowsDev => "▲ Windows (Desarrollo)",
-            Self::AndroidDev => "▲ Android (Desarrollo)",
-            Self::WindowsBuild => "▲ Windows Build (Release)",
-            Self::AndroidBuildArm64 => "◆ Android Build (Release - arm64) [Rápido]",
-            Self::AndroidBuildAll => "◆ Android Build (Release - Todas)",
-            Self::CleanCache => "■ Limpiar cache y dependencias",
-            Self::DebugAndroid => "■ Depurar Android (Chrome Inspect)",
-            Self::ConfigureSigning => "■ Configurar firmas Android (Release)",
-            Self::CleanProject => "■ Limpiar proyecto para portabilidad",
-            Self::CreateGitignore => "● Crear .gitignore para Rust/Tauri",
-            Self::ManageKeystore => "● Gestionar llaves (keystore)",
-            Self::BuildWhatsApp => "● Compilar motor de WhatsApp",
-            Self::ConfigureTerminal => "● Configurar terminal (autocompletado TAB)",
-            Self::Exit => "✕ Salir",
+        let (icon, section, label) = match self {
+            Self::WindowsDev       => ("🖥", "DEV", "Windows (Desarrollo)"),
+            Self::AndroidDev       => ("📱", "DEV", "Android (Desarrollo)"),
+            Self::WindowsBuild     => ("📦", "DEV", "Windows Build (Release)"),
+            Self::AndroidBuildArm64=> ("🚀", "DEV", "Android Build (Release - arm64)"),
+            Self::AndroidBuildAll  => ("🚀", "DEV", "Android Build (Release - Todas)"),
+            Self::CleanCache       => ("🧹", "MNT", "Limpiar cache y dependencias"),
+            Self::DebugAndroid     => ("🔍", "MNT", "Depurar Android (Chrome Inspect)"),
+            Self::ConfigureSigning  => ("🔑", "MNT", "Configurar firmas Android (Release)"),
+            Self::CleanProject     => ("🧼", "MNT", "Limpiar proyecto para portabilidad"),
+            Self::CreateGitignore  => ("📄", "CFG", "Crear .gitignore"),
+            Self::ManageKeystore   => ("🗝",  "CFG", "Gestionar llaves (keystore)"),
+            Self::BuildWhatsApp    => ("💬", "CFG", "Compilar motor de WhatsApp"),
+            Self::ConfigureTerminal=> ("⚙",  "CFG", "Configurar terminal (autocompletado)"),
+            Self::Exit             => ("✕",  "",    "Salir"),
         };
-        write!(f, "{}", s)
+        if section.is_empty() {
+            write!(f, "  {}  {}", icon, label)
+        } else {
+            write!(f, "  {}  [{}]  {}", icon, section, label)
+        }
     }
 }
 
 pub fn run(ctx: &ProjectContext) -> anyhow::Result<()> {
     loop {
         cmd::clear_screen();
-        println!("╔══════════════════════════════════════════════════╗");
-        println!("║     GESTOR DE DESARROLLO - TAURI / RUST         ║");
-        println!("║              developing-runner v0.1.0            ║");
-        println!("╚══════════════════════════════════════════════════╝");
+        let project_name = ctx.script_dir.file_name()
+            .map(|n| n.to_string_lossy())
+            .unwrap_or(std::borrow::Cow::Borrowed("Proyecto"));
+        println!("╭{}╮", "─".repeat(48));
+        println!("│  ◈  developing-runner  v0.1.0{:>27}│", " ");
+        println!("│     Proyecto: {:<38}│", project_name);
         if ctx.android_home.is_none() {
-            println!("⚠ ADVERTENCIA: ANDROID_HOME no está configurada.\n");
+            println!("│{:^50}│", "⚠  ANDROID_HOME no configurada");
         }
-        println!();
+        println!("├{}┤", "─".repeat(48));
+        println!("│  {:^46}  │", "DESARROLLO");
+        println!("╰{}╯", "─".repeat(48));
 
         let items = vec![
             MenuItem::WindowsDev,
@@ -72,7 +83,7 @@ pub fn run(ctx: &ProjectContext) -> anyhow::Result<()> {
             MenuItem::Exit,
         ];
 
-        let selection = Select::new("¿Qué deseas hacer?", items)
+        let selection = Select::new("  ¿Qué acción deseas ejecutar?", items)
             .with_vim_mode(true)
             .with_page_size(14)
             .prompt()?;
