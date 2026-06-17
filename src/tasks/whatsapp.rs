@@ -59,10 +59,10 @@ pub fn build(ctx: &ProjectContext) -> Result<()> {
         return Ok(());
     }
 
-    // Build with ncc
+    // Build with ncc (run from engine dir so relative paths resolve)
     println!("[INFO] Compilando motor de WhatsApp con ncc...\n");
 
-    let output = cmd::run_in_dir("node", &[bundle_mjs.to_str().unwrap()], &ctx.script_dir)?;
+    let output = cmd::run_in_dir("node", &[bundle_mjs.to_str().unwrap()], &engine_dir)?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
