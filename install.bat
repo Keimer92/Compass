@@ -54,8 +54,13 @@ echo  [INFO] Compilando e instalando...
 
 :: 4. Ejecutar la instalacion
 cargo install --path . --force
+set "EXIT_CODE=%errorlevel%"
 
-if %errorlevel% equ 0 (
+echo.
+echo  Presiona cualquier tecla para ver el resultado...
+pause >nul
+
+if "%EXIT_CODE%"=="0" (
     echo.
     echo  =============================================
     echo       [OK] Instalacion completada!
@@ -71,4 +76,4 @@ if %errorlevel% equ 0 (
 )
 
 pause
-exit /b %errorlevel%
+exit /b %EXIT_CODE%
