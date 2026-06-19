@@ -346,12 +346,16 @@ fn create_card(item: &MenuItem, is_selected: bool) -> Paragraph<'static> {
     let label = item.label();
 
     if section.is_empty() {
-        Paragraph::new(Text::from(vec![Line::from(vec![
-            Span::styled(
-                format!(" {}  {}", icon, label),
+        Paragraph::new(Text::from(vec![
+            Line::from(vec![Span::styled(
+                icon.to_string(),
+                Style::default().fg(if is_selected { Color::Cyan } else { Color::Red }),
+            )]),
+            Line::from(vec![Span::styled(
+                label,
                 Style::default().fg(if is_selected { Color::Cyan } else { Color::White }),
-            ),
-        ])]))
+            )]),
+        ]))
         .alignment(Alignment::Center)
         .block(
             Block::default()
@@ -449,7 +453,6 @@ pub fn run(ctx: &ProjectContext) -> anyhow::Result<()> {
 
         if let Some(item) = selection {
             if item == MenuItem::Exit {
-                restore_terminal(&mut terminal)?;
                 std::process::exit(0);
             }
 
@@ -476,7 +479,4 @@ pub fn run(ctx: &ProjectContext) -> anyhow::Result<()> {
             terminal = setup_terminal()?;
         }
     }
-
-    restore_terminal(&mut terminal)?;
-    Ok(())
 }
