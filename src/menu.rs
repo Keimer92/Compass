@@ -453,6 +453,7 @@ pub fn run(ctx: &ProjectContext) -> anyhow::Result<()> {
 
         if let Some(item) = selection {
             if item == MenuItem::Exit {
+                let _ = restore_terminal(&mut terminal);
                 std::process::exit(0);
             }
 

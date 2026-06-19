@@ -7,4 +7,7 @@ if not exist "%RUNNER%" (
     exit /b 1
 )
 "%RUNNER%" -p "%CD%"
-pause
+if %errorlevel% neq 0 (
+    echo.
+    pause
+)
