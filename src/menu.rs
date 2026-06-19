@@ -61,7 +61,7 @@ impl MenuItem {
             Self::ManageKeystore => "\u{1f5dd}",
             Self::BuildWhatsApp => "\u{1f4ac}",
             Self::ConfigureTerminal => "\u{2699}",
-            Self::Exit => "\u{2715}",
+            Self::Exit => "\u{1f6aa}",
         }
     }
 
@@ -223,7 +223,7 @@ fn draw_menu(frame: &mut Frame, state: &mut MenuState, ctx: &ProjectContext) {
         y += cards_h + 1;
     }
 
-    let exit_area = Rect { x: area.x, y, width: area.width, height: 3 };
+    let exit_area = Rect { x: area.x, y, width: area.width, height: CARD_H };
     render_exit(frame, exit_area, state);
 }
 
@@ -235,7 +235,7 @@ fn calc_total_height(header_h: u16) -> u16 {
         h += rows as u16 * (CARD_H + GAP) - GAP;
         h += 1;
     }
-    h += 3;
+    h += CARD_H;
     h
 }
 
@@ -348,11 +348,11 @@ fn create_card(item: &MenuItem, is_selected: bool) -> Paragraph<'static> {
     if section.is_empty() {
         Paragraph::new(Text::from(vec![
             Line::from(vec![Span::styled(
-                icon.to_string(),
+                format!("  {}", icon),
                 Style::default().fg(if is_selected { Color::Cyan } else { Color::Red }),
             )]),
             Line::from(vec![Span::styled(
-                label,
+                format!("  {}", label),
                 Style::default().fg(if is_selected { Color::Cyan } else { Color::White }),
             )]),
         ]))
