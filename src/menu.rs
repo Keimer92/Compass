@@ -167,51 +167,56 @@ fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io
     Ok(())
 }
 
+const GROUPS: &[(&str, Color, usize, usize)] = &[
+    ("DESARROLLO",    Color::Cyan,    0, 5),
+    ("MANTENIMIENTO", Color::Yellow,  5, 4),
+    ("CONFIGURACION", Color::Magenta, 9, 5),
+];
+
 fn draw_menu(frame: &mut Frame, state: &mut MenuState, ctx: &ProjectContext) {
     let area = frame.area();
-
     let header_h = if ctx.android_home.is_none() { 5u16 } else { 4u16 };
-    let exit_h = 3u16;
-    let grid_area_h = area.height.saturating_sub(header_h + exit_h + 2);
 
-    let non_exit_count = state.items.len() - 1;
-    let grid_rows = (non_exit_count + COLS - 1) / COLS;
-    let grid_content_h = grid_rows as u16 * (CARD_H + GAP) - GAP;
-
-    if grid_area_h < grid_content_h {
+    let total_h = calc_total_height(header_h);
+    if area.height < total_h {
         return;
     }
 
-    let y_offset = area.y + 1;
-
-    let header_area = Rect {
-        x: area.x,
-        y: y_offset,
-        width: area.width,
-        height: header_h,
-    };
-
-    let grid_area = Rect {
-        x: area.x,
-        y: y_offset + header_h,
-        width: area.width,
-        height: grid_area_h,
-    };
-
-    let exit_y = grid_area.y + grid_area.height + 1;
-    let exit_area = Rect {
-        x: area.x,
-        y: exit_y,
-        width: area.width,
-        height: exit_h,
-    };
-
     state.card_areas.clear();
-    state.exit_area = exit_area;
+    state.exit_area = Rect::default();
 
+    let mut y = area.y + 1;
+
+    let header_area = Rect { x: area.x, y, width: area.width, height: header_h };
     render_header(frame, header_area, ctx);
-    render_grid(frame, grid_area, state, non_exit_count);
+    y += header_h + 1;
+
+    for (name, color, start, count) in GROUPS {
+        let section_rect = Rect { x: area.x, y, width: area.width, height: 1 };
+        render_section_header(frame, section_rect, name, *color);
+        y += 1;
+
+        let rows = (*count + COLS - 1) / COLS;
+        let cards_h = rows as u16 * (CARD_H + GAP) - GAP;
+        let cards_area = Rect { x: area.x, y, width: area.width, height: cards_h };
+        render_group_cards(frame, cards_area, state, *start, *start + *count);
+        y += cards_h + 1;
+    }
+
+    let exit_area = Rect { x: area.x, y, width: area.width, height: 3 };
     render_exit(frame, exit_area, state);
+}
+
+fn calc_total_height(header_h: u16) -> u16 {
+    let mut h = header_h + 1;
+    for (_name, _color, _start, count) in GROUPS {
+        h += 1;
+        let rows = (*count + COLS - 1) / COLS;
+        h += rows as u16 * (CARD_H + GAP) - GAP;
+        h += 1;
+    }
+    h += 3;
+    h
 }
 
 fn render_header(frame: &mut Frame, area: Rect, ctx: &ProjectContext) {
@@ -255,23 +260,30 @@ fn render_header(frame: &mut Frame, area: Rect, ctx: &ProjectContext) {
     frame.render_widget(header, area);
 }
 
-fn render_grid(frame: &mut Frame, area: Rect, state: &mut MenuState, count: usize) {
-    for idx in 0..count {
-        let row = idx / COLS;
-        let col = idx % COLS;
+fn render_section_header(frame: &mut Frame, area: Rect, name: &str, color: Color) {
+    let line = Line::from(vec![
+        Span::styled(
+            format!("  {} ", name),
+            Style::default().fg(color).add_modifier(Modifier::BOLD),
+        ),
+    ]);
+    let widget = Paragraph::new(Text::from(vec![line])).style(Style::default().bg(Color::Reset));
+    frame.render_widget(widget, area);
+}
 
-        let total_grid_w = COLS as u16 * (CARD_W + GAP) - GAP;
-        let grid_start_x = area.x + (area.width.saturating_sub(total_grid_w)) / 2;
+fn render_group_cards(frame: &mut Frame, area: Rect, state: &mut MenuState, start: usize, end: usize) {
+    let total_grid_w = COLS as u16 * (CARD_W + GAP) - GAP;
+    let grid_start_x = area.x + (area.width.saturating_sub(total_grid_w)) / 2;
+
+    for rel_idx in 0..(end - start) {
+        let idx = start + rel_idx;
+        let row = rel_idx / COLS;
+        let col = rel_idx % COLS;
 
         let x = grid_start_x + col as u16 * (CARD_W + GAP);
         let y = area.y + row as u16 * (CARD_H + GAP);
 
-        let rect = Rect {
-            x,
-            y,
-            width: CARD_W,
-            height: CARD_H,
-        };
+        let rect = Rect { x, y, width: CARD_W, height: CARD_H };
         state.card_areas.push(rect);
 
         let is_selected = state.selected == idx;
