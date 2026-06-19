@@ -22,7 +22,7 @@ use crate::utils::context::ProjectContext;
 
 const COLS: usize = 3;
 const CARD_W: u16 = 24;
-const CARD_H: u16 = 4;
+const CARD_H: u16 = 5;
 const GAP: u16 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -110,6 +110,26 @@ impl MenuItem {
             "MNT" => Color::Yellow,
             "CFG" => Color::Magenta,
             _ => Color::White,
+        }
+    }
+
+    fn description(&self) -> &str {
+        match self {
+            Self::WindowsDev => "Inicia el dev server",
+            Self::AndroidDev => "Dev con target Android",
+            Self::WindowsBuild => "Compila produccion",
+            Self::AndroidBuildArm64 => "Compila APK arm64",
+            Self::AndroidBuildAll => "Compila todas las APK",
+            Self::CleanCache => "Limpia cache y npm",
+            Self::DebugAndroid => "Chrome DevTools",
+            Self::ConfigureSigning => "Configura firma",
+            Self::CleanProject => "Limpia proyecto",
+            Self::CreateGitignore => "Crea .gitignore",
+            Self::InitGit => "Git init + commit",
+            Self::ManageKeystore => "Administra llaves",
+            Self::BuildWhatsApp => "Compila WhatsApp",
+            Self::ConfigureTerminal => "Autocompletado",
+            Self::Exit => "Cierra programa",
         }
     }
 }
@@ -234,10 +254,11 @@ fn render_header(frame: &mut Frame, area: Rect, ctx: &ProjectContext) {
 
     let mut lines = vec![
         Line::from(vec![
-            Span::styled("  \u{25c6} Code Runner for Rust / Tauri v0.1.0", title_style),
+            Span::styled("  \u{1f980}  Code Runner for Rust / Tauri  v", title_style),
+            Span::styled("0.1.0", Style::default().fg(Color::DarkGray)),
         ]),
         Line::from(vec![
-            Span::styled("    Proyecto: ", label_style),
+            Span::styled("     Proyecto: ", label_style),
             Span::styled(project_name.to_string(), value_style),
         ]),
     ];
@@ -339,6 +360,7 @@ fn create_card(item: &MenuItem, is_selected: bool) -> Paragraph<'static> {
         )
     } else {
         let section_color = item.section_color();
+        let desc = item.description();
         Paragraph::new(Text::from(vec![
             Line::from(vec![Span::styled(
                 format!(" {} [{}]", icon, section),
@@ -347,6 +369,10 @@ fn create_card(item: &MenuItem, is_selected: bool) -> Paragraph<'static> {
             Line::from(vec![Span::styled(
                 format!("  {}", label),
                 Style::default().fg(Color::White),
+            )]),
+            Line::from(vec![Span::styled(
+                format!("  {}", desc),
+                Style::default().fg(Color::DarkGray),
             )]),
         ]))
         .alignment(Alignment::Left)
@@ -423,7 +449,8 @@ pub fn run(ctx: &ProjectContext) -> anyhow::Result<()> {
 
         if let Some(item) = selection {
             if item == MenuItem::Exit {
-                break;
+                restore_terminal(&mut terminal)?;
+                std::process::exit(0);
             }
 
             restore_terminal(&mut terminal)?;
