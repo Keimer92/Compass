@@ -10,20 +10,12 @@ pub struct ProjectContext {
     pub sdk_manager: Option<PathBuf>,
     pub has_node_modules: bool,
     pub has_android_project: bool,
-    pub has_tauri: bool,
 }
 
 impl ProjectContext {
     pub fn assert_android_sdk(&self) -> Result<()> {
         if self.android_home.is_none() {
             anyhow::bail!("[ERROR] ANDROID_HOME no está configurado.\nAsegúrate de tener instalado Android SDK en una de las rutas predeterminadas.");
-        }
-        Ok(())
-    }
-
-    pub fn assert_node_modules(&self) -> Result<()> {
-        if !self.has_node_modules {
-            anyhow::bail!("[INFO] node_modules no encontrado. Ejecutando npm install...");
         }
         Ok(())
     }
@@ -37,7 +29,6 @@ pub fn detect() -> Result<ProjectContext> {
     let sdk_manager = android_home.as_ref().map(|a| a.join("cmdline-tools\\latest\\bin\\sdkmanager.bat"));
     let has_node_modules = script_dir.join("node_modules").exists();
     let has_android_project = script_dir.join("src-tauri\\gen\\android\\gradlew.bat").exists();
-    let has_tauri = script_dir.join("src-tauri\\tauri.conf.json").exists();
 
     Ok(ProjectContext {
         script_dir,
@@ -47,7 +38,6 @@ pub fn detect() -> Result<ProjectContext> {
         sdk_manager,
         has_node_modules,
         has_android_project,
-        has_tauri,
     })
 }
 
