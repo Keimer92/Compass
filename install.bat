@@ -1,8 +1,8 @@
 @echo off
-title Instalando Developing Runner...
+title Instalando Code Runner...
 echo.
 echo =============================================
-echo   Developing Runner - Instalador
+echo   Code Runner for Rust / Tauri - Instalador
 echo =============================================
 echo.
 where cargo >nul 2>nul
@@ -20,12 +20,12 @@ exit /b 1
 if not exist "Cargo.toml" (
 echo [ERROR] No se encuentra Cargo.toml.
 echo Asegurate de que install.bat este en la carpeta
-echo raiz del proyecto - Developing Runner.
+echo raiz del proyecto (Code Runner).
 echo.
 pause
 exit /b 1
 )
-echo El comando sera instalado globalmente.
+echo El comando 'code-runner' sera instalado globalmente.
 echo.
 set /p "CONFIRM=Presiona S para instalar/actualizar, o N para cancelar (s/n): "
 if /i not "%CONFIRM%"=="s" (
@@ -47,7 +47,8 @@ echo =============================================
 echo     [OK] Instalacion completada!
 echo =============================================
 echo.
-echo Ya puedes usar el comando desde cualquier terminal.
+echo Ya puedes usar el comando 'code-runner'
+echo desde cualquier terminal.
 echo.
 ) else (
 echo.

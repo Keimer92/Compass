@@ -234,7 +234,7 @@ fn render_header(frame: &mut Frame, area: Rect, ctx: &ProjectContext) {
 
     let mut lines = vec![
         Line::from(vec![
-            Span::styled("  \u{25c6} developing-runner v0.1.0", title_style),
+            Span::styled("  \u{25c6} Code Runner for Rust / Tauri v0.1.0", title_style),
         ]),
         Line::from(vec![
             Span::styled("    Proyecto: ", label_style),

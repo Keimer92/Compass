@@ -1,4 +1,4 @@
-# developing-runner — Continuity Document
+# Code Runner — Continuity Document
 
 Este documento resume TODO lo construido hasta ahora para que cualquier IA pueda continuar el proyecto sin perder contexto.
 
@@ -6,75 +6,71 @@ Este documento resume TODO lo construido hasta ahora para que cualquier IA pueda
 
 ## Objetivo
 
-CLI en Rust (`developing-runner`) que reemplaza un script `dev.ps1` de PowerShell. Se instala globalmente con `cargo install --path . --force` y se ejecuta desde cualquier directorio de un proyecto Tauri. Provee un menú interactivo para tareas de desarrollo, build, limpieza, firma Android y compilación del motor de WhatsApp.
+CLI en Rust (`code-runner`) que reemplaza un script `dev.ps1` de PowerShell. Se instala globalmente con `cargo install --path . --force` y se ejecuta desde cualquier directorio de un proyecto Tauri. Provee un menu interactivo con cards (ratatui) para tareas de desarrollo, build, limpieza, firma Android y compilacion del motor de WhatsApp.
 
-## Instalación
+## Instalacion
 
 ```powershell
 cd D:\Mis Proyectos\Tauri\Developing Runner
 cargo install --path . --force
 ```
 
-Ejecutar: `developing-runner` (menú interactivo) o `developing-runner --task <nombre>`.
+Ejecutar: `code-runner` (menu interactivo) o `code-runner --task <nombre>`.
 
 ### Scripts auxiliares
 
-- `Run.bat` — lanzador con doble-click (eleva permisos vía PowerShell)
-- `install.bat` — instalación rápida en máquina nueva
-- `REINSTALL.md` — pasos manuales de reinstalación
+- `Run.bat` — lanzador con doble-click (eleva permisos via PowerShell)
+- `install.bat` — instalacion rapida en maquina nueva
+- `REINSTALL.md` — pasos manuales de reinstalacion
 
 ## Arquitectura
 
 ```
 src/
 ├── main.rs              # Entry point, CLI args con clap
-├── menu.rs              # Loop interactivo con inquire::Select
+├── menu.rs              # TUI con ratatui (cards, mouse, teclado)
 ├── tasks/
-│   ├── mod.rs           # Declaración de módulos
+│   ├── mod.rs           # Declaracion de modulos
 │   ├── android.rs       # Dev, build arm64, build all, debug, configure signing
 │   ├── cleanup.rs       # cache y project cleanup
 │   ├── git.rs           # git init + primer commit a main
 │   ├── gitignore.rs     # Crear .gitignore para Rust/Tauri
 │   ├── keystore.rs      # Gestionar llaves (keystore)
-│   ├── signer.rs        # Flujo completo de firma Android (keytool, keystore.properties, build.gradle.kts)
+│   ├── signer.rs        # Flujo completo de firma Android
 │   ├── terminal.rs      # Configurar autocompletado de terminal
 │   ├── whatsapp.rs      # Compilar motor de WhatsApp
 │   └── windows.rs       # Dev y build para Windows
 └── utils/
     ├── mod.rs
-    ├── cmd.rs           # Ejecución de comandos, clear_screen, run_npm_install
-    └── context.rs       # Detección del proyecto (Tauri root, ANDROID_HOME, NDK, etc.)
+    ├── cmd.rs           # Ejecucion de comandos, clear_screen, run_npm_install
+    └── context.rs       # Deteccion del proyecto (Tauri root, ANDROID_HOME, NDK, etc.)
 ```
 
-## Menú de opciones
+## Menu de opciones
 
-| # | Icono | Sección | Acción |
-|---|-------|---------|--------|
-| 1 | 🖥 | DEV | Windows (Desarrollo) |
-| 2 | 📱 | DEV | Android (Desarrollo) |
-| 3 | 📦 | DEV | Windows Build (Release) |
-| 4 | 🚀 | DEV | Android Build (Release - arm64) |
-| 5 | 🚀 | DEV | Android Build (Release - Todas) |
-| 6 | 🧹 | MNT | Limpiar cache y dependencias |
-| 7 | 🔍 | MNT | Depurar Android (Chrome Inspect) |
-| 8 | 🔑 | MNT | Configurar firmas Android (Release) |
-| 9 | 🧼 | MNT | Limpiar proyecto para portabilidad |
-| 10 | 📄 | CFG | Crear .gitignore |
-| 11 | 🔧 | CFG | Inicializar Git + primer commit |
-| 12 | 🗝 | CFG | Gestionar llaves (keystore) |
-| 13 | 💬 | CFG | Compilar motor de WhatsApp |
-| 14 | ⚙ | CFG | Configurar terminal (autocompletado) |
-| 15 | ✕ | | Salir |
+El menu se muestra como cards organizadas en 3 grupos:
 
-También se puede ejecutar directamente:
+| Grupo     | Color    | Items |
+|-----------|----------|-------|
+| DESARROLLO | Cyan     | Windows Dev, Android Dev, Windows Build, Android arm64, Android All |
+| MANTENIMIENTO | Yellow | Clean Cache, Debug Android, Configure Signing, Clean Project |
+| CONFIGURACION | Magenta | .gitignore, Git Init, Keystore, WhatsApp, Terminal |
+
+Navegacion: `flechas + Enter`, click con mouse, `Esc` para salir.
+
+Tambien se puede ejecutar directamente:
 ```
-developing-runner --task git-init
-developing-runner --task whatsapp
-developing-runner --task sign
-...
+code-runner --task git-init
+code-runner --task whatsapp
+code-runner --task sign
 ```
 
 ## Decisiones clave
+
+### TUI con ratatui
+- Se reemplazo `inquire::Select` por `ratatui + crossterm` para soporte de cards con mouse.
+- Mouse habilitado via `crossterm::EnableMouseCapture`.
+- Se entra a alternate screen durante el menu, se restaura antes de ejecutar tasks.
 
 ### Windows y npm
 - `npm` en Windows es `npm.cmd`. Debe ejecutarse con `cmd /c npm.cmd` o mediante `cmd::run_npm_install()`.
@@ -85,7 +81,7 @@ El motor vive en `src-tauri/whatsapp-engine/` y se compila con un bundler.
 
 **Proyectos soportados:**
 - **School Tracker Pro ELA** (`D:\Mis Proyectos\Tauri\School Tracker Pro ELA`) — usa `@vercel/ncc` en `bundle.mjs`. Compila directo, **no necesita** `external`.
-- **GymPro** (`D:\Mis Proyectos\Tauri\GymPro`) — migrado de `esbuild` a `@vercel/ncc` (Jun 2026). También usa ncc.
+- **GymPro** (`D:\Mis Proyectos\Tauri\GymPro`) — migrado de `esbuild` a `@vercel/ncc` (Jun 2026). Tambien usa ncc.
 
 Si en el futuro otro proyecto usa `esbuild` directo, hay que agregar `external` para los paquetes opcionales de baileys:
 ```js
@@ -93,12 +89,8 @@ external: ['jimp', 'sharp', 'link-preview-js', 'qrcode-terminal']
 ```
 
 ### Firma Android (signer)
-- El flujo completo de firma (buscar keytool, generar keystore, escribir `keystore.properties`, parchear `build.gradle.kts`) está inline en `tasks/signer.rs`.
+- El flujo completo de firma (buscar keytool, generar keystore, escribir `keystore.properties`, parchear `build.gradle.kts`) esta inline en `tasks/signer.rs`.
 - No depende de un crate externo `tauri-android-signer`.
-
-### UI del menú
-- Se usa `inquire` (no `ratatui`, no BubbleTea/Go) por simplicidad y navegación por teclado.
-- La pantalla se limpia con `cmd::clear_screen()` antes de cada render y antes de cada tarea.
 
 ## Variables de entorno detectadas
 - `ANDROID_HOME` — ruta al SDK de Android
@@ -109,29 +101,28 @@ external: ['jimp', 'sharp', 'link-preview-js', 'qrcode-terminal']
 
 | Proyecto | Ruta | WhatsApp engine compilation |
 |----------|------|---------------------------|
-| School Tracker Pro ELA | `D:\Mis Proyectos\Tauri\School Tracker Pro ELA` | ✅ (ncc) |
-| GymPro | `D:\Mis Proyectos\Tauri\GymPro` | ✅ (ncc, migrado desde esbuild) |
+| School Tracker Pro ELA | `D:\Mis Proyectos\Tauri\School Tracker Pro ELA` | (ncc) |
+| GymPro | `D:\Mis Proyectos\Tauri\GymPro` | (ncc, migrado desde esbuild) |
 
 ## Estado actual
 
-- ✅ Todo funcional y probado
-- ✅ Compilación e instalación global verificada
-- ⚠️ Advertencias conocidas (inocuas): campos `has_tauri` y método `assert_node_modules` no usados
-- 📦 Último build release instalado: `%USERPROFILE%\.cargo\bin\developing-runner.exe`
+-  Todo funcional y probado
+-  Compilacion e instalacion global verificada
+-  Ultimo build release instalado: `%USERPROFILE%\.cargo\bin\code-runner.exe`
 
 ## Archivos relevantes
 
-| Archivo | Propósito |
+| Archivo | Proposito |
 |---------|-----------|
 | `src/main.rs` | Entry point, argumentos CLI |
-| `src/menu.rs` | Menú interactivo |
-| `src/utils/context.rs` | Detección del proyecto Tauri |
+| `src/menu.rs` | Menu interactivo con cards (ratatui) |
+| `src/utils/context.rs` | Deteccion del proyecto Tauri |
 | `src/utils/cmd.rs` | Helpers de comandos (npm, clear) |
 | `src/tasks/signer.rs` | Firma Android inline |
-| `src/tasks/whatsapp.rs` | Compilación del motor WhatsApp |
+| `src/tasks/whatsapp.rs` | Compilacion del motor WhatsApp |
 | `src/tasks/git.rs` | Git init + primer commit |
 | `src/tasks/gitignore.rs` | Crear .gitignore |
 | `Run.bat` | Lanzador con doble-click |
-| `install.bat` | Instalación rápida |
-| `REINSTALL.md` | Instrucciones de reinstalación |
+| `install.bat` | Instalacion rapida |
+| `REINSTALL.md` | Instrucciones de reinstalacion |
 | `CONTINUITY.md` | Este documento |

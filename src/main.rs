@@ -7,8 +7,8 @@ use anyhow::Result;
 
 #[derive(Parser)]
 #[command(
-    name = "developing-runner",
-    about = "Gestor de desarrollo para proyectos Tauri / Rust",
+    name = "code-runner",
+    about = "Code Runner for Rust / Tauri",
     version = "0.1.0",
 )]
 struct Cli {

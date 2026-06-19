@@ -1,11 +1,11 @@
-# Developing Runner — Reinstalación Rápida
+# Code Runner — Reinstalacion Rapida
 
-Si formateaste tu PC o estás en un equipo nuevo, sigue estos pasos para tener todo listo en segundos.
+Si formateaste tu PC o estas en un equipo nuevo, sigue estos pasos para tener todo listo en segundos.
 
 ## Requisito previo
 
 - [Rust](https://rustup.rs/) instalado en el sistema
-- Conexión a Internet (solo la primera vez)
+- Conexion a Internet (solo la primera vez)
 
 ## Reinstalar (o actualizar)
 
@@ -15,20 +15,20 @@ Abre una terminal en **esta carpeta** y ejecuta:
 cargo install --path . --force
 ```
 
-Eso es todo. El comando `developing-runner` quedará disponible globalmente.
+Eso es todo. El comando `code-runner` quedara disponible globalmente.
 
 ## Verificar
 
 ```bash
-developing-runner --version
+code-runner --version
 ```
 
-Si ves `developing-runner 0.1.0`, todo funciona correctamente.
+Si ves `code-runner 0.1.0`, todo funciona correctamente.
 
-## Solución de problemas
+## Solucion de problemas
 
-| Problema | Solución |
+| Problema | Solucion |
 |----------|----------|
 | `'cargo' no se reconoce` | Instala Rust desde [rustup.rs](https://rustup.rs/) |
-| `'developing-runner' no se reconoce` | Reinicia la terminal o agrega `%USERPROFILE%\.cargo\bin` al PATH |
-| `Access is denied` | Cierra cualquier instancia de `developing-runner` que esté ejecutándose |
+| `'code-runner' no se reconoce` | Reinicia la terminal o agrega `%USERPROFILE%\.cargo\bin` al PATH |
+| `Access is denied` | Cierra cualquier instancia de `code-runner` que este ejecutandose |
