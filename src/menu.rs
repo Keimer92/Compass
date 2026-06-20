@@ -23,7 +23,6 @@ use crate::utils::context::ProjectContext;
 const COLS: usize = 3;
 const CARD_W: u16 = 24;
 const CARD_H: u16 = 4;
-const GAP: u16 = 0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MenuItem {
@@ -193,26 +192,65 @@ const GROUPS: &[(&str, Color, usize, usize)] = &[
     ("CONFIGURACION", Color::Magenta, 9, 5),
 ];
 
+struct Layout {
+    compact: bool,
+    card_h: u16,
+    gap: u16,
+    header_border: bool,
+    header_h: u16,
+    exit_h: u16,
+    total_h: u16,
+}
+
+fn choose_layout(area: Rect, ctx: &ProjectContext) -> Layout {
+    let warn = ctx.android_home.is_none();
+
+    let full_header_h: u16 = if warn { 5 } else { 4 };
+    let compact_header_h: u16 = if warn { 3 } else { 2 };
+
+    // Full: top_offset(1) + header_h + header_gap(1) + Σ(rows*5 + 2) + exit_h(CARD_H)
+    // But rows*5 + 2 = sec_header(1) + rows*(4+1)-1 + group_gap(1) = rows*5 + 1
+    // Wait: sec_header + cards_h + group_gap = 1 + (rows*5-1) + 1 = rows*5 + 1
+    // Actually group_gap is the +1 after each group's cards
+    let full_groups_h: u16 = GROUPS.iter().map(|(_, _, _, count)| {
+        let rows = (*count + COLS - 1) / COLS;
+        rows as u16 * (CARD_H + 1) + 1 // section header + cards(h+g) - g + group_gap
+    }).sum::<u16>();
+    // Actually: section_h(1) + rows*(CARD_H+GAP)-GAP + group_gap(1) 
+    // = 1 + rows*(5)-1 + 1 = rows*5 + 1
+
+    let full_total = 1 + full_header_h + 1 + full_groups_h + CARD_H;
+
+    // Compact: no top offset, no gaps between groups, no section headers
+    // header_h + Σ(rows*3) + exit_h(3)
+    let compact_groups_h: u16 = GROUPS.iter().map(|(_, _, _, count)| {
+        let rows = (*count + COLS - 1) / COLS;
+        rows as u16 * 3
+    }).sum::<u16>();
+
+    let compact_total = compact_header_h + compact_groups_h + 3;
+
+    if area.height >= full_total {
+        Layout { compact: false, card_h: CARD_H, gap: 1, header_border: true, header_h: full_header_h, exit_h: CARD_H, total_h: full_total }
+    } else if area.height >= compact_total {
+        Layout { compact: true, card_h: 3, gap: 0, header_border: false, header_h: compact_header_h, exit_h: 3, total_h: compact_total }
+    } else {
+        Layout { compact: true, card_h: 3, gap: 0, header_border: false, header_h: compact_header_h, exit_h: 3, total_h: compact_total }
+    }
+}
+
 fn draw_menu(frame: &mut Frame, state: &mut MenuState, ctx: &ProjectContext) {
     let area = frame.area();
-    let warn = ctx.android_home.is_none();
-    let header_h: u16 = if warn { 3 } else { 2 };
+    let layout = choose_layout(area, ctx);
 
-    let total_h = header_h + 1
-        + GROUPS.iter().map(|(_, _, _, count)| {
-            let rows = (*count + COLS - 1) / COLS;
-            rows as u16 * (CARD_H + GAP) - GAP
-        }).sum::<u16>()
-        + CARD_H;
-
-    if area.height < total_h {
+    if area.height < layout.total_h {
         let msg = Paragraph::new(Text::from(vec![
             Line::from(vec![Span::styled(
                 " Terminal demasiado pequena.",
                 Style::default().fg(Color::Yellow),
             )]),
             Line::from(vec![Span::styled(
-                " Agranda la ventana y presiona una tecla.",
+                format!(" Necesita al menos {} lineas.", layout.total_h),
                 Style::default().fg(Color::DarkGray),
             )]),
         ]))
@@ -224,52 +262,89 @@ fn draw_menu(frame: &mut Frame, state: &mut MenuState, ctx: &ProjectContext) {
     state.card_areas.clear();
     state.exit_area = Rect::default();
 
-    let mut y = area.y + 1;
+    let (mut y, after_header_gap) = if layout.compact {
+        (area.y, 0u16)
+    } else {
+        (area.y + 1, 1u16)
+    };
 
-    render_header(frame, Rect { x: area.x, y, width: area.width, height: header_h }, ctx);
-    y += header_h + 1;
+    render_header(frame, Rect { x: area.x, y, width: area.width, height: layout.header_h }, ctx, layout.header_border);
+    y += layout.header_h + after_header_gap;
 
-    for (_name, _color, start, count) in GROUPS {
-        let rows = (*count + COLS - 1) / COLS;
-        let cards_h = rows as u16 * (CARD_H + GAP) - GAP;
-        render_group_cards(frame, Rect { x: area.x, y, width: area.width, height: cards_h }, state, *start, *start + *count);
-        y += cards_h + 1;
+    if !layout.compact {
+        for (name, color, start, count) in GROUPS {
+            let rect = Rect { x: area.x, y, width: area.width, height: 1 };
+            let line = Line::from(vec![Span::styled(
+                format!("  {} ", name),
+                Style::default().fg(*color).add_modifier(Modifier::BOLD),
+            )]);
+            frame.render_widget(Paragraph::new(Text::from(vec![line])), rect);
+            y += 1;
+
+            let rows = (*count + COLS - 1) / COLS;
+            let cards_h = rows as u16 * (layout.card_h + layout.gap) - layout.gap;
+            render_group_cards(frame, Rect { x: area.x, y, width: area.width, height: cards_h }, state, *start, *start + *count, &layout);
+            y += cards_h + 1;
+        }
+    } else {
+        for (_name, _color, start, count) in GROUPS {
+            let rows = (*count + COLS - 1) / COLS;
+            let cards_h = rows as u16 * (layout.card_h + layout.gap) - layout.gap;
+            render_group_cards(frame, Rect { x: area.x, y, width: area.width, height: cards_h }, state, *start, *start + *count, &layout);
+            y += cards_h;
+        }
     }
 
-    render_exit(frame, Rect { x: area.x, y, width: area.width, height: CARD_H }, state);
+    render_exit(frame, Rect { x: area.x, y, width: area.width, height: layout.exit_h }, state, &layout);
 }
 
-fn render_header(frame: &mut Frame, area: Rect, ctx: &ProjectContext) {
+fn render_header(frame: &mut Frame, area: Rect, ctx: &ProjectContext, border: bool) {
     let project_name = ctx
         .script_dir
         .file_name()
         .map(|n| n.to_string_lossy())
         .unwrap_or(std::borrow::Cow::Borrowed("Proyecto"));
 
+    let title_style = Style::default().fg(Color::Green).add_modifier(Modifier::BOLD);
+    let label_style = Style::default().fg(Color::DarkGray);
+    let value_style = Style::default().fg(Color::White);
+    let warn_style = Style::default().fg(Color::Yellow);
+
     let mut lines = vec![
         Line::from(vec![
-            Span::styled("  \u{1f980}  Code Runner for Rust / Tauri  v", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            Span::styled("  \u{1f980}  Code Runner for Rust / Tauri  v", title_style),
             Span::styled("0.1.0", Style::default().fg(Color::DarkGray)),
         ]),
         Line::from(vec![
-            Span::styled("     Proyecto: ", Style::default().fg(Color::DarkGray)),
-            Span::styled(project_name.to_string(), Style::default().fg(Color::White)),
+            Span::styled("     Proyecto: ", label_style),
+            Span::styled(project_name.to_string(), value_style),
         ]),
     ];
 
     if ctx.android_home.is_none() {
         lines.push(Line::from(vec![
-            Span::styled("    \u{26a0} ANDROID_HOME no configurada", Style::default().fg(Color::Yellow)),
+            Span::styled("    \u{26a0} ANDROID_HOME no configurada", warn_style),
         ]));
     }
 
-    let header = Paragraph::new(Text::from(lines))
-        .block(Block::default().borders(Borders::ALL));
+    if border {
+        lines.push(Line::from(vec![
+            Span::styled(
+                "    \u{2190}\u{2191}\u{2192}\u{2193} Naveg  |  Enter Sel  |  Click  |  Esc Salir",
+                Style::default().fg(Color::Gray),
+            ),
+        ]));
+    }
+
+    let mut header = Paragraph::new(Text::from(lines));
+    if border {
+        header = header.block(Block::default().borders(Borders::ALL));
+    }
     frame.render_widget(header, area);
 }
 
-fn render_group_cards(frame: &mut Frame, area: Rect, state: &mut MenuState, start: usize, end: usize) {
-    let total_grid_w = COLS as u16 * (CARD_W + GAP) - GAP;
+fn render_group_cards(frame: &mut Frame, area: Rect, state: &mut MenuState, start: usize, end: usize, layout: &Layout) {
+    let total_grid_w = COLS as u16 * (CARD_W + layout.gap) - layout.gap;
     let grid_start_x = area.x + (area.width.saturating_sub(total_grid_w)) / 2;
 
     for rel_idx in 0..(end - start) {
@@ -277,19 +352,19 @@ fn render_group_cards(frame: &mut Frame, area: Rect, state: &mut MenuState, star
         let row = rel_idx / COLS;
         let col = rel_idx % COLS;
 
-        let x = grid_start_x + col as u16 * (CARD_W + GAP);
-        let y = area.y + row as u16 * (CARD_H + GAP);
+        let x = grid_start_x + col as u16 * (CARD_W + layout.gap);
+        let y = area.y + row as u16 * (layout.card_h + layout.gap);
 
-        let rect = Rect { x, y, width: CARD_W, height: CARD_H };
+        let rect = Rect { x, y, width: CARD_W, height: layout.card_h };
         state.card_areas.push(rect);
 
         let is_selected = state.selected == idx;
-        let card = create_card(&state.items[idx], is_selected);
+        let card = create_card(&state.items[idx], is_selected, layout);
         frame.render_widget(card, rect);
     }
 }
 
-fn render_exit(frame: &mut Frame, area: Rect, state: &mut MenuState) {
+fn render_exit(frame: &mut Frame, area: Rect, state: &mut MenuState, layout: &Layout) {
     let btn_w = 16u16;
     let btn_x = area.x + (area.width.saturating_sub(btn_w)) / 2;
     let btn_y = area.y;
@@ -298,17 +373,17 @@ fn render_exit(frame: &mut Frame, area: Rect, state: &mut MenuState) {
         x: btn_x,
         y: btn_y,
         width: btn_w,
-        height: CARD_H,
+        height: layout.exit_h,
     };
 
     state.exit_area = rect;
 
     let is_selected = state.selected == state.items.len() - 1;
-    let card = create_card(&MenuItem::Exit, is_selected);
+    let card = create_card(&MenuItem::Exit, is_selected, layout);
     frame.render_widget(card, rect);
 }
 
-fn create_card(item: &MenuItem, is_selected: bool) -> Paragraph<'static> {
+fn create_card(item: &MenuItem, is_selected: bool, layout: &Layout) -> Paragraph<'static> {
     let border_style = if is_selected {
         Style::default()
             .fg(Color::Cyan)
@@ -320,29 +395,41 @@ fn create_card(item: &MenuItem, is_selected: bool) -> Paragraph<'static> {
     let icon = item.icon();
     let section = item.section();
     let label = item.label();
-    let desc = item.description();
     let section_color = item.section_color();
     let fg = if is_selected { Color::Cyan } else { section_color };
 
-    let top = if section.is_empty() {
+    let line1 = if section.is_empty() {
         format!(" {}  {}", icon, label)
     } else {
         format!(" {} [{}] {}", icon, section, label)
     };
 
-    Paragraph::new(Text::from(vec![
-        Line::from(vec![Span::styled(top, Style::default().fg(fg))]),
-        Line::from(vec![Span::styled(
-            format!(" {}", desc),
-            Style::default().fg(Color::DarkGray),
-        )]),
-    ]))
-    .alignment(Alignment::Center)
-    .block(
-        Block::default()
-            .borders(Borders::ALL)
-            .border_style(border_style),
-    )
+    if layout.compact {
+        Paragraph::new(Text::from(vec![Line::from(vec![
+            Span::styled(line1, Style::default().fg(fg)),
+        ])]))
+        .alignment(Alignment::Center)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(border_style),
+        )
+    } else {
+        let desc = item.description();
+        Paragraph::new(Text::from(vec![
+            Line::from(vec![Span::styled(line1, Style::default().fg(fg))]),
+            Line::from(vec![Span::styled(
+                format!(" {}", desc),
+                Style::default().fg(Color::DarkGray),
+            )]),
+        ]))
+        .alignment(Alignment::Center)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(border_style),
+        )
+    }
 }
 
 fn handle_event(state: &mut MenuState) -> anyhow::Result<Option<MenuItem>> {
