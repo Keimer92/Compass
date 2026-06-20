@@ -205,8 +205,8 @@ struct Layout {
 fn choose_layout(area: Rect, ctx: &ProjectContext) -> Layout {
     let warn = ctx.android_home.is_none();
 
-    let full_header_h: u16 = if warn { 5 } else { 4 };
     let compact_header_h: u16 = if warn { 3 } else { 2 };
+    let full_header_h: u16 = compact_header_h + 1 + 2;
 
     // Full: top_offset(1) + header_h + header_gap(1) + Σ(rows*5 + 2) + exit_h(CARD_H)
     // But rows*5 + 2 = sec_header(1) + rows*(4+1)-1 + group_gap(1) = rows*5 + 1
