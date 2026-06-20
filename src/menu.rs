@@ -22,8 +22,8 @@ use crate::utils::context::ProjectContext;
 
 const COLS: usize = 3;
 const CARD_W: u16 = 24;
-const CARD_H: u16 = 5;
-const GAP: u16 = 1;
+const CARD_H: u16 = 4;
+const GAP: u16 = 0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MenuItem {
@@ -195,10 +195,29 @@ const GROUPS: &[(&str, Color, usize, usize)] = &[
 
 fn draw_menu(frame: &mut Frame, state: &mut MenuState, ctx: &ProjectContext) {
     let area = frame.area();
-    let header_h = if ctx.android_home.is_none() { 5u16 } else { 4u16 };
+    let warn = ctx.android_home.is_none();
+    let header_h: u16 = if warn { 3 } else { 2 };
 
-    let total_h = calc_total_height(header_h);
+    let total_h = header_h + 1
+        + GROUPS.iter().map(|(_, _, _, count)| {
+            let rows = (*count + COLS - 1) / COLS;
+            rows as u16 * (CARD_H + GAP) - GAP
+        }).sum::<u16>()
+        + CARD_H;
+
     if area.height < total_h {
+        let msg = Paragraph::new(Text::from(vec![
+            Line::from(vec![Span::styled(
+                " Terminal demasiado pequena.",
+                Style::default().fg(Color::Yellow),
+            )]),
+            Line::from(vec![Span::styled(
+                " Agranda la ventana y presiona una tecla.",
+                Style::default().fg(Color::DarkGray),
+            )]),
+        ]))
+        .alignment(Alignment::Center);
+        frame.render_widget(msg, area);
         return;
     }
 
@@ -207,36 +226,17 @@ fn draw_menu(frame: &mut Frame, state: &mut MenuState, ctx: &ProjectContext) {
 
     let mut y = area.y + 1;
 
-    let header_area = Rect { x: area.x, y, width: area.width, height: header_h };
-    render_header(frame, header_area, ctx);
+    render_header(frame, Rect { x: area.x, y, width: area.width, height: header_h }, ctx);
     y += header_h + 1;
 
-    for (name, color, start, count) in GROUPS {
-        let section_rect = Rect { x: area.x, y, width: area.width, height: 1 };
-        render_section_header(frame, section_rect, name, *color);
-        y += 1;
-
+    for (_name, _color, start, count) in GROUPS {
         let rows = (*count + COLS - 1) / COLS;
         let cards_h = rows as u16 * (CARD_H + GAP) - GAP;
-        let cards_area = Rect { x: area.x, y, width: area.width, height: cards_h };
-        render_group_cards(frame, cards_area, state, *start, *start + *count);
+        render_group_cards(frame, Rect { x: area.x, y, width: area.width, height: cards_h }, state, *start, *start + *count);
         y += cards_h + 1;
     }
 
-    let exit_area = Rect { x: area.x, y, width: area.width, height: CARD_H };
-    render_exit(frame, exit_area, state);
-}
-
-fn calc_total_height(header_h: u16) -> u16 {
-    let mut h = header_h + 1;
-    for (_name, _color, _start, count) in GROUPS {
-        h += 1;
-        let rows = (*count + COLS - 1) / COLS;
-        h += rows as u16 * (CARD_H + GAP) - GAP;
-        h += 1;
-    }
-    h += CARD_H;
-    h
+    render_exit(frame, Rect { x: area.x, y, width: area.width, height: CARD_H }, state);
 }
 
 fn render_header(frame: &mut Frame, area: Rect, ctx: &ProjectContext) {
@@ -246,50 +246,26 @@ fn render_header(frame: &mut Frame, area: Rect, ctx: &ProjectContext) {
         .map(|n| n.to_string_lossy())
         .unwrap_or(std::borrow::Cow::Borrowed("Proyecto"));
 
-    let title_style = Style::default().fg(Color::Green).add_modifier(Modifier::BOLD);
-    let label_style = Style::default().fg(Color::DarkGray);
-    let value_style = Style::default().fg(Color::White);
-    let warn_style = Style::default().fg(Color::Yellow);
-    let hint_style = Style::default().fg(Color::Gray);
-
     let mut lines = vec![
         Line::from(vec![
-            Span::styled("  \u{1f980}  Code Runner for Rust / Tauri  v", title_style),
+            Span::styled("  \u{1f980}  Code Runner for Rust / Tauri  v", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
             Span::styled("0.1.0", Style::default().fg(Color::DarkGray)),
         ]),
         Line::from(vec![
-            Span::styled("     Proyecto: ", label_style),
-            Span::styled(project_name.to_string(), value_style),
+            Span::styled("     Proyecto: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(project_name.to_string(), Style::default().fg(Color::White)),
         ]),
     ];
 
     if ctx.android_home.is_none() {
         lines.push(Line::from(vec![
-            Span::styled("    \u{26a0}  ANDROID_HOME no configurada", warn_style),
+            Span::styled("    \u{26a0} ANDROID_HOME no configurada", Style::default().fg(Color::Yellow)),
         ]));
     }
-
-    lines.push(Line::from(vec![
-        Span::styled(
-            "    \u{2190}\u{2191}\u{2192}\u{2193} Navegar  |  Enter Seleccionar  |  Click Elegir  |  Esc Salir",
-            hint_style,
-        ),
-    ]));
 
     let header = Paragraph::new(Text::from(lines))
         .block(Block::default().borders(Borders::ALL));
     frame.render_widget(header, area);
-}
-
-fn render_section_header(frame: &mut Frame, area: Rect, name: &str, color: Color) {
-    let line = Line::from(vec![
-        Span::styled(
-            format!("  {} ", name),
-            Style::default().fg(color).add_modifier(Modifier::BOLD),
-        ),
-    ]);
-    let widget = Paragraph::new(Text::from(vec![line])).style(Style::default().bg(Color::Reset));
-    frame.render_widget(widget, area);
 }
 
 fn render_group_cards(frame: &mut Frame, area: Rect, state: &mut MenuState, start: usize, end: usize) {
@@ -344,48 +320,29 @@ fn create_card(item: &MenuItem, is_selected: bool) -> Paragraph<'static> {
     let icon = item.icon();
     let section = item.section();
     let label = item.label();
+    let desc = item.description();
+    let section_color = item.section_color();
+    let fg = if is_selected { Color::Cyan } else { section_color };
 
-    if section.is_empty() {
-        Paragraph::new(Text::from(vec![
-            Line::from(vec![Span::styled(
-                format!("  {}", icon),
-                Style::default().fg(if is_selected { Color::Cyan } else { Color::Red }),
-            )]),
-            Line::from(vec![Span::styled(
-                format!("  {}", label),
-                Style::default().fg(if is_selected { Color::Cyan } else { Color::White }),
-            )]),
-        ]))
-        .alignment(Alignment::Center)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(border_style),
-        )
+    let top = if section.is_empty() {
+        format!(" {}  {}", icon, label)
     } else {
-        let section_color = item.section_color();
-        let desc = item.description();
-        Paragraph::new(Text::from(vec![
-            Line::from(vec![Span::styled(
-                format!(" {} [{}]", icon, section),
-                Style::default().fg(section_color).add_modifier(Modifier::BOLD),
-            )]),
-            Line::from(vec![Span::styled(
-                format!("  {}", label),
-                Style::default().fg(Color::White),
-            )]),
-            Line::from(vec![Span::styled(
-                format!("  {}", desc),
-                Style::default().fg(Color::DarkGray),
-            )]),
-        ]))
-        .alignment(Alignment::Left)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(border_style),
-        )
-    }
+        format!(" {} [{}] {}", icon, section, label)
+    };
+
+    Paragraph::new(Text::from(vec![
+        Line::from(vec![Span::styled(top, Style::default().fg(fg))]),
+        Line::from(vec![Span::styled(
+            format!(" {}", desc),
+            Style::default().fg(Color::DarkGray),
+        )]),
+    ]))
+    .alignment(Alignment::Center)
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(border_style),
+    )
 }
 
 fn handle_event(state: &mut MenuState) -> anyhow::Result<Option<MenuItem>> {
