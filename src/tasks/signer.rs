@@ -27,6 +27,7 @@ pub fn create_or_import(ctx: &ProjectContext) -> Result<()> {
         "1. Crear un keystore nuevo automáticamente",
         "2. Usar un keystore existente",
         "3. Configurar firma manualmente (keystore.properties)",
+        "4. Volver al menú anterior",
     ];
 
     let choice = Select::new("¿Qué deseas hacer?", options)
@@ -40,8 +41,11 @@ pub fn create_or_import(ctx: &ProjectContext) -> Result<()> {
         "2. Usar un keystore existente" => {
             import_keystore(ctx, &android_app)?;
         }
-        _ => {
+        "3. Configurar firma manualmente (keystore.properties)" => {
             manual_configure(ctx, &android_app)?;
+        }
+        _ => {
+            return Ok(());
         }
     }
 

@@ -18,7 +18,7 @@ use ratatui::{
 };
 
 use crate::tasks;
-use crate::utils::context::ProjectContext;
+use crate::utils::{cmd, context::ProjectContext};
 
 const COLS: usize = 3;
 const CARD_W: u16 = 24;
@@ -411,6 +411,7 @@ pub fn run(ctx: &ProjectContext) -> anyhow::Result<()> {
             }
 
             restore_terminal(&mut terminal)?;
+            cmd::clear_screen();
 
             match item {
                 MenuItem::WindowsDev => tasks::windows::dev(ctx)?,

@@ -20,7 +20,7 @@ exit /b 1
 if not exist "Cargo.toml" (
 echo [ERROR] No se encuentra Cargo.toml.
 echo Asegurate de que install.bat este en la carpeta
-echo raiz del proyecto (Code Runner).
+echo raiz del proyecto ^(Code Runner^).
 echo.
 pause
 exit /b 1
