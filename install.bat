@@ -25,14 +25,17 @@ echo.
 pause
 exit /b 1
 )
-echo El comando 'code-runner' sera instalado globalmente.
 echo.
-set /p "CONFIRM=Presiona S para instalar/actualizar, o N para cancelar (s/n): "
-if /i not "%CONFIRM%"=="s" (
-echo.
-echo [INFO] Instalacion cancelada.
-pause
-exit /b 0
+tasklist /fi "imagename eq code-runner.exe" 2>nul | find /i "code-runner.exe" >nul
+if not errorlevel 1 (
+    echo [INFO] Cerrando code-runner.exe en ejecucion...
+    taskkill /f /im code-runner.exe >nul 2>nul
+    if errorlevel 1 (
+        echo [WARN] No se pudo cerrar code-runner.exe. Intentando continuar...
+    ) else (
+        echo [OK] code-runner.exe cerrado.
+    )
+    timeout /t 1 /nobreak >nul
 )
 echo.
 echo [INFO] Compilando e instalando...
