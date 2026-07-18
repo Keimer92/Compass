@@ -262,8 +262,24 @@ pub fn configure_signing(ctx: &ProjectContext) -> Result<()> {
 }
 
 fn pause() {
+    use crossterm::event::{read, Event, KeyCode, KeyEventKind};
+    use crossterm::terminal::{enable_raw_mode, disable_raw_mode};
+
     print!("\nPresiona Enter para continuar...");
     io::stdout().flush().ok();
-    let mut _input = String::new();
-    io::stdin().read_line(&mut _input).ok();
+
+    if enable_raw_mode().is_ok() {
+        loop {
+            if let Ok(Event::Key(key)) = read() {
+                if key.kind == KeyEventKind::Press && key.code == KeyCode::Enter {
+                    break;
+                }
+            }
+        }
+        let _ = disable_raw_mode();
+    } else {
+        // Fallback: esperar con read_line si raw mode falla
+        let mut input = String::new();
+        let _ = io::stdin().read_line(&mut input);
+    }
 }

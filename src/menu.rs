@@ -18,7 +18,7 @@ use ratatui::{
 };
 
 use crate::tasks;
-use crate::utils::{cmd, context::ProjectContext};
+use crate::utils::{cmd, context::{ProjectContext, ProjectType}};
 
 const COLS: usize = 3;
 const CARD_W: u16 = 24;
@@ -26,15 +26,18 @@ const CARD_H: u16 = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MenuItem {
+    // DEV section
     WindowsDev,
     AndroidDev,
     WindowsBuild,
     AndroidBuildArm64,
     AndroidBuildAll,
+    // MNT section
     CleanCache,
     DebugAndroid,
     ConfigureSigning,
     CleanProject,
+    // CFG section
     CreateGitignore,
     InitGit,
     ManageKeystore,
@@ -66,30 +69,28 @@ impl MenuItem {
 
     fn section(&self) -> &str {
         match self {
-            Self::WindowsDev
-            | Self::AndroidDev
-            | Self::WindowsBuild
-            | Self::AndroidBuildArm64
-            | Self::AndroidBuildAll => "DEV",
-            Self::CleanCache | Self::DebugAndroid | Self::ConfigureSigning | Self::CleanProject => {
-                "MNT"
-            }
-            Self::CreateGitignore
-            | Self::InitGit
-            | Self::ManageKeystore
-            | Self::BuildWhatsApp
-            | Self::ConfigureTerminal => "CFG",
+            Self::WindowsDev | Self::AndroidDev | Self::WindowsBuild | Self::AndroidBuildArm64 | Self::AndroidBuildAll => "DEV",
+            Self::CleanCache | Self::DebugAndroid | Self::ConfigureSigning | Self::CleanProject => "MNT",
+            Self::CreateGitignore | Self::InitGit | Self::ManageKeystore | Self::BuildWhatsApp | Self::ConfigureTerminal => "CFG",
             Self::Exit => "",
         }
     }
 
-    fn label(&self) -> &str {
+    fn label(&self, project_type: ProjectType) -> &str {
         match self {
             Self::WindowsDev => "Windows",
             Self::AndroidDev => "Android",
             Self::WindowsBuild => "Win Build",
-            Self::AndroidBuildArm64 => "Android a64",
-            Self::AndroidBuildAll => "Android All",
+            Self::AndroidBuildArm64 => match project_type {
+                ProjectType::Tauri => "Android a64",
+                ProjectType::Flutter => "APK",
+                ProjectType::Kotlin => "APK",
+            },
+            Self::AndroidBuildAll => match project_type {
+                ProjectType::Tauri => "Android All",
+                ProjectType::Flutter => "AAB",
+                ProjectType::Kotlin => "AAB",
+            },
             Self::CleanCache => "Clean Cache",
             Self::DebugAndroid => "Debug Andr",
             Self::ConfigureSigning => "Configure",
@@ -112,23 +113,59 @@ impl MenuItem {
         }
     }
 
-    fn description(&self) -> &str {
-        match self {
-            Self::WindowsDev => "Inicia el dev server",
-            Self::AndroidDev => "Dev con target Android",
-            Self::WindowsBuild => "Compila produccion",
-            Self::AndroidBuildArm64 => "Compila APK arm64",
-            Self::AndroidBuildAll => "Compila todas las APK",
-            Self::CleanCache => "Limpia cache y npm",
-            Self::DebugAndroid => "Chrome DevTools",
-            Self::ConfigureSigning => "Configura firma",
-            Self::CleanProject => "Limpia proyecto",
-            Self::CreateGitignore => "Crea .gitignore",
-            Self::InitGit => "Git init + commit",
-            Self::ManageKeystore => "Administra llaves",
-            Self::BuildWhatsApp => "Compila WhatsApp",
-            Self::ConfigureTerminal => "Autocompletado",
-            Self::Exit => "Cierra programa",
+    fn description(&self, project_type: ProjectType) -> &str {
+        match project_type {
+            ProjectType::Tauri => match self {
+                Self::WindowsDev => "Inicia el dev server",
+                Self::AndroidDev => "Dev con target Android",
+                Self::WindowsBuild => "Compila produccion",
+                Self::AndroidBuildArm64 => "Compila APK arm64",
+                Self::AndroidBuildAll => "Compila todas las APK",
+                Self::CleanCache => "Limpia cache y npm",
+                Self::DebugAndroid => "Chrome DevTools",
+                Self::ConfigureSigning => "Configura firma",
+                Self::CleanProject => "Limpia proyecto",
+                Self::CreateGitignore => "Crea .gitignore",
+                Self::InitGit => "Git init + commit",
+                Self::ManageKeystore => "Administra llaves",
+                Self::BuildWhatsApp => "Compila WhatsApp",
+                Self::ConfigureTerminal => "Autocompletado",
+                Self::Exit => "Cierra programa",
+            },
+            ProjectType::Flutter => match self {
+                Self::WindowsDev => "flutter run windows",
+                Self::AndroidDev => "flutter run android",
+                Self::WindowsBuild => "flutter build windows",
+                Self::AndroidBuildArm64 => "flutter build apk",
+                Self::AndroidBuildAll => "flutter build appbundle",
+                Self::CleanCache => "Limpia cache Flutter",
+                Self::DebugAndroid => "Depurar Android",
+                Self::ConfigureSigning => "Configurar firma",
+                Self::CleanProject => "Limpia proyecto",
+                Self::CreateGitignore => "Crea .gitignore",
+                Self::InitGit => "Git init + commit",
+                Self::ManageKeystore => "Administrar firmas",
+                Self::BuildWhatsApp => "Compila WhatsApp",
+                Self::ConfigureTerminal => "Autocompletado",
+                Self::Exit => "Cierra programa",
+            },
+            ProjectType::Kotlin => match self {
+                Self::WindowsDev => "gradlew :composeApp:run",
+                Self::AndroidDev => "gradlew :installDebug",
+                Self::WindowsBuild => "gradlew :packageDist",
+                Self::AndroidBuildArm64 => "gradlew :assembleDebug",
+                Self::AndroidBuildAll => "gradlew :bundleRelease",
+                Self::CleanCache => "Limpia Gradle/Kotlin",
+                Self::DebugAndroid => "Depurar Android",
+                Self::ConfigureSigning => "Configurar firma",
+                Self::CleanProject => "Limpia proyecto",
+                Self::CreateGitignore => "Crea .gitignore",
+                Self::InitGit => "Git init + commit",
+                Self::ManageKeystore => "Administrar firmas",
+                Self::BuildWhatsApp => "Compila WhatsApp",
+                Self::ConfigureTerminal => "Autocompletado",
+                Self::Exit => "Cierra programa",
+            },
         }
     }
 }
@@ -136,33 +173,43 @@ impl MenuItem {
 struct MenuState {
     items: Vec<MenuItem>,
     selected: usize,
-    card_areas: Vec<Rect>,
+    groups: Vec<(String, Color, Vec<MenuItem>)>,
     exit_area: Rect,
+    area_width: u16,
+    header_height: u16,
 }
 
 impl MenuState {
-    fn new() -> Self {
+    fn new(project_type: ProjectType) -> Self {
+        let base = vec![
+            MenuItem::WindowsDev,
+            MenuItem::AndroidDev,
+            MenuItem::WindowsBuild,
+            MenuItem::AndroidBuildArm64,
+            MenuItem::AndroidBuildAll,
+            MenuItem::CleanCache,
+            MenuItem::DebugAndroid,
+            MenuItem::ConfigureSigning,
+            MenuItem::CleanProject,
+            MenuItem::CreateGitignore,
+            MenuItem::InitGit,
+            MenuItem::ManageKeystore,
+            MenuItem::BuildWhatsApp,
+            MenuItem::ConfigureTerminal,
+            MenuItem::Exit,
+        ];
+
+        let items: Vec<MenuItem> = base.into_iter()
+            .filter(|item| matches!((item, project_type), _))
+            .collect();
+
         Self {
-            items: vec![
-                MenuItem::WindowsDev,
-                MenuItem::AndroidDev,
-                MenuItem::WindowsBuild,
-                MenuItem::AndroidBuildArm64,
-                MenuItem::AndroidBuildAll,
-                MenuItem::CleanCache,
-                MenuItem::DebugAndroid,
-                MenuItem::ConfigureSigning,
-                MenuItem::CleanProject,
-                MenuItem::CreateGitignore,
-                MenuItem::InitGit,
-                MenuItem::ManageKeystore,
-                MenuItem::BuildWhatsApp,
-                MenuItem::ConfigureTerminal,
-                MenuItem::Exit,
-            ],
+            items,
             selected: 0,
-            card_areas: Vec::new(),
+            groups: Vec::new(),
             exit_area: Rect::default(),
+            area_width: 0,
+            header_height: 2,
         }
     }
 }
@@ -186,18 +233,34 @@ fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io
     Ok(())
 }
 
-const GROUPS: &[(&str, Color, usize, usize)] = &[
-    ("DESARROLLO",    Color::Cyan,    0, 5),
-    ("MANTENIMIENTO", Color::Yellow,  5, 4),
-    ("CONFIGURACION", Color::Magenta, 9, 5),
-];
+fn calc_group_sizes(items: &[MenuItem]) -> Vec<(String, Color, Vec<MenuItem>)> {
+    let mut dev = Vec::new();
+    let mut mnt = Vec::new();
+    let mut cfg = Vec::new();
 
-fn calc_total_height(ctx: &ProjectContext) -> u16 {
+    for item in items {
+        if *item == MenuItem::Exit { continue; }
+        match item.section() {
+            "DEV" => dev.push(*item),
+            "MNT" => mnt.push(*item),
+            _ => cfg.push(*item),
+        }
+    }
+
+    let mut groups = Vec::new();
+    if !dev.is_empty() { groups.push(("DESARROLLO".to_string(), Color::Cyan, dev)); }
+    if !mnt.is_empty() { groups.push(("MANTENIMIENTO".to_string(), Color::Yellow, mnt)); }
+    if !cfg.is_empty() { groups.push(("CONFIGURACION".to_string(), Color::Magenta, cfg)); }
+    groups
+}
+
+fn calc_total_height(ctx: &ProjectContext, items: &[MenuItem]) -> u16 {
     let warn = ctx.android_home.is_none();
     let header_h: u16 = if warn { 3 } else { 2 };
-    let sec_h: u16 = GROUPS.len() as u16;
-    let cards_h: u16 = GROUPS.iter().map(|(_, _, _, count)| {
-        let rows = (*count + COLS - 1) / COLS;
+    let groups = calc_group_sizes(items);
+    let sec_h: u16 = groups.len() as u16;
+    let cards_h: u16 = groups.iter().map(|(_, _, items)| {
+        let rows = (items.len() + COLS - 1) / COLS;
         rows as u16 * CARD_H
     }).sum();
     header_h + sec_h + cards_h + CARD_H
@@ -205,7 +268,7 @@ fn calc_total_height(ctx: &ProjectContext) -> u16 {
 
 fn draw_menu(frame: &mut Frame, state: &mut MenuState, ctx: &ProjectContext) {
     let area = frame.area();
-    let total_h = calc_total_height(ctx);
+    let total_h = calc_total_height(ctx, &state.items);
 
     if area.height < total_h {
         let msg = Paragraph::new(Text::from(vec![
@@ -227,15 +290,20 @@ fn draw_menu(frame: &mut Frame, state: &mut MenuState, ctx: &ProjectContext) {
         return;
     }
 
-    state.card_areas.clear();
+    state.groups.clear();
     state.exit_area = Rect::default();
 
     let mut y = area.y;
+    let header_h: u16 = if ctx.android_home.is_none() { 3 } else { 2 };
 
-    render_header(frame, Rect { x: area.x, y, width: area.width, height: if ctx.android_home.is_none() { 3 } else { 2 } }, ctx);
-    y += if ctx.android_home.is_none() { 3 } else { 2 };
+    render_header(frame, Rect { x: area.x, y, width: area.width, height: header_h }, ctx);
+    y += header_h;
 
-    for (name, color, start, count) in GROUPS {
+    state.header_height = header_h;
+    state.area_width = area.width;
+
+    let groups = calc_group_sizes(&state.items);
+    for (name, color, items) in &groups {
         let rect = Rect { x: area.x, y, width: area.width, height: 1 };
         let text = Text::from(vec![Line::from(vec![Span::styled(
             format!("  {} ", name),
@@ -244,9 +312,11 @@ fn draw_menu(frame: &mut Frame, state: &mut MenuState, ctx: &ProjectContext) {
         frame.render_widget(Paragraph::new(text), rect);
         y += 1;
 
-        let rows = (*count + COLS - 1) / COLS;
+        let rows = (items.len() + COLS - 1) / COLS;
         let cards_h = rows as u16 * CARD_H;
-        render_group_cards(frame, Rect { x: area.x, y, width: area.width, height: cards_h }, state, *start, *start + *count);
+        let start_idx = state.items.iter().position(|i| *i == items[0]).unwrap_or(0);
+        state.groups.push((name.clone(), *color, items.clone()));
+        render_group_cards(frame, Rect { x: area.x, y, width: area.width, height: cards_h }, state, items, start_idx, ctx.project_type);
         y += cards_h;
     }
 
@@ -260,9 +330,15 @@ fn render_header(frame: &mut Frame, area: Rect, ctx: &ProjectContext) {
         .map(|n| n.to_string_lossy())
         .unwrap_or(std::borrow::Cow::Borrowed("Proyecto"));
 
+    let (emoji, label) = match ctx.project_type {
+        ProjectType::Tauri => ("\u{1f980}", "Code Runner for Rust / Tauri"),
+        ProjectType::Flutter => ("\u{1f3af}", "Code Runner for Dart / Flutter"),
+        ProjectType::Kotlin => ("\u{1f537}", "Code Runner for Kotlin / KMP"),
+    };
+
     let mut lines = vec![
         Line::from(vec![
-            Span::styled("  \u{1f980}  Code Runner for Rust / Tauri  v", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            Span::styled(format!("  {}  {}  v", emoji, label), Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
             Span::styled("0.1.0", Style::default().fg(Color::DarkGray)),
         ]),
         Line::from(vec![
@@ -280,12 +356,12 @@ fn render_header(frame: &mut Frame, area: Rect, ctx: &ProjectContext) {
     frame.render_widget(Paragraph::new(Text::from(lines)), area);
 }
 
-fn render_group_cards(frame: &mut Frame, area: Rect, state: &mut MenuState, start: usize, end: usize) {
+fn render_group_cards(frame: &mut Frame, area: Rect, state: &MenuState, items: &[MenuItem], start_global_idx: usize, project_type: ProjectType) {
     let total_grid_w = COLS as u16 * CARD_W;
     let grid_start_x = area.x + (area.width.saturating_sub(total_grid_w)) / 2;
 
-    for rel_idx in 0..(end - start) {
-        let idx = start + rel_idx;
+    for rel_idx in 0..items.len() {
+        let idx = start_global_idx + rel_idx;
         let row = rel_idx / COLS;
         let col = rel_idx % COLS;
 
@@ -293,10 +369,9 @@ fn render_group_cards(frame: &mut Frame, area: Rect, state: &mut MenuState, star
         let y = area.y + row as u16 * CARD_H;
 
         let rect = Rect { x, y, width: CARD_W, height: CARD_H };
-        state.card_areas.push(rect);
 
         let is_selected = state.selected == idx;
-        let card = create_card(&state.items[idx], is_selected);
+        let card = create_card(&items[rel_idx], is_selected, project_type);
         frame.render_widget(card, rect);
     }
 }
@@ -310,11 +385,11 @@ fn render_exit(frame: &mut Frame, area: Rect, state: &mut MenuState) {
     state.exit_area = rect;
 
     let is_selected = state.selected == state.items.len() - 1;
-    let card = create_card(&MenuItem::Exit, is_selected);
+    let card = create_card(&MenuItem::Exit, is_selected, ProjectType::Tauri);
     frame.render_widget(card, rect);
 }
 
-fn create_card(item: &MenuItem, is_selected: bool) -> Paragraph<'static> {
+fn create_card(item: &MenuItem, is_selected: bool, project_type: ProjectType) -> Paragraph<'static> {
     let border = if is_selected {
         Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
     } else {
@@ -323,8 +398,8 @@ fn create_card(item: &MenuItem, is_selected: bool) -> Paragraph<'static> {
 
     let icon = item.icon();
     let section = item.section();
-    let label = item.label();
-    let desc = item.description();
+    let label = item.label(project_type);
+    let desc = item.description(project_type);
     let fg = if is_selected { Color::Cyan } else { item.section_color() };
 
     let line1 = if section.is_empty() {
@@ -341,7 +416,7 @@ fn create_card(item: &MenuItem, is_selected: bool) -> Paragraph<'static> {
     .block(Block::default().borders(Borders::ALL).border_style(border))
 }
 
-fn handle_event(state: &mut MenuState) -> anyhow::Result<Option<MenuItem>> {
+fn handle_event(state: &mut MenuState, ctx: &ProjectContext) -> anyhow::Result<Option<MenuItem>> {
     loop {
         let evt = crossterm::event::read()?;
 
@@ -378,15 +453,30 @@ fn handle_event(state: &mut MenuState) -> anyhow::Result<Option<MenuItem>> {
                         return Ok(Some(MenuItem::Exit));
                     }
 
-                    for (idx, area) in state.card_areas.iter().enumerate() {
-                        if col >= area.x
-                            && col < area.x + area.width
-                            && row >= area.y
-                            && row < area.y + area.height
-                        {
-                            state.selected = idx;
-                            return Ok(Some(state.items[idx]));
+                    let header_h: u16 = if ctx.android_home.is_none() { 3 } else { 2 };
+                    let mut y_cursor = header_h;
+
+                    let groups = calc_group_sizes(&state.items);
+                    for (_, _color, items) in &groups {
+                        y_cursor += 1;
+
+                        let total_grid_w = COLS as u16 * CARD_W;
+                        let grid_start_x = (state.area_width.saturating_sub(total_grid_w)) / 2;
+                        let rows = (items.len() + COLS - 1) / COLS;
+                        let cards_h = rows as u16 * CARD_H;
+
+                        if row >= y_cursor && row < y_cursor + cards_h && col >= grid_start_x && col < grid_start_x + total_grid_w {
+                            let rel_row = (row - y_cursor) / CARD_H;
+                            let rel_col = (col - grid_start_x) / CARD_W;
+                            let rel_idx = rel_row as usize * COLS + rel_col as usize;
+                            if rel_idx < items.len() {
+                                let global_idx = state.items.iter().position(|i| *i == items[rel_idx]).unwrap_or(0);
+                                state.selected = global_idx;
+                                return Ok(Some(state.items[global_idx]));
+                            }
                         }
+
+                        y_cursor += cards_h;
                     }
                 }
             }
@@ -397,12 +487,12 @@ fn handle_event(state: &mut MenuState) -> anyhow::Result<Option<MenuItem>> {
 
 pub fn run(ctx: &ProjectContext) -> anyhow::Result<()> {
     let mut terminal = setup_terminal()?;
-    let mut state = MenuState::new();
+    let mut state = MenuState::new(ctx.project_type);
 
     loop {
         terminal.draw(|f| draw_menu(f, &mut state, ctx))?;
 
-        let selection = handle_event(&mut state)?;
+        let selection = handle_event(&mut state, ctx)?;
 
         if let Some(item) = selection {
             if item == MenuItem::Exit {
@@ -413,25 +503,77 @@ pub fn run(ctx: &ProjectContext) -> anyhow::Result<()> {
             restore_terminal(&mut terminal)?;
             cmd::clear_screen();
 
-            match item {
-                MenuItem::WindowsDev => tasks::windows::dev(ctx)?,
-                MenuItem::AndroidDev => tasks::android::dev(ctx)?,
-                MenuItem::WindowsBuild => tasks::windows::build(ctx)?,
-                MenuItem::AndroidBuildArm64 => tasks::android::build_arm64(ctx)?,
-                MenuItem::AndroidBuildAll => tasks::android::build_all(ctx)?,
-                MenuItem::CleanCache => tasks::cleanup::clean_cache(ctx)?,
-                MenuItem::DebugAndroid => tasks::android::debug(ctx)?,
-                MenuItem::ConfigureSigning => tasks::android::configure_signing(ctx)?,
-                MenuItem::CleanProject => tasks::cleanup::clean_project(ctx)?,
-                MenuItem::CreateGitignore => tasks::gitignore::create(ctx)?,
-                MenuItem::InitGit => tasks::git::init(ctx)?,
-                MenuItem::ManageKeystore => tasks::keystore::manage(ctx)?,
-                MenuItem::BuildWhatsApp => tasks::whatsapp::build(ctx)?,
-                MenuItem::ConfigureTerminal => tasks::terminal::configure(ctx)?,
+            match (item, ctx.project_type) {
+                (MenuItem::WindowsDev, ProjectType::Tauri) => tasks::windows::dev(ctx)?,
+                (MenuItem::WindowsDev, ProjectType::Flutter) => tasks::flutter::run_windows(ctx)?,
+                (MenuItem::WindowsDev, ProjectType::Kotlin) => tasks::kotlin::run_windows(ctx)?,
+
+                (MenuItem::AndroidDev, ProjectType::Tauri) => tasks::android::dev(ctx)?,
+                (MenuItem::AndroidDev, ProjectType::Flutter) => tasks::flutter::run_android(ctx)?,
+                (MenuItem::AndroidDev, ProjectType::Kotlin) => tasks::kotlin::run_android(ctx)?,
+
+                (MenuItem::WindowsBuild, ProjectType::Tauri) => tasks::windows::build(ctx)?,
+                (MenuItem::WindowsBuild, ProjectType::Flutter) => tasks::flutter::build_windows(ctx)?,
+                (MenuItem::WindowsBuild, ProjectType::Kotlin) => tasks::kotlin::build_windows(ctx)?,
+
+                (MenuItem::AndroidBuildArm64, ProjectType::Tauri) => tasks::android::build_arm64(ctx)?,
+                (MenuItem::AndroidBuildArm64, ProjectType::Flutter) => tasks::flutter::build_apk(ctx)?,
+                (MenuItem::AndroidBuildArm64, ProjectType::Kotlin) => tasks::kotlin::build_apk(ctx)?,
+
+                (MenuItem::AndroidBuildAll, ProjectType::Tauri) => tasks::android::build_all(ctx)?,
+                (MenuItem::AndroidBuildAll, ProjectType::Flutter) => tasks::flutter::build_aab(ctx)?,
+                (MenuItem::AndroidBuildAll, ProjectType::Kotlin) => tasks::kotlin::build_aab(ctx)?,
+
+                (MenuItem::CleanCache, _) => tasks::cleanup::clean_cache(ctx)?,
+
+                (MenuItem::DebugAndroid, ProjectType::Tauri) => tasks::android::debug(ctx)?,
+                (MenuItem::DebugAndroid, ProjectType::Flutter) => {
+                    cmd::clear_screen();
+                    println!("╔══════════════════════════════════════════════════╗");
+                    println!("║         DEPURAR ANDROID (FLUTTER)                ║");
+                    println!("╚══════════════════════════════════════════════════╝");
+                    println!("[INFO] Ejecuta en otra terminal:");
+                    println!("  flutter run --debug");
+                    pause();
+                }
+                (MenuItem::DebugAndroid, ProjectType::Kotlin) => {
+                    cmd::clear_screen();
+                    println!("╔══════════════════════════════════════════════════╗");
+                    println!("║         DEPURAR ANDROID (KMP)                   ║");
+                    println!("╚══════════════════════════════════════════════════╝");
+                    println!("[INFO] Ejecuta en otra terminal:");
+                    println!("  ./gradlew :composeApp:installDebug");
+                    pause();
+                }
+
+                (MenuItem::ConfigureSigning, _) => tasks::android::configure_signing(ctx)?,
+
+                (MenuItem::CleanProject, ProjectType::Tauri) => tasks::cleanup::clean_project(ctx)?,
+                (MenuItem::CleanProject, ProjectType::Flutter) => tasks::flutter::clean(ctx)?,
+                (MenuItem::CleanProject, ProjectType::Kotlin) => tasks::kotlin::clean(ctx)?,
+
+                (MenuItem::CreateGitignore, _) => tasks::gitignore::create(ctx)?,
+                (MenuItem::InitGit, _) => tasks::git::init(ctx)?,
+
+                (MenuItem::ManageKeystore, ProjectType::Tauri) => tasks::keystore::manage(ctx)?,
+                (MenuItem::ManageKeystore, ProjectType::Flutter) => tasks::android::configure_signing(ctx)?,
+                (MenuItem::ManageKeystore, ProjectType::Kotlin) => tasks::android::configure_signing(ctx)?,
+
+                (MenuItem::BuildWhatsApp, _) => tasks::whatsapp::build(ctx)?,
+                (MenuItem::ConfigureTerminal, _) => tasks::terminal::configure(ctx)?,
+
                 _ => unreachable!(),
             }
 
             terminal = setup_terminal()?;
         }
     }
+}
+
+fn pause() {
+    use std::io::{self, Write};
+    print!("\nPresiona Enter para continuar...");
+    io::stdout().flush().ok();
+    let mut _input = String::new();
+    io::stdin().read_line(&mut _input).ok();
 }

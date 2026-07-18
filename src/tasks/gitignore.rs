@@ -1,8 +1,10 @@
 use std::io::{self, Write};
 use anyhow::Result;
-use crate::utils::{cmd, context::ProjectContext};
+use crate::utils::{cmd, context::{ProjectContext, ProjectType}};
 
-const GITIGNORE_CONTENT: &str = r#"# ============================================
+fn gitignore_content(project_type: ProjectType) -> &'static str {
+    match project_type {
+        ProjectType::Tauri => r#"# ============================================
 # .gitignore para Rust/Tauri + Windows/Android
 # ============================================
 
@@ -20,7 +22,6 @@ dist/
 build/
 
 # --- Android nativo (auto-generado por 'npx tauri android init') ---
-# Ignorar builds y auto-generados, pero preservar configuración manual
 src-tauri/gen/android/app/build/
 src-tauri/gen/android/.gradle/
 src-tauri/gen/android/build/
@@ -52,20 +53,175 @@ Desktop.ini
 *.sublime-project
 *.sublime-workspace
 
-# --- Variables de entorno (pueden contener keys) ---
+# --- Variables de entorno ---
 .env
 .env.local
 .env.*.local
 
 # --- Logs ---
 *.log
-"#;
+"#,
+        ProjectType::Flutter => r#"# ============================================
+# .gitignore para Flutter/Dart
+# ============================================
+
+# --- Flutter/Dart ---
+build/
+.dart_tool/
+.packages
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# --- Android (Gradle) ---
+android/build/
+android/.gradle/
+android/app/build/
+android/local.properties
+android/key.properties
+
+# --- Node.js ---
+node_modules/
+
+# --- ios ---
+ios/.symlinks/
+ios/Pods/
+ios/Runner.xcworkspace/
+ios/Flutter/Flutter.framework
+ios/Flutter/Flutter.podspec
+
+# --- Sistema operativo ---
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~
+
+# --- IDE ---
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# --- Variables de entorno ---
+.env
+.env.local
+.env.*.local
+
+# --- Logs ---
+*.log
+"#,
+        ProjectType::Kotlin => r#"# ============================================
+# .gitignore para Kotlin Multiplatform
+# ============================================
+
+# --- Gradle Build Artifacts ---
+build/
+.gradle/
+local.properties
+*.apk
+*.aab
+*.ap_
+*.dex
+composeApp/build/
+composeApp/out/
+composeApp/release/
+
+# --- Kotlin ---
+.kotlin/
+
+# --- Signing / Secrets ---
+composeApp/keystore.properties
+
+# --- IDE ---
+.idea/
+*.iml
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~
+
+# --- Environment ---
+.env
+.env.local
+.env.*.local
+
+# --- Logs ---
+*.log
+"#,
+    }
+}
+
+fn print_preserved(project_type: ProjectType) {
+    match project_type {
+        ProjectType::Tauri => {
+            println!("  - src/ (código frontend)");
+            println!("  - src-tauri/src/ (código Rust)");
+            println!("  - src-tauri/Cargo.toml + Cargo.lock");
+            println!("  - src-tauri/tauri.conf.json");
+            println!("  - src-tauri/icons/");
+            println!("  - src-tauri/capabilities/");
+            println!("  - src-tauri/build.rs");
+            println!("  - package.json + package-lock.json");
+            println!("  - tsconfig.json, vite.config.ts");
+            println!("  - index.html, public/");
+        }
+        ProjectType::Flutter => {
+            println!("  - lib/ (código Dart)");
+            println!("  - test/ (pruebas)");
+            println!("  - pubspec.yaml + pubspec.lock");
+            println!("  - android/ (configuración)");
+            println!("  - ios/ (configuración)");
+            println!("  - web/ (configuración)");
+        }
+        ProjectType::Kotlin => {
+            println!("  - composeApp/src/ (código Kotlin)");
+            println!("  - composeApp/build.gradle.kts");
+            println!("  - settings.gradle.kts, gradle.properties");
+            println!("  - gradle/wrapper/ (Gradle Wrapper)");
+            println!("  - gradlew + gradlew.bat");
+        }
+    }
+}
+
+fn print_instructions(project_type: ProjectType) {
+    match project_type {
+        ProjectType::Tauri => {
+            println!("  1. git clone <repo>");
+            println!("  2. npm install");
+            println!("  3. npx tauri android init (solo si compilas para Android)");
+            println!("  4. npm run tauri dev (Windows) / tauri android dev (Android)");
+        }
+        ProjectType::Flutter => {
+            println!("  1. git clone <repo>");
+            println!("  2. flutter pub get");
+            println!("  3. flutter run (Windows) / flutter run (Android)");
+        }
+        ProjectType::Kotlin => {
+            println!("  1. git clone <repo>");
+            println!("  2. ./gradlew build");
+            println!("  3. ./gradlew :composeApp:run (Desktop)");
+            println!("  4. ./gradlew :composeApp:installDebug (Android)");
+        }
+    }
+}
 
 pub fn create(ctx: &ProjectContext) -> Result<()> {
     println!();
     cmd::clear_screen();
     println!("╔══════════════════════════════════════════════════╗");
-    println!("║        CREAR .gitignore PARA RUST/TAURI          ║");
+    match ctx.project_type {
+        ProjectType::Tauri => println!("║        CREAR .gitignore PARA RUST/TAURI          ║"),
+        ProjectType::Flutter => println!("║        CREAR .gitignore PARA FLUTTER/DART         ║"),
+        ProjectType::Kotlin => println!("║   CREAR .gitignore PARA KOTLIN MULTIPLATFORM       ║"),
+    }
     println!("╚══════════════════════════════════════════════════╝");
     println!();
     println!("Se ignorarán archivos de compilación, dependencias, caches");
@@ -84,28 +240,16 @@ pub fn create(ctx: &ProjectContext) -> Result<()> {
     }
 
     let gitignore_path = ctx.script_dir.join(".gitignore");
-    std::fs::write(&gitignore_path, GITIGNORE_CONTENT)?;
+    std::fs::write(&gitignore_path, gitignore_content(ctx.project_type))?;
 
     println!();
     println!("[OK] .gitignore creado exitosamente!");
     println!();
     println!("Archivos PRESERVADOS en git (esenciales para compilar):");
-    println!("  - src/ (código frontend)");
-    println!("  - src-tauri/src/ (código Rust)");
-    println!("  - src-tauri/Cargo.toml + Cargo.lock");
-    println!("  - src-tauri/tauri.conf.json");
-    println!("  - src-tauri/icons/");
-    println!("  - src-tauri/capabilities/");
-    println!("  - src-tauri/build.rs");
-    println!("  - package.json + package-lock.json");
-    println!("  - tsconfig.json, vite.config.ts");
-    println!("  - index.html, public/");
+    print_preserved(ctx.project_type);
     println!();
     println!("Para compilar en máquina nueva:");
-    println!("  1. git clone <repo>");
-    println!("  2. npm install");
-    println!("  3. npx tauri android init (solo si compilas para Android)");
-    println!("  4. npm run tauri dev (Windows) / tauri android dev (Android)");
+    print_instructions(ctx.project_type);
 
     pause();
     Ok(())

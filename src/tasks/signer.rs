@@ -6,13 +6,22 @@ use std::process::Command;
 use anyhow::{Context, Result};
 use inquire::{Password, Select, Text};
 
-use crate::utils::{cmd, context::ProjectContext};
+use crate::utils::{cmd, context::{ProjectContext, ProjectType}};
 
 pub fn create_or_import(ctx: &ProjectContext) -> Result<()> {
-    let android_app = ctx.script_dir.join("src-tauri\\gen\\android\\app");
-    if !android_app.exists() {
-        eprintln!("[ERROR] No se encontró 'src-tauri/gen/android/app'.");
-        eprintln!("Ejecuta primero: npx tauri android init");
+    let (android_dir, props_name) = match ctx.project_type {
+        ProjectType::Tauri => (ctx.script_dir.join("src-tauri\\gen\\android\\app"), "keystore.properties"),
+        ProjectType::Flutter => (ctx.script_dir.join("android\\app"), "key.properties"),
+        ProjectType::Kotlin => (ctx.script_dir.join("composeApp"), "keystore.properties"),
+    };
+
+    if !android_dir.exists() {
+        eprintln!("[ERROR] No se encontró el directorio Android del proyecto.");
+        match ctx.project_type {
+            ProjectType::Tauri => eprintln!("Ejecuta primero: npx tauri android init"),
+            ProjectType::Flutter => eprintln!("Asegúrate de que exista android/app/ en tu proyecto Flutter."),
+            ProjectType::Kotlin => eprintln!("Asegúrate de que exista composeApp/ en tu proyecto KMP."),
+        }
         pause();
         return Ok(());
     }
@@ -23,10 +32,11 @@ pub fn create_or_import(ctx: &ProjectContext) -> Result<()> {
     println!("╚══════════════════════════════════════════════════╝");
     println!();
 
+    let opt_text = format!("3. Configurar firma manualmente ({})", props_name);
     let options = vec![
         "1. Crear un keystore nuevo automáticamente",
         "2. Usar un keystore existente",
-        "3. Configurar firma manualmente (keystore.properties)",
+        opt_text.as_str(),
         "4. Volver al menú anterior",
     ];
 
@@ -36,13 +46,13 @@ pub fn create_or_import(ctx: &ProjectContext) -> Result<()> {
 
     match choice {
         "1. Crear un keystore nuevo automáticamente" => {
-            create_keystore(ctx, &android_app)?;
+            create_keystore(ctx, &android_dir, props_name)?;
         }
         "2. Usar un keystore existente" => {
-            import_keystore(ctx, &android_app)?;
+            import_keystore(ctx, &android_dir, props_name)?;
         }
-        "3. Configurar firma manualmente (keystore.properties)" => {
-            manual_configure(ctx, &android_app)?;
+        s if s.starts_with("3.") => {
+            manual_configure(ctx, &android_dir, props_name)?;
         }
         _ => {
             return Ok(());
@@ -53,7 +63,7 @@ pub fn create_or_import(ctx: &ProjectContext) -> Result<()> {
     Ok(())
 }
 
-fn create_keystore(_ctx: &ProjectContext, android_app: &Path) -> Result<()> {
+fn create_keystore(_ctx: &ProjectContext, android_app: &Path, props_name: &str) -> Result<()> {
     println!("\n--- Creando nueva llave (Keystore) ---\n");
 
     let raw_name: String = Text::new("Nombre del keystore (sin extensión):")
@@ -156,14 +166,14 @@ fn create_keystore(_ctx: &ProjectContext, android_app: &Path) -> Result<()> {
     println!();
 
     // Write properties and patch gradle
-    write_properties(android_app, &name, &pass, &pass, &alias)?;
-    patch_build_gradle(android_app)?;
+    write_properties(android_app, &name, &pass, &pass, &alias, props_name)?;
+    patch_build_gradle(android_app, props_name)?;
 
     println!("\n[OK] ¡Firmas configuradas exitosamente!");
     Ok(())
 }
 
-fn import_keystore(_ctx: &ProjectContext, android_app: &Path) -> Result<()> {
+fn import_keystore(_ctx: &ProjectContext, android_app: &Path, props_name: &str) -> Result<()> {
     println!("\n--- Usando llave existente ---\n");
 
     let path_str: String = Text::new("Ruta a tu archivo .keystore o .jks:")
@@ -217,14 +227,14 @@ fn import_keystore(_ctx: &ProjectContext, android_app: &Path) -> Result<()> {
     fs::copy(&keystore_file, &dest).context("Error al copiar el archivo")?;
     println!("  [OK] Archivo copiado correctamente.");
 
-    write_properties(android_app, &k_name, &store_pass, &key_pass, &alias)?;
-    patch_build_gradle(android_app)?;
+    write_properties(android_app, &k_name, &store_pass, &key_pass, &alias, props_name)?;
+    patch_build_gradle(android_app, props_name)?;
 
     println!("\n[OK] ¡Firmas configuradas exitosamente!");
     Ok(())
 }
 
-fn manual_configure(_ctx: &ProjectContext, android_app: &Path) -> Result<()> {
+fn manual_configure(_ctx: &ProjectContext, android_app: &Path, props_name: &str) -> Result<()> {
     println!("\n--- Configuración manual ---\n");
 
     let name: String = Text::new("Nombre del archivo .keystore (ej: release.keystore):")
@@ -245,8 +255,8 @@ fn manual_configure(_ctx: &ProjectContext, android_app: &Path) -> Result<()> {
         .unwrap_or_default();
     let key_pass = if key_pass_input.is_empty() { store_pass.clone() } else { key_pass_input };
 
-    write_properties(android_app, &name, &store_pass, &key_pass, &alias)?;
-    patch_build_gradle(android_app)?;
+    write_properties(android_app, &name, &store_pass, &key_pass, &alias, props_name)?;
+    patch_build_gradle(android_app, props_name)?;
 
     println!("\n[OK] Configuración manual completada.");
     println!("  Asegúrate de que '{}' exista en la carpeta app/.", name);
@@ -302,54 +312,92 @@ fn find_keytool() -> Result<String> {
     );
 }
 
-fn write_properties(android_app: &Path, keystore_name: &str, store_pass: &str, key_pass: &str, key_alias: &str) -> Result<()> {
+fn write_properties(android_app: &Path, keystore_name: &str, store_pass: &str, key_pass: &str, key_alias: &str, props_name: &str) -> Result<()> {
     let content = format!(
         "storePassword={}\nkeyPassword={}\nkeyAlias={}\nstoreFile={}\n",
         store_pass, key_pass, key_alias, keystore_name
     );
-    let props_path = android_app.join("keystore.properties");
-    fs::write(&props_path, content).context("Error al escribir keystore.properties")?;
-    println!("  [OK] keystore.properties generado.");
+    let props_path = android_app.join(props_name);
+    fs::write(&props_path, content).context(format!("Error al escribir {}", props_name))?;
+    println!("  [OK] {} generado.", props_name);
     Ok(())
 }
 
-fn patch_build_gradle(android_app: &Path) -> Result<()> {
+fn patch_build_gradle(android_app: &Path, props_name: &str) -> Result<()> {
+    // Try .kts first, then .groovy
     let gradle_path = android_app.join("build.gradle.kts");
-    if !gradle_path.exists() {
-        eprintln!("[WARNING] No se encontró build.gradle.kts en: {}", android_app.display());
-        eprintln!("  Puedes agregar la configuración manualmente.");
-        return Ok(());
-    }
+    let use_kts = gradle_path.exists();
+    let gradle_path = if use_kts {
+        gradle_path
+    } else {
+        let groovy = android_app.join("build.gradle");
+        if !groovy.exists() {
+            eprintln!("[WARNING] No se encontró build.gradle(.kts) en: {}", android_app.display());
+            eprintln!("  Puedes agregar la configuración manualmente.");
+            return Ok(());
+        }
+        groovy
+    };
 
-    let mut content = fs::read_to_string(&gradle_path).context("Error al leer build.gradle.kts")?;
+    let mut content = fs::read_to_string(&gradle_path).context(format!("Error al leer {}", gradle_path.display()))?;
     let mut modified = false;
 
-    // 1. Inject properties loader
-    if !content.contains("val keystorePropertiesFile") {
-        let loader = "\nval keystorePropertiesFile = rootProject.file(\"app/keystore.properties\")\nval keystoreProperties = Properties()\nif (keystorePropertiesFile.exists()) {\n    keystorePropertiesFile.inputStream().use { keystoreProperties.load(it) }\n}\n";
-        content = content.replace("android {", &format!("{}\nandroid {{", loader));
-        modified = true;
-    }
+    if use_kts {
+        // Kotlin Script (.kts)
+        let properties_ref = format!("app/{}", props_name);
 
-    // 2. Inject signingConfigs
-    if !content.contains("signingConfigs {") {
-        let signing = "\n    signingConfigs {\n        if (keystorePropertiesFile.exists()) {\n            create(\"release\") {\n                keyAlias = keystoreProperties.getProperty(\"keyAlias\") ?: \"\"\n                keyPassword = keystoreProperties.getProperty(\"keyPassword\") ?: \"\"\n                storeFile = file(keystoreProperties.getProperty(\"storeFile\") ?: \"\")\n                storePassword = keystoreProperties.getProperty(\"storePassword\") ?: \"\"\n            }\n        }\n    }\n";
-        content = content.replace("    defaultConfig {", &format!("{}\n    defaultConfig {{", signing));
-        modified = true;
-    }
+        // 1. Inject properties loader
+        let load_marker = "val keystorePropertiesFile";
+        if !content.contains(load_marker) {
+            let loader = format!("\nval keystorePropertiesFile = rootProject.file(\"{}\")\nval keystoreProperties = Properties()\nif (keystorePropertiesFile.exists()) {{\n    keystorePropertiesFile.inputStream().use {{ keystoreProperties.load(it) }}\n}}\n", properties_ref);
+            content = content.replace("android {", &format!("{}\nandroid {{", loader));
+            modified = true;
+        }
 
-    // 3. Apply signing to release build type
-    if !content.contains("signingConfig = signingConfigs.getByName(\"release\")") {
-        let apply = "\n            if (keystorePropertiesFile.exists()) {\n                signingConfig = signingConfigs.getByName(\"release\")\n            }";
-        content = content.replace("getByName(\"release\") {", &format!("getByName(\"release\") {{{}", apply));
-        modified = true;
+        // 2. Inject signingConfigs
+        if !content.contains("signingConfigs {") {
+            let signing = "\n    signingConfigs {\n        if (keystorePropertiesFile.exists()) {\n            create(\"release\") {\n                keyAlias = keystoreProperties.getProperty(\"keyAlias\") ?: \"\"\n                keyPassword = keystoreProperties.getProperty(\"keyPassword\") ?: \"\"\n                storeFile = file(keystoreProperties.getProperty(\"storeFile\") ?: \"\")\n                storePassword = keystoreProperties.getProperty(\"storePassword\") ?: \"\"\n            }\n        }\n    }\n";
+            content = content.replace("    defaultConfig {", &format!("{}\n    defaultConfig {{", signing));
+            modified = true;
+        }
+
+        // 3. Apply signing to release build type
+        if !content.contains("signingConfig = signingConfigs.getByName(\"release\")") {
+            let apply = "\n            if (keystorePropertiesFile.exists()) {\n                signingConfig = signingConfigs.getByName(\"release\")\n            }";
+            content = content.replace("getByName(\"release\") {", &format!("getByName(\"release\") {{{}", apply));
+            modified = true;
+        }
+    } else {
+        // Groovy (.gradle)
+        let properties_ref = format!("app/{}", props_name);
+
+        // 1. Inject properties loader
+        if !content.contains("def keystorePropertiesFile") {
+            let loader = format!("\ndef keystorePropertiesFile = rootProject.file('{}')\ndef keystoreProperties = new Properties()\nif (keystorePropertiesFile.exists()) {{\n    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))\n}}\n", properties_ref);
+            content = content.replace("android {", &format!("{}\nandroid {{", loader));
+            modified = true;
+        }
+
+        // 2. Inject signingConfigs
+        if !content.contains("signingConfigs {") {
+            let signing = "\n    signingConfigs {\n        if (keystorePropertiesFile.exists()) {\n            release {\n                keyAlias keystoreProperties['keyAlias']\n                keyPassword keystoreProperties['keyPassword']\n                storeFile file(keystoreProperties['storeFile'])\n                storePassword keystoreProperties['storePassword']\n            }\n        }\n    }\n";
+            content = content.replace("    defaultConfig {", &format!("{}\n    defaultConfig {{", signing));
+            modified = true;
+        }
+
+        // 3. Apply signing to release build type
+        if !content.contains("signingConfig signingConfigs.release") {
+            let apply = "\n            if (keystorePropertiesFile.exists()) {\n                signingConfig = signingConfigs.release\n            }";
+            content = content.replace("release {", &format!("release {{{}", apply));
+            modified = true;
+        }
     }
 
     if modified {
-        fs::write(&gradle_path, content).context("Error al escribir build.gradle.kts")?;
-        println!("  [OK] build.gradle.kts actualizado con configuración de firma.");
+        fs::write(&gradle_path, content).context(format!("Error al escribir {}", gradle_path.display()))?;
+        println!("  [OK] {} actualizado con configuración de firma.", gradle_path.file_name().unwrap().to_string_lossy());
     } else {
-        println!("  build.gradle.kts ya contenía la configuración.");
+        println!("  {} ya contenía la configuración.", gradle_path.file_name().unwrap().to_string_lossy());
     }
 
     Ok(())

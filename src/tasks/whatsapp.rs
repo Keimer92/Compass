@@ -8,44 +8,42 @@ pub fn build(ctx: &ProjectContext) -> Result<()> {
     println!("║         COMPILAR MOTOR DE WHATSAPP               ║");
     println!("╚══════════════════════════════════════════════════╝");
 
-    let engine_js = ctx.script_dir.join("src-tauri\\whatsapp-engine\\engine.js");
-    let bundle_mjs = ctx.script_dir.join("src-tauri\\whatsapp-engine\\bundle.mjs");
+    let engine_dir = ctx.project_type.whatsapp_path(&ctx.script_dir);
 
+    if !engine_dir.exists() {
+        eprintln!();
+        eprintln!("[ERROR] No se encontró el motor de WhatsApp en este proyecto.");
+        eprintln!("  Ruta esperada: {}", engine_dir.display());
+        eprintln!();
+        eprintln!("  Este proyecto no tiene un motor de WhatsApp integrado.");
+        pause();
+        return Ok(());
+    }
+
+    let engine_js = engine_dir.join("engine.js");
     if !engine_js.exists() {
         eprintln!();
         eprintln!("[ERROR] No se encontró el motor de WhatsApp en este proyecto.");
-        eprintln!("  Ruta esperada: src-tauri\\whatsapp-engine\\engine.js");
+        eprintln!("  Ruta esperada: {}", engine_js.display());
         eprintln!();
         eprintln!("  Este proyecto no tiene un motor de WhatsApp integrado.");
         pause();
         return Ok(());
     }
 
+    let bundle_mjs = engine_dir.join("bundle.mjs");
     if !bundle_mjs.exists() {
         eprintln!();
         eprintln!("[ERROR] No se encontró el script de compilación del motor.");
-        eprintln!("  Ruta esperada: src-tauri\\whatsapp-engine\\bundle.mjs");
+        eprintln!("  Ruta esperada: {}", bundle_mjs.display());
         pause();
         return Ok(());
     }
 
-    // Verify engine directory exists
-    let engine_dir = ctx.script_dir.join("src-tauri\\whatsapp-engine");
-    if !engine_dir.exists() {
-        eprintln!();
-        eprintln!("[ERROR] No se encontró el directorio del motor.");
-        eprintln!("  Ruta esperada: src-tauri\\whatsapp-engine");
-        eprintln!();
-        eprintln!("  Este proyecto no tiene un motor de WhatsApp integrado.");
-        pause();
-        return Ok(());
-    }
-
-    // Verify package.json exists
     if !engine_dir.join("package.json").exists() {
         eprintln!();
         eprintln!("[ERROR] El directorio del motor no tiene package.json.");
-        eprintln!("  Ruta: src-tauri\\whatsapp-engine");
+        eprintln!("  Ruta: {}", engine_dir.display());
         pause();
         return Ok(());
     }
@@ -75,7 +73,19 @@ pub fn build(ctx: &ProjectContext) -> Result<()> {
     println!("\n{}", stdout);
     println!("[OK] Motor de WhatsApp compilado exitosamente!");
 
-    let bundle_dir = ctx.script_dir.join("src-tauri\\resources\\whatsapp-engine-bundle");
+    // Determine bundle output path
+    let bundle_dir = match ctx.project_type {
+        crate::utils::context::ProjectType::Tauri => {
+            ctx.script_dir.join("src-tauri\\resources\\whatsapp-engine-bundle")
+        }
+        crate::utils::context::ProjectType::Flutter => {
+            ctx.script_dir.join("resources\\whatsapp-engine-bundle")
+        }
+        crate::utils::context::ProjectType::Kotlin => {
+            ctx.script_dir.join("composeApp\\resources\\whatsapp-engine-bundle")
+        }
+    };
+
     if bundle_dir.exists() {
         let total_size: u64 = std::fs::read_dir(&bundle_dir)
             .ok()

@@ -1,9 +1,10 @@
 use std::io::{self, Write};
+use std::path::PathBuf;
 use anyhow::Result;
 use chrono::Local;
 use inquire::Select;
 
-use crate::utils::{cmd, context::ProjectContext};
+use crate::utils::{cmd, context::{ProjectContext, ProjectType}};
 use crate::tasks::signer;
 
 pub fn manage(ctx: &ProjectContext) -> Result<()> {
@@ -47,13 +48,22 @@ pub fn manage(ctx: &ProjectContext) -> Result<()> {
     Ok(())
 }
 
+fn android_app_dir(ctx: &ProjectContext) -> PathBuf {
+    match ctx.project_type {
+        ProjectType::Tauri => ctx.script_dir.join("src-tauri\\gen\\android\\app"),
+        ProjectType::Flutter => ctx.script_dir.join("android\\app"),
+        ProjectType::Kotlin => ctx.script_dir.join("composeApp"),
+    }
+}
+
 fn backup_keystore(ctx: &ProjectContext) -> Result<()> {
     println!();
     println!("--- RESPALDAR KEYSTORE ---");
 
-    let android_app = ctx.script_dir.join("src-tauri\\gen\\android\\app");
+    let android_app = android_app_dir(ctx);
     if !android_app.exists() {
         eprintln!("[ERROR] No existe el directorio Android del proyecto.");
+        eprintln!("  Ruta esperada: {}", android_app.display());
         pause();
         return Ok(());
     }
@@ -89,10 +99,12 @@ fn backup_keystore(ctx: &ProjectContext) -> Result<()> {
         println!("  [OK] {} respaldado.", name.to_string_lossy());
     }
 
-    let props = android_app.join("keystore.properties");
-    if props.exists() {
-        std::fs::copy(&props, dest_dir.join("keystore.properties"))?;
-        println!("  [OK] keystore.properties respaldado.");
+    for props_name in &["keystore.properties", "key.properties"] {
+        let props = android_app.join(props_name);
+        if props.exists() {
+            std::fs::copy(&props, dest_dir.join(props_name))?;
+            println!("  [OK] {} respaldado.", props_name);
+        }
     }
 
     println!();
@@ -152,7 +164,7 @@ fn restore_keystore(ctx: &ProjectContext) -> Result<()> {
         return Ok(());
     }
 
-    let android_app = ctx.script_dir.join("src-tauri\\gen\\android\\app");
+    let android_app = android_app_dir(ctx);
     let mut count = 0;
     for entry in std::fs::read_dir(&selected_path)? {
         let entry = entry?;

@@ -1,0 +1,239 @@
+use std::io::{self, Write};
+use anyhow::Result;
+use indicatif::{ProgressBar, ProgressStyle};
+
+use crate::utils::{cmd, context::ProjectContext};
+
+fn gradlew_cmd(args: &str) -> String {
+    if cfg!(windows) {
+        format!("cmd /c gradlew.bat {}", args)
+    } else {
+        format!("./gradlew {}", args)
+    }
+}
+
+fn ensure_gradle(ctx: &ProjectContext) -> Result<()> {
+    if !ctx.script_dir.join("gradlew.bat").exists() {
+        anyhow::bail!("No se encontró gradlew.bat en la raíz del proyecto.");
+    }
+    Ok(())
+}
+
+fn has_hot_reload(ctx: &ProjectContext) -> bool {
+    if let Ok(content) = std::fs::read_to_string(ctx.script_dir.join("composeApp\\build.gradle.kts")) {
+        content.contains("hot-reload") || content.contains("hotReload") || content.contains("hot_run")
+    } else {
+        false
+    }
+}
+
+pub fn run_windows(ctx: &ProjectContext) -> Result<()> {
+    ensure_gradle(ctx)?;
+    ensure_whatsapp_npm(ctx)?;
+
+    if has_hot_reload(ctx) {
+        cmd::clear_screen();
+        println!("╔══════════════════════════════════════════════════╗");
+        println!("║     KMP DESKTOP CON HOT RELOAD                  ║");
+        println!("╚══════════════════════════════════════════════════╝");
+        println!("[INFO] Hot Reload detectado! Usando hotRunDesktop");
+        println!("[INFO] Guarda archivos (Ctrl+S) para recargar cambios.");
+        println!();
+        cmd::spawn_new_window(
+            "KMP Desktop (Hot Reload)",
+            &ctx.script_dir,
+            &gradlew_cmd(":composeApp:hotRunDesktop --auto"),
+        )?;
+    } else {
+        cmd::spawn_new_window(
+            "KMP Desktop (Run)",
+            &ctx.script_dir,
+            &gradlew_cmd(":composeApp:run"),
+        )?;
+    }
+
+    Ok(())
+}
+
+pub fn run_android(ctx: &ProjectContext) -> Result<()> {
+    ensure_gradle(ctx)?;
+
+    cmd::spawn_new_window(
+        "KMP Android (Run)",
+        &ctx.script_dir,
+        &gradlew_cmd(":composeApp:installDebug"),
+    )?;
+
+    Ok(())
+}
+
+pub fn build_windows(ctx: &ProjectContext) -> Result<()> {
+    println!("\n[INFO] Compilando Windows (Desktop) con Gradle...\n");
+    ensure_gradle(ctx)?;
+    ensure_whatsapp_npm(ctx)?;
+
+    cmd::spawn_new_window(
+        "KMP Desktop Build",
+        &ctx.script_dir,
+        &gradlew_cmd(":composeApp:packageDistributionForCurrentOS"),
+    )?;
+
+    pause();
+    Ok(())
+}
+
+pub fn build_apk(ctx: &ProjectContext) -> Result<()> {
+    println!("\n[INFO] Compilando Android APK (Debug)...\n");
+    ensure_gradle(ctx)?;
+
+    cmd::spawn_new_window(
+        "KMP Android APK",
+        &ctx.script_dir,
+        &gradlew_cmd(":composeApp:assembleDebug"),
+    )?;
+
+    pause();
+    Ok(())
+}
+
+pub fn build_aab(ctx: &ProjectContext) -> Result<()> {
+    println!("\n[INFO] Compilando Android AAB (Release)...\n");
+    ensure_gradle(ctx)?;
+
+    cmd::spawn_new_window(
+        "KMP Android AAB",
+        &ctx.script_dir,
+        &gradlew_cmd(":composeApp:bundleRelease"),
+    )?;
+
+    pause();
+    Ok(())
+}
+
+pub fn clean(ctx: &ProjectContext) -> Result<()> {
+    cmd::clear_screen();
+    println!("╔══════════════════════════════════════════════════╗");
+    println!("║      LIMPIAR PROYECTO KMP                       ║");
+    println!("╚══════════════════════════════════════════════════╝");
+    println!();
+    println!("Se eliminará:");
+    println!("  - build/");
+    println!("  - composeApp/build/");
+    println!("  - .gradle/");
+    println!("  - local.properties");
+    println!("  - node_modules/");
+    println!("  - *.log");
+    println!("  - .kotlin/ (caché Kotlin)");
+    println!();
+    println!("Se conservará:");
+    println!("  - composeApp/src/ (código fuente Kotlin)");
+    println!("  - composeApp/build.gradle.kts");
+    println!("  - settings.gradle.kts, gradle.properties");
+    println!("  - gradle/wrapper/ (wrapper no se borra)");
+    println!("  - gradlew + gradlew.bat");
+    println!("  - whatsapp_engine/ (motor WhatsApp)");
+    println!("  - composeApp/resources/whatsapp-engine-bundle/ (bundle WhatsApp compilado)");
+    println!("  - Firmas: keystore.properties, *.keystore, *.jks");
+    println!();
+
+    let confirm = inquire::Confirm::new("¿Estás seguro?")
+        .with_default(false)
+        .prompt()?;
+
+    if !confirm {
+        println!("[INFO] Operación cancelada.");
+        pause();
+        return Ok(());
+    }
+
+    let pb = ProgressBar::new(6);
+    pb.set_style(ProgressStyle::default_bar()
+        .template("{spinner:.green} [{bar:40}] {pos}/{len} {msg}")?
+        .progress_chars("=> "));
+
+    // 1. gradle clean
+    pb.set_message("Ejecutando gradle clean");
+    let _ = if cfg!(windows) {
+        cmd::run_in_dir("cmd", &["/c", "gradlew.bat", "clean"], &ctx.script_dir)
+    } else {
+        cmd::run_in_dir("./gradlew", &["clean"], &ctx.script_dir)
+    };
+    pb.inc(1);
+
+    // 2. root build/
+    pb.set_message("Eliminando build/ raíz");
+    let root_build = ctx.script_dir.join("build");
+    if root_build.exists() {
+        std::fs::remove_dir_all(&root_build).ok();
+        println!("  [OK] build/ raíz eliminado");
+    }
+    pb.inc(1);
+
+    // 3. composeApp/build/
+    pb.set_message("Eliminando composeApp/build/");
+    let compose_build = ctx.script_dir.join("composeApp\\build");
+    if compose_build.exists() {
+        std::fs::remove_dir_all(&compose_build).ok();
+        println!("  [OK] composeApp/build/ eliminado");
+    }
+    pb.inc(1);
+
+    // 4. .gradle/
+    pb.set_message("Eliminando .gradle/");
+    let gradle_cache = ctx.script_dir.join(".gradle");
+    if gradle_cache.exists() {
+        std::fs::remove_dir_all(&gradle_cache).ok();
+        println!("  [OK] .gradle/ eliminado");
+    }
+    pb.inc(1);
+
+    // 5. node_modules/
+    pb.set_message("Eliminando node_modules/");
+    let nm = ctx.script_dir.join("node_modules");
+    if nm.exists() {
+        std::fs::remove_dir_all(&nm).ok();
+        println!("  [OK] node_modules/ eliminado");
+    }
+    pb.inc(1);
+
+    // 6. Kotlin cache + local.properties
+    pb.set_message("Eliminando .kotlin/ y local.properties");
+    let kotlin_cache = ctx.script_dir.join(".kotlin");
+    if kotlin_cache.exists() {
+        std::fs::remove_dir_all(&kotlin_cache).ok();
+        println!("  [OK] .kotlin/ eliminado");
+    }
+    let local_props = ctx.script_dir.join("local.properties");
+    if local_props.exists() {
+        std::fs::remove_file(&local_props).ok();
+        println!("  [OK] local.properties eliminado");
+    }
+    pb.inc(1);
+
+    pb.finish_with_message("Limpieza completada");
+    println!("\n[OK] Proyecto KMP limpiado!");
+    if cfg!(windows) {
+        println!("Para restaurar dependencias: gradlew.bat build");
+    } else {
+        println!("Para restaurar dependencias: ./gradlew build");
+    }
+
+    pause();
+    Ok(())
+}
+
+fn ensure_whatsapp_npm(ctx: &ProjectContext) -> Result<()> {
+    if ctx.has_whatsapp_engine {
+        let engine_path = ctx.project_type.whatsapp_path(&ctx.script_dir);
+        println!("[INFO] Instalando dependencias del motor WhatsApp...");
+        let _ = cmd::run_npm_install(&engine_path);
+    }
+    Ok(())
+}
+
+fn pause() {
+    print!("\nPresiona Enter para continuar...");
+    io::stdout().flush().ok();
+    let mut _input = String::new();
+    io::stdin().read_line(&mut _input).ok();
+}

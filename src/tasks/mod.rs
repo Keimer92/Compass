@@ -1,8 +1,10 @@
 pub mod android;
 pub mod cleanup;
+pub mod flutter;
 pub mod git;
 pub mod gitignore;
 pub mod keystore;
+pub mod kotlin;
 pub mod signer;
 pub mod terminal;
 pub mod whatsapp;
