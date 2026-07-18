@@ -84,7 +84,7 @@ fn cleanup_build_locks(ctx: &ProjectContext) {
     }
     let gradle_cache = ctx.script_dir.join("src-tauri\\gen\\android\\app\\.gradle");
     if gradle_cache.exists() {
-        let _ = std::fs::remove_dir_all(&gradle_cache);
+        let _ = cmd::remove_dir(&gradle_cache);
     }
     // Stop java processes
     let _ = cmd::run("taskkill", &["/F", "/IM", "java.exe", "/T"]);

@@ -1,5 +1,6 @@
 pub mod android;
 pub mod cleanup;
+pub mod context_menu;
 pub mod flutter;
 pub mod git;
 pub mod gitignore;

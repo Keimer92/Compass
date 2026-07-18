@@ -43,6 +43,7 @@ pub enum MenuItem {
     ManageKeystore,
     BuildWhatsApp,
     ConfigureTerminal,
+    ContextMenu,
     Exit,
 }
 
@@ -63,6 +64,7 @@ impl MenuItem {
             Self::ManageKeystore => "\u{1f5dd}",
             Self::BuildWhatsApp => "\u{1f4ac}",
             Self::ConfigureTerminal => "\u{2699}",
+            Self::ContextMenu => "\u{1f4c1}",
             Self::Exit => "\u{1f6aa}",
         }
     }
@@ -71,7 +73,7 @@ impl MenuItem {
         match self {
             Self::WindowsDev | Self::AndroidDev | Self::WindowsBuild | Self::AndroidBuildArm64 | Self::AndroidBuildAll => "DEV",
             Self::CleanCache | Self::DebugAndroid | Self::ConfigureSigning | Self::CleanProject => "MNT",
-            Self::CreateGitignore | Self::InitGit | Self::ManageKeystore | Self::BuildWhatsApp | Self::ConfigureTerminal => "CFG",
+            Self::CreateGitignore | Self::InitGit | Self::ManageKeystore | Self::BuildWhatsApp | Self::ConfigureTerminal | Self::ContextMenu => "CFG",
             Self::Exit => "",
         }
     }
@@ -100,6 +102,7 @@ impl MenuItem {
             Self::ManageKeystore => "Keystore",
             Self::BuildWhatsApp => "WhatsApp",
             Self::ConfigureTerminal => "Terminal",
+            Self::ContextMenu => "Menu Ctx",
             Self::Exit => "Salir",
         }
     }
@@ -130,6 +133,7 @@ impl MenuItem {
                 Self::ManageKeystore => "Administra llaves",
                 Self::BuildWhatsApp => "Compila WhatsApp",
                 Self::ConfigureTerminal => "Autocompletado",
+                Self::ContextMenu => "Menu contextual",
                 Self::Exit => "Cierra programa",
             },
             ProjectType::Flutter => match self {
@@ -147,6 +151,7 @@ impl MenuItem {
                 Self::ManageKeystore => "Administrar firmas",
                 Self::BuildWhatsApp => "Compila WhatsApp",
                 Self::ConfigureTerminal => "Autocompletado",
+                Self::ContextMenu => "Menu contextual",
                 Self::Exit => "Cierra programa",
             },
             ProjectType::Kotlin => match self {
@@ -164,6 +169,7 @@ impl MenuItem {
                 Self::ManageKeystore => "Administrar firmas",
                 Self::BuildWhatsApp => "Compila WhatsApp",
                 Self::ConfigureTerminal => "Autocompletado",
+                Self::ContextMenu => "Menu contextual",
                 Self::Exit => "Cierra programa",
             },
         }
@@ -196,6 +202,7 @@ impl MenuState {
             MenuItem::ManageKeystore,
             MenuItem::BuildWhatsApp,
             MenuItem::ConfigureTerminal,
+            MenuItem::ContextMenu,
             MenuItem::Exit,
         ];
 
@@ -561,6 +568,7 @@ pub fn run(ctx: &ProjectContext) -> anyhow::Result<()> {
 
                 (MenuItem::BuildWhatsApp, _) => tasks::whatsapp::build(ctx)?,
                 (MenuItem::ConfigureTerminal, _) => tasks::terminal::configure(ctx)?,
+                (MenuItem::ContextMenu, _) => tasks::context_menu::toggle()?,
 
                 _ => unreachable!(),
             }

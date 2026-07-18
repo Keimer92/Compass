@@ -111,6 +111,36 @@ pub fn spawn_new_window(title: &str, dir: &std::path::Path, command: &str) -> Re
     Ok(())
 }
 
+/// Elimina un directorio recursivamente manejando rutas largas en Windows.
+/// En Windows usa PowerShell (Remove-Item -LiteralPath -Recurse -Force)
+/// que soporta rutas de más de 260 caracteres.
+pub fn remove_dir(path: &std::path::Path) -> Result<()> {
+    if !path.exists() {
+        return Ok(());
+    }
+    #[cfg(windows)]
+    {
+        let ps = format!(
+            "Remove-Item -LiteralPath '{}' -Recurse -Force",
+            path.display().to_string().replace('\'', "''")
+        );
+        let output = Command::new("powershell")
+            .args(["-NoProfile", "-Command", &ps])
+            .output()
+            .with_context(|| format!("Falló Remove-Item en: {}", path.display()))?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!("Error al eliminar {}:\n{}", path.display(), stderr);
+        }
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        std::fs::remove_dir_all(path)
+            .with_context(|| format!("Error al eliminar {}", path.display()))
+    }
+}
+
 pub fn clear_screen() {
     #[cfg(windows)]
     {

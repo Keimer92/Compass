@@ -97,6 +97,7 @@ fn run_task_direct(ctx: &crate::utils::context::ProjectContext, task: &str) -> R
         },
         "whatsapp" => tasks::whatsapp::build(ctx),
         "terminal" => tasks::terminal::configure(ctx),
+        "context-menu" => tasks::context_menu::toggle(),
         _ => anyhow::bail!("Tarea desconocida: '{}'. Usa --help para ver las opciones.", task),
     }
 }

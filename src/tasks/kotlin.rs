@@ -164,7 +164,7 @@ pub fn clean(ctx: &ProjectContext) -> Result<()> {
     pb.set_message("Eliminando build/ raíz");
     let root_build = ctx.script_dir.join("build");
     if root_build.exists() {
-        std::fs::remove_dir_all(&root_build).ok();
+        cmd::remove_dir(&root_build).ok();
         println!("  [OK] build/ raíz eliminado");
     }
     pb.inc(1);
@@ -173,7 +173,7 @@ pub fn clean(ctx: &ProjectContext) -> Result<()> {
     pb.set_message("Eliminando composeApp/build/");
     let compose_build = ctx.script_dir.join("composeApp\\build");
     if compose_build.exists() {
-        std::fs::remove_dir_all(&compose_build).ok();
+        cmd::remove_dir(&compose_build).ok();
         println!("  [OK] composeApp/build/ eliminado");
     }
     pb.inc(1);
@@ -182,7 +182,7 @@ pub fn clean(ctx: &ProjectContext) -> Result<()> {
     pb.set_message("Eliminando .gradle/");
     let gradle_cache = ctx.script_dir.join(".gradle");
     if gradle_cache.exists() {
-        std::fs::remove_dir_all(&gradle_cache).ok();
+        cmd::remove_dir(&gradle_cache).ok();
         println!("  [OK] .gradle/ eliminado");
     }
     pb.inc(1);
@@ -191,7 +191,7 @@ pub fn clean(ctx: &ProjectContext) -> Result<()> {
     pb.set_message("Eliminando node_modules/");
     let nm = ctx.script_dir.join("node_modules");
     if nm.exists() {
-        std::fs::remove_dir_all(&nm).ok();
+        cmd::remove_dir(&nm).ok();
         println!("  [OK] node_modules/ eliminado");
     }
     pb.inc(1);
@@ -200,7 +200,7 @@ pub fn clean(ctx: &ProjectContext) -> Result<()> {
     pb.set_message("Eliminando .kotlin/ y local.properties");
     let kotlin_cache = ctx.script_dir.join(".kotlin");
     if kotlin_cache.exists() {
-        std::fs::remove_dir_all(&kotlin_cache).ok();
+        cmd::remove_dir(&kotlin_cache).ok();
         println!("  [OK] .kotlin/ eliminado");
     }
     let local_props = ctx.script_dir.join("local.properties");

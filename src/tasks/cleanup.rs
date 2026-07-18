@@ -41,23 +41,23 @@ fn clean_cache_tauri(ctx: &ProjectContext, aggressive: bool) -> Result<()> {
     if aggressive {
         println!("[INFO] Limpieza agresiva...\n");
         let vite_cache = ctx.script_dir.join("node_modules\\.vite");
-        if vite_cache.exists() { std::fs::remove_dir_all(&vite_cache).ok(); }
+        if vite_cache.exists() { cmd::remove_dir(&vite_cache).ok(); }
         let target_dir = ctx.script_dir.join("src-tauri\\target");
         if target_dir.exists() {
             let size = dir_size(&target_dir);
-            std::fs::remove_dir_all(&target_dir).ok();
+            cmd::remove_dir(&target_dir).ok();
             println!("  [OK] target/ eliminado ({})", format_size(size));
         }
         let android_build = ctx.script_dir.join("src-tauri\\gen\\android\\app\\build");
         if android_build.exists() {
             let size = dir_size(&android_build);
-            std::fs::remove_dir_all(&android_build).ok();
+            cmd::remove_dir(&android_build).ok();
             println!("  [OK] Android build eliminado ({})", format_size(size));
         }
         let dist = ctx.script_dir.join("dist");
         if dist.exists() {
             let size = dir_size(&dist);
-            std::fs::remove_dir_all(&dist).ok();
+            cmd::remove_dir(&dist).ok();
             println!("  [OK] dist/ eliminado ({})", format_size(size));
         }
         println!("\n[INFO] Limpiando cache de npm...");
@@ -76,7 +76,7 @@ fn clean_cache_tauri(ctx: &ProjectContext, aggressive: bool) -> Result<()> {
         for (label, path) in &targets {
             if path.exists() {
                 let size = dir_size(path);
-                if path.is_dir() { std::fs::remove_dir_all(path).ok(); }
+                if path.is_dir() { cmd::remove_dir(path).ok(); }
                 else { std::fs::remove_file(path).ok(); }
                 println!("  [OK] {} limpiado ({})", label, format_size(size));
             } else {
@@ -93,13 +93,13 @@ fn clean_cache_android_common(ctx: &ProjectContext, aggressive: bool) -> Result<
         let gradle_cache = ctx.script_dir.join(".gradle");
         if gradle_cache.exists() {
             let size = dir_size(&gradle_cache);
-            std::fs::remove_dir_all(&gradle_cache).ok();
+            cmd::remove_dir(&gradle_cache).ok();
             println!("  [OK] .gradle/ eliminado ({})", format_size(size));
         }
         let node_modules = ctx.script_dir.join("node_modules");
         if node_modules.exists() {
             let size = dir_size(&node_modules);
-            std::fs::remove_dir_all(&node_modules).ok();
+            cmd::remove_dir(&node_modules).ok();
             println!("  [OK] node_modules/ eliminado ({})", format_size(size));
         }
         println!("\n[INFO] Limpiando cache de npm...");
@@ -115,7 +115,7 @@ fn clean_cache_android_common(ctx: &ProjectContext, aggressive: bool) -> Result<
         for (label, path) in &targets {
             if path.exists() {
                 let size = dir_size(path);
-                if path.is_dir() { std::fs::remove_dir_all(path).ok(); }
+                if path.is_dir() { cmd::remove_dir(path).ok(); }
                 else { std::fs::remove_file(path).ok(); }
                 println!("  [OK] {} limpiado ({})", label, format_size(size));
             } else {
@@ -132,19 +132,19 @@ fn clean_cache_flutter(ctx: &ProjectContext, aggressive: bool) -> Result<()> {
         let build_dir = ctx.script_dir.join("build");
         if build_dir.exists() {
             let size = dir_size(&build_dir);
-            std::fs::remove_dir_all(&build_dir).ok();
+            cmd::remove_dir(&build_dir).ok();
             println!("  [OK] build/ eliminado ({})", format_size(size));
         }
         let android_build = ctx.script_dir.join("android\\app\\build");
         if android_build.exists() {
             let size = dir_size(&android_build);
-            std::fs::remove_dir_all(&android_build).ok();
+            cmd::remove_dir(&android_build).ok();
             println!("  [OK] Android build eliminado ({})", format_size(size));
         }
         let node_modules = ctx.script_dir.join("node_modules");
         if node_modules.exists() {
             let size = dir_size(&node_modules);
-            std::fs::remove_dir_all(&node_modules).ok();
+            cmd::remove_dir(&node_modules).ok();
             println!("  [OK] node_modules/ eliminado ({})", format_size(size));
         }
         println!("\n[INFO] Limpiando cache de npm...");
@@ -161,7 +161,7 @@ fn clean_cache_flutter(ctx: &ProjectContext, aggressive: bool) -> Result<()> {
         for (label, path) in &targets {
             if path.exists() {
                 let size = dir_size(path);
-                if path.is_dir() { std::fs::remove_dir_all(path).ok(); }
+                if path.is_dir() { cmd::remove_dir(path).ok(); }
                 else { std::fs::remove_file(path).ok(); }
                 println!("  [OK] {} limpiado ({})", label, format_size(size));
             } else {
@@ -259,7 +259,7 @@ pub fn clean_project(ctx: &ProjectContext) -> Result<()> {
     let target_dir = ctx.script_dir.join("src-tauri\\target");
     if target_dir.exists() {
         let size = dir_size(&target_dir);
-        std::fs::remove_dir_all(&target_dir).ok();
+        cmd::remove_dir(&target_dir).ok();
         total_freed += size;
         println!("  [OK] target/ ({})", format_size(size));
     }
@@ -286,7 +286,7 @@ pub fn clean_project(ctx: &ProjectContext) -> Result<()> {
         for rel in &artifacts {
             let full = gen_dir.join(rel);
             if full.exists() {
-                if full.is_dir() { std::fs::remove_dir_all(&full).ok(); }
+                if full.is_dir() { cmd::remove_dir(&full).ok(); }
                 else { std::fs::remove_file(&full).ok(); }
             }
         }
@@ -299,7 +299,7 @@ pub fn clean_project(ctx: &ProjectContext) -> Result<()> {
     let nm = ctx.script_dir.join("node_modules");
     if nm.exists() {
         let size = dir_size(&nm);
-        std::fs::remove_dir_all(&nm).ok();
+        cmd::remove_dir(&nm).ok();
         total_freed += size;
         println!("  [OK] node_modules/ ({})", format_size(size));
     }
@@ -310,7 +310,7 @@ pub fn clean_project(ctx: &ProjectContext) -> Result<()> {
     let dist = ctx.script_dir.join("dist");
     if dist.exists() {
         let size = dir_size(&dist);
-        std::fs::remove_dir_all(&dist).ok();
+        cmd::remove_dir(&dist).ok();
         total_freed += size;
         println!("  [OK] dist/ ({})", format_size(size));
     }
@@ -321,7 +321,7 @@ pub fn clean_project(ctx: &ProjectContext) -> Result<()> {
     let vite = ctx.script_dir.join("node_modules\\.vite");
     if vite.exists() {
         let size = dir_size(&vite);
-        std::fs::remove_dir_all(&vite).ok();
+        cmd::remove_dir(&vite).ok();
         println!("  [OK] Vite cache ({})", format_size(size));
     }
     pb.inc(1);
@@ -353,7 +353,7 @@ pub fn clean_project(ctx: &ProjectContext) -> Result<()> {
     let gradle_build = ctx.script_dir.join("src-tauri\\gen\\android\\app\\build");
     if gradle_build.exists() {
         let size = dir_size(&gradle_build);
-        std::fs::remove_dir_all(&gradle_build).ok();
+        cmd::remove_dir(&gradle_build).ok();
         total_freed += size;
         println!("  [OK] Gradle build ({})", format_size(size));
     }

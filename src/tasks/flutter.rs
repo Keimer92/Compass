@@ -123,7 +123,7 @@ pub fn clean(ctx: &ProjectContext) -> Result<()> {
     pb.set_message("Eliminando build/");
     let build_dir = ctx.script_dir.join("build");
     if build_dir.exists() {
-        std::fs::remove_dir_all(&build_dir).ok();
+        cmd::remove_dir(&build_dir).ok();
         println!("  [OK] build/ eliminado");
     }
     pb.inc(1);
@@ -132,7 +132,7 @@ pub fn clean(ctx: &ProjectContext) -> Result<()> {
     pb.set_message("Eliminando .dart_tool/");
     let dart_tool = ctx.script_dir.join(".dart_tool");
     if dart_tool.exists() {
-        std::fs::remove_dir_all(&dart_tool).ok();
+        cmd::remove_dir(&dart_tool).ok();
         println!("  [OK] .dart_tool/ eliminado");
     }
     pb.inc(1);
@@ -145,7 +145,7 @@ pub fn clean(ctx: &ProjectContext) -> Result<()> {
         ctx.script_dir.join("android\\app\\build"),
     ];
     for p in &android_builds {
-        if p.exists() { std::fs::remove_dir_all(p).ok(); }
+        if p.exists() { cmd::remove_dir(p).ok(); }
     }
     println!("  [OK] Android build/ limpiado");
     pb.inc(1);
@@ -154,7 +154,7 @@ pub fn clean(ctx: &ProjectContext) -> Result<()> {
     pb.set_message("Eliminando node_modules/");
     let nm = ctx.script_dir.join("node_modules");
     if nm.exists() {
-        std::fs::remove_dir_all(&nm).ok();
+        cmd::remove_dir(&nm).ok();
         println!("  [OK] node_modules/ eliminado");
     }
     pb.inc(1);
