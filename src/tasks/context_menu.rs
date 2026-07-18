@@ -6,20 +6,37 @@ fn exe_dir() -> Option<std::path::PathBuf> {
     std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_path_buf()))
 }
 
-fn icon_path() -> String {
-    exe_dir()
-        .map(|d| d.join("icons8-terminal-64.ico"))
+fn resolve_icon(name: &str) -> String {
+    let dir = exe_dir();
+    let custom = dir.as_ref().map(|d| d.join(name));
+    let fallback = dir.as_ref().map(|d| d.join("Default.ico"));
+
+    custom
+        .filter(|p| p.exists())
+        .or_else(|| fallback)
         .and_then(|p| p.to_str().map(|s| s.to_string()))
         .unwrap_or_else(|| {
             let home = std::env::var("USERPROFILE").unwrap_or_default();
-            format!("{}\\.cargo\\bin\\icons8-terminal-64.ico", home)
+            format!("{}\\.cargo\\bin\\Default.ico", home)
         })
 }
 
-pub fn install() -> Result<()> {
-    let exe = exe_dir()
+fn icon_path() -> String {
+    resolve_icon("icon.ico")
+}
+
+fn opencode_icon() -> String {
+    resolve_icon("opencode.ico")
+}
+
+fn exe_path() -> String {
+    exe_dir()
         .and_then(|d| d.join("code-runner.exe").to_str().map(|s| s.to_string()))
-        .unwrap_or_else(|| "code-runner.exe".to_string());
+        .unwrap_or_else(|| "code-runner.exe".to_string())
+}
+
+pub fn install() -> Result<()> {
+    let exe = exe_path();
     let icon = icon_path();
 
     println!("[INFO] Icon path: {icon}");
@@ -63,7 +80,54 @@ Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\CodeR
 
     let _ = cmd::run("powershell", &["-NoProfile", "-Command", ps]);
 
-    println!("[OK] Menú contextual eliminado.");
+    println!("[OK] Menú contextual Code Runner eliminado.");
+    Ok(())
+}
+
+pub fn install_opencode() -> Result<()> {
+    let icon = opencode_icon();
+
+    println!("[INFO] OpenCode icon path: {icon}");
+    println!("[INFO] Icon exists: {}", std::path::Path::new(&icon).exists());
+
+    let ps = format!(
+        "New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\OpenCode' -Force | Out-Null; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\OpenCode' -Name '(default)' -Value 'Open with OpenCode'; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\OpenCode' -Name 'Icon' -Type String -Value '{icon}'; \
+         New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\OpenCode\\command' -Force | Out-Null; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\OpenCode\\command' -Name '(default)' -Value 'cmd.exe /c start \"OpenCode\" /D \"%1\" cmd.exe /c \"opencode\"'; \
+         \
+         New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\OpenCode' -Force | Out-Null; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\OpenCode' -Name '(default)' -Value 'Open with OpenCode'; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\OpenCode' -Name 'Icon' -Type String -Value '{icon}'; \
+         New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\OpenCode\\command' -Force | Out-Null; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\OpenCode\\command' -Name '(default)' -Value 'cmd.exe /c start \"OpenCode\" /D \"%W\" cmd.exe /c \"opencode\"'"
+    );
+
+    let output = cmd::run("powershell", &["-NoProfile", "-Command", &ps])?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("Error al instalar menú OpenCode:\n{}", stderr);
+    }
+
+    println!("[OK] Menú contextual OpenCode instalado.");
+    println!("  Icono: {icon}");
+    println!("  Haz clic derecho en una carpeta → 'Open with OpenCode'");
+    println!();
+    println!("[INFO] Si el icono no aparece, intenta:");
+    println!("  1. Cerrar sesion y volver a iniciar");
+    println!("  2. O ejecutar en PowerShell: ie4uinit.exe -show");
+    Ok(())
+}
+
+pub fn uninstall_opencode() -> Result<()> {
+    let ps = "\
+Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\OpenCode' -Recurse -Force -ErrorAction SilentlyContinue; \
+Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\OpenCode' -Recurse -Force -ErrorAction SilentlyContinue";
+
+    let _ = cmd::run("powershell", &["-NoProfile", "-Command", ps]);
+
+    println!("[OK] Menú contextual OpenCode eliminado.");
     Ok(())
 }
 
@@ -74,15 +138,19 @@ pub fn toggle() -> Result<()> {
         println!("║     MENÚ CONTEXTUAL DE WINDOWS                  ║");
         println!("╚══════════════════════════════════════════════════╝");
         println!();
-        println!("  Al instalar, aparecerá 'Abrir con Code Runner'");
-        println!("  al hacer clic derecho sobre cualquier carpeta.");
-        println!();
 
-        let installed = is_installed();
+        let cr_installed = is_installed("CodeRunner");
+        let oc_installed = is_installed("OpenCode");
+
+        let cr_label = if cr_installed { "✔ Code Runner" } else { "  Code Runner" };
+        let oc_label = if oc_installed { "✔ OpenCode" } else { "  OpenCode" };
 
         let options = vec![
-            if installed { "1. Desinstalar menú contextual".to_string() } else { "1. Instalar menú contextual".to_string() },
-            "2. Volver".to_string(),
+            format!("1. {cr_label}  [{}]", if cr_installed { "Desinstalar" } else { "Instalar" }),
+            format!("2. {oc_label}  [{}]", if oc_installed { "Desinstalar" } else { "Instalar" }),
+            "3. Instalar ambos".to_string(),
+            "4. Desinstalar ambos".to_string(),
+            "5. Volver".to_string(),
         ];
 
         let choice = inquire::Select::new("Selecciona una opción:", options)
@@ -91,11 +159,21 @@ pub fn toggle() -> Result<()> {
 
         match choice.as_str() {
             s if s.starts_with("1.") => {
-                if installed {
-                    uninstall()?;
-                } else {
-                    install()?;
-                }
+                if cr_installed { uninstall()?; } else { install()?; }
+                pause();
+            }
+            s if s.starts_with("2.") => {
+                if oc_installed { uninstall_opencode()?; } else { install_opencode()?; }
+                pause();
+            }
+            s if s.starts_with("3.") => {
+                install()?;
+                install_opencode()?;
+                pause();
+            }
+            s if s.starts_with("4.") => {
+                uninstall()?;
+                uninstall_opencode()?;
                 pause();
             }
             _ => break,
@@ -104,9 +182,11 @@ pub fn toggle() -> Result<()> {
     Ok(())
 }
 
-fn is_installed() -> bool {
-    let ps = "Test-Path 'HKCU:\\Software\\Classes\\Directory\\shell\\CodeRunner\\command' -PathType Leaf";
-    let output = cmd::run("powershell", &["-NoProfile", "-Command", ps]);
+fn is_installed(name: &str) -> bool {
+    let ps = format!(
+        "Test-Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{name}\\command'"
+    );
+    let output = cmd::run("powershell", &["-NoProfile", "-Command", &ps]);
     output.map(|o| String::from_utf8_lossy(&o.stdout).trim() == "True").unwrap_or(false)
 }
 

@@ -54,22 +54,42 @@ echo Ya puedes usar el comando 'code-runner'
 echo desde cualquier terminal.
 echo.
 
-echo [INFO] Copiando icono al directorio del binario...
-copy /Y "assets\icon\icons8-terminal-64.ico" "%USERPROFILE%\.cargo\bin\" >nul 2>nul
-if errorlevel 1 (
-    echo [WARN] No se pudo copiar el icono.
-) else (
-    echo [OK] Icono copiado.
+echo [INFO] Copiando iconos al directorio del binario...
+
+:: icon.ico (Code Runner personalizado) -> Default.ico
+if exist "assets\icon\icon.ico" (
+    copy /Y "assets\icon\icon.ico" "%USERPROFILE%\.cargo\bin\" >nul 2>nul
+    echo [OK] icon.ico copiado
+) else if exist "assets\icon\Default.ico" (
+    copy /Y "assets\icon\Default.ico" "%USERPROFILE%\.cargo\bin\" >nul 2>nul
+    echo [OK] Default.ico copiado
+)
+
+:: opencode.ico (OpenCode personalizado) -> Default.ico
+if exist "assets\icon\opencode.ico" (
+    copy /Y "assets\icon\opencode.ico" "%USERPROFILE%\.cargo\bin\" >nul 2>nul
+    echo [OK] opencode.ico copiado
+) else if exist "assets\icon\Default.ico" (
+    copy /Y "assets\icon\Default.ico" "%USERPROFILE%\.cargo\bin\" >nul 2>nul
+    echo [OK] Default.ico copiado (para OpenCode)
 )
 echo.
 
-echo [INFO] Configurando menu contextual...
+echo [INFO] Configurando menu contextual de Code Runner...
 call "%USERPROFILE%\.cargo\bin\code-runner.exe" --task context-menu-install
 if errorlevel 1 (
-    echo [WARN] No se pudo instalar el menu contextual.
-    echo Puedes hacerlo manualmente: code-runner --task context-menu
+    echo [WARN] No se pudo instalar el menu contextual de Code Runner.
 ) else (
-    echo [OK] Menu contextual instalado.
+    echo [OK] Menu contextual de Code Runner instalado.
+)
+echo.
+
+echo [INFO] Configurando menu contextual de OpenCode...
+call "%USERPROFILE%\.cargo\bin\code-runner.exe" --task opencode-install
+if errorlevel 1 (
+    echo [WARN] No se pudo instalar el menu contextual de OpenCode.
+) else (
+    echo [OK] Menu contextual de OpenCode instalado.
 )
 ) else (
 echo.

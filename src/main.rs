@@ -23,7 +23,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     if let Some(task) = &cli.task {
-        if task == "context-menu" || task == "context-menu-install" {
+        if task.starts_with("context-menu") || task.starts_with("opencode") {
             return run_global_task(task);
         }
     }
@@ -52,6 +52,9 @@ fn run_global_task(task: &str) -> Result<()> {
     match task {
         "context-menu" => tasks::context_menu::toggle(),
         "context-menu-install" => tasks::context_menu::install(),
+        "opencode" => tasks::context_menu::toggle(),
+        "opencode-install" => tasks::context_menu::install_opencode(),
+        "opencode-uninstall" => tasks::context_menu::uninstall_opencode(),
         _ => anyhow::bail!("Tarea desconocida: {}", task),
     }
 }
@@ -110,8 +113,6 @@ fn run_task_direct(ctx: &crate::utils::context::ProjectContext, task: &str) -> R
         },
         "whatsapp" => tasks::whatsapp::build(ctx),
         "terminal" => tasks::terminal::configure(ctx),
-        "context-menu" => tasks::context_menu::toggle(),
-        "context-menu-install" => tasks::context_menu::install(),
         _ => anyhow::bail!("Tarea desconocida: '{}'. Usa --help para ver las opciones.", task),
     }
 }

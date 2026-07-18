@@ -1,9 +1,10 @@
 @echo off
-title Instalar Menu Contextual - Code Runner
+title Instalar Menu Contextual - Code Runner & OpenCode
 chcp 65001 >nul
 echo.
 echo =============================================
-echo   Instalar Menu Contextual - Code Runner
+echo   Instalar Menu Contextual
+echo   Code Runner + OpenCode
 echo =============================================
 echo.
 
@@ -25,36 +26,60 @@ if not defined CR (
     )
 )
 
-:: Copiar icono junto al binario si existe localmente
-if exist "assets\icon\icons8-terminal-64.ico" (
-    echo [INFO] Copiando icono al directorio del binario...
-    for %%I in ("%CR%") do set "BIN_DIR=%%~dpI"
-    if not defined BIN_DIR set "BIN_DIR=%USERPROFILE%\.cargo\bin\"
-    copy /Y "assets\icon\icons8-terminal-64.ico" "%BIN_DIR%" >nul 2>nul
-    if errorlevel 1 (
-        echo [WARN] No se pudo copiar el icono.
-    ) else (
-        echo [OK] Icono copiado.
-    )
-    echo.
+:: Copiar iconos junto al binario si existen localmente
+for %%I in ("%CR%") do set "BIN_DIR=%%~dpI"
+if not defined BIN_DIR set "BIN_DIR=%USERPROFILE%\.cargo\bin\"
+
+echo [INFO] Copiando iconos al directorio del binario...
+
+:: icon.ico (Code Runner personalizado) -> Default.ico (fallback)
+if exist "assets\icon\icon.ico" (
+    copy /Y "assets\icon\icon.ico" "%BIN_DIR%" >nul 2>nul
+    echo [OK] icon.ico copiado
+) else if exist "assets\icon\Default.ico" (
+    copy /Y "assets\icon\Default.ico" "%BIN_DIR%" >nul 2>nul
+    echo [OK] Default.ico copiado
 )
 
-echo [INFO] Ejecutando: "%CR%" --task context-menu-install
+:: opencode.ico (OpenCode personalizado) -> Default.ico (fallback)
+if exist "assets\icon\opencode.ico" (
+    copy /Y "assets\icon\opencode.ico" "%BIN_DIR%" >nul 2>nul
+    echo [OK] opencode.ico copiado
+) else if exist "assets\icon\Default.ico" (
+    copy /Y "assets\icon\Default.ico" "%BIN_DIR%" >nul 2>nul
+    echo [OK] Default.ico copiado
+)
 echo.
+
+:: Instalar Code Runner
+echo [1/2] Instalando menu contextual de Code Runner...
 "%CR%" --task context-menu-install
 if %errorlevel% neq 0 (
-    echo.
-    echo [ERROR] Fallo la instalacion del menu contextual.
+    echo [ERROR] Fallo Code Runner.
     pause
     exit /b 1
 )
+echo.
 
+:: Instalar OpenCode
+echo [2/2] Instalando menu contextual de OpenCode...
+"%CR%" --task opencode-install
+if %errorlevel% neq 0 (
+    echo [WARN] Fallo OpenCode.
+)
 echo.
+
 echo =============================================
-echo     [OK] Menu contextual instalado!
+echo     [OK] Menus contextuales instalados!
 echo =============================================
 echo.
-echo Ya puedes hacer clic derecho en cualquier
-echo carpeta y seleccionar "Abrir con Code Runner".
+echo  - Haz clic derecho en una carpeta
+echo    → "Abrir con Code Runner"
+echo    → "Open with OpenCode"
+echo.
+echo Para cambiar iconos, coloca estos archivos
+echo en assets\icon\ y vuelve a ejecutar:
+echo   icon.ico     → icono de Code Runner
+echo   opencode.ico → icono de OpenCode
 echo.
 pause
