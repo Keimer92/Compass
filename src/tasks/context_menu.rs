@@ -11,13 +11,20 @@ fn exe_path() -> String {
 
 pub fn install() -> Result<()> {
     let exe = exe_path();
+    let icon = r"%SystemRoot%\System32\shell32.dll,3";
 
     let ps = format!(
         "New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\CodeRunner' -Force | Out-Null; \
          Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\CodeRunner' -Name '(default)' -Value 'Abrir con Code Runner'; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\CodeRunner' -Name 'Icon' -PropertyType ExpandString -Value '{icon}'; \
          New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\CodeRunner\\command' -Force | Out-Null; \
-         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\CodeRunner\\command' -Name '(default)' -Value '\"{}\" -p \"%V\"'",
-        exe
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\CodeRunner\\command' -Name '(default)' -Value '\"{exe}\" -p \"%1\"'; \
+         \
+         New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\CodeRunner' -Force | Out-Null; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\CodeRunner' -Name '(default)' -Value 'Abrir con Code Runner'; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\CodeRunner' -Name 'Icon' -PropertyType ExpandString -Value '{icon}'; \
+         New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\CodeRunner\\command' -Force | Out-Null; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\CodeRunner\\command' -Name '(default)' -Value '\"{exe}\" -p \"%W\"'"
     );
 
     let output = cmd::run("powershell", &["-NoProfile", "-Command", &ps])?;
@@ -27,12 +34,15 @@ pub fn install() -> Result<()> {
     }
 
     println!("[OK] Menú contextual instalado.");
-    println!("  Haz clic derecho en cualquier carpeta → 'Abrir con Code Runner'");
+    println!("  Ruta: {exe}");
+    println!("  Haz clic derecho en una carpeta → 'Abrir con Code Runner'");
     Ok(())
 }
 
 pub fn uninstall() -> Result<()> {
-    let ps = "Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\CodeRunner' -Recurse -Force -ErrorAction SilentlyContinue";
+    let ps = "\
+Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\CodeRunner' -Recurse -Force -ErrorAction SilentlyContinue; \
+Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\CodeRunner' -Recurse -Force -ErrorAction SilentlyContinue";
 
     let _ = cmd::run("powershell", &["-NoProfile", "-Command", ps]);
 
@@ -78,7 +88,7 @@ pub fn toggle() -> Result<()> {
 }
 
 fn is_installed() -> bool {
-    let ps = "Test-Path 'HKCU:\\Software\\Classes\\Directory\\shell\\CodeRunner'";
+    let ps = "Test-Path 'HKCU:\\Software\\Classes\\Directory\\shell\\CodeRunner\\command' -PathType Leaf";
     let output = cmd::run("powershell", &["-NoProfile", "-Command", ps]);
     output.map(|o| String::from_utf8_lossy(&o.stdout).trim() == "True").unwrap_or(false)
 }

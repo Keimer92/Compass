@@ -53,6 +53,15 @@ echo.
 echo Ya puedes usar el comando 'code-runner'
 echo desde cualquier terminal.
 echo.
+
+echo [INFO] Configurando menu contextual...
+call "%USERPROFILE%\.cargo\bin\code-runner.exe" --task context-menu-install
+if errorlevel 1 (
+    echo [WARN] No se pudo instalar el menu contextual.
+    echo Puedes hacerlo manualmente: code-runner --task context-menu
+) else (
+    echo [OK] Menu contextual instalado.
+)
 ) else (
 echo.
 echo [ERROR] La instalacion fallo. Revisa los errores arriba.
