@@ -22,16 +22,19 @@ pub fn install() -> Result<()> {
         .unwrap_or_else(|| "code-runner.exe".to_string());
     let icon = icon_path();
 
+    println!("[INFO] Icon path: {icon}");
+    println!("[INFO] Icon exists: {}", std::path::Path::new(&icon).exists());
+
     let ps = format!(
         "New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\CodeRunner' -Force | Out-Null; \
          Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\CodeRunner' -Name '(default)' -Value 'Abrir con Code Runner'; \
-         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\CodeRunner' -Name 'Icon' -PropertyType ExpandString -Value '{icon}'; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\CodeRunner' -Name 'Icon' -PropertyType String -Value '{icon}'; \
          New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\CodeRunner\\command' -Force | Out-Null; \
          Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\CodeRunner\\command' -Name '(default)' -Value '\"{exe}\" -p \"%1\"'; \
          \
          New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\CodeRunner' -Force | Out-Null; \
          Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\CodeRunner' -Name '(default)' -Value 'Abrir con Code Runner'; \
-         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\CodeRunner' -Name 'Icon' -PropertyType ExpandString -Value '{icon}'; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\CodeRunner' -Name 'Icon' -PropertyType String -Value '{icon}'; \
          New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\CodeRunner\\command' -Force | Out-Null; \
          Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\CodeRunner\\command' -Name '(default)' -Value '\"{exe}\" -p \"%W\"'"
     );
@@ -44,7 +47,12 @@ pub fn install() -> Result<()> {
 
     println!("[OK] Menú contextual instalado.");
     println!("  Ruta: {exe}");
+    println!("  Icono: {icon}");
     println!("  Haz clic derecho en una carpeta → 'Abrir con Code Runner'");
+    println!();
+    println!("[INFO] Si el icono no aparece, intenta:");
+    println!("  1. Cerrar sesion y volver a iniciar");
+    println!("  2. O ejecutar en PowerShell: ie4uinit.exe -show");
     Ok(())
 }
 
