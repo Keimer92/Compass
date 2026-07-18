@@ -22,7 +22,12 @@ struct Cli {
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    // If explicit path is provided, use it; otherwise auto-detect from current dir
+    if let Some(task) = &cli.task {
+        if task == "context-menu" || task == "context-menu-install" {
+            return run_global_task(task);
+        }
+    }
+
     let ctx = if let Some(p) = &cli.path {
         let dir = std::path::PathBuf::from(p);
         if !dir.exists() {
@@ -41,6 +46,14 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn run_global_task(task: &str) -> Result<()> {
+    match task {
+        "context-menu" => tasks::context_menu::toggle(),
+        "context-menu-install" => tasks::context_menu::install(),
+        _ => anyhow::bail!("Tarea desconocida: {}", task),
+    }
 }
 
 fn run_task_direct(ctx: &crate::utils::context::ProjectContext, task: &str) -> Result<()> {
