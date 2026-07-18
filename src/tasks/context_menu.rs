@@ -43,17 +43,17 @@ pub fn install() -> Result<()> {
     println!("[INFO] Icon exists: {}", std::path::Path::new(&icon).exists());
 
     let ps = format!(
-        "New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\CodeRunner' -Force | Out-Null; \
-         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\CodeRunner' -Name '(default)' -Value 'Open with Code Runner'; \
-         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\CodeRunner' -Name 'Icon' -Type String -Value '{icon}'; \
-         New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\CodeRunner\\command' -Force | Out-Null; \
-         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\CodeRunner\\command' -Name '(default)' -Value '\"{exe}\" -p \"%1\"'; \
+        "New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_CodeRunner' -Force | Out-Null; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_CodeRunner' -Name '(default)' -Value 'Open with Code Runner'; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_CodeRunner' -Name 'Icon' -Type String -Value '{icon}'; \
+         New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_CodeRunner\\command' -Force | Out-Null; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_CodeRunner\\command' -Name '(default)' -Value '\"{exe}\" -p \"%1\"'; \
          \
-         New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\CodeRunner' -Force | Out-Null; \
-         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\CodeRunner' -Name '(default)' -Value 'Open with Code Runner'; \
-         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\CodeRunner' -Name 'Icon' -Type String -Value '{icon}'; \
-         New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\CodeRunner\\command' -Force | Out-Null; \
-         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\CodeRunner\\command' -Name '(default)' -Value '\"{exe}\" -p \"%W\"'"
+         New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_CodeRunner' -Force | Out-Null; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_CodeRunner' -Name '(default)' -Value 'Open with Code Runner'; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_CodeRunner' -Name 'Icon' -Type String -Value '{icon}'; \
+         New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_CodeRunner\\command' -Force | Out-Null; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_CodeRunner\\command' -Name '(default)' -Value '\"{exe}\" -p \"%W\"'"
     );
 
     let output = cmd::run("powershell", &["-NoProfile", "-Command", &ps])?;
@@ -75,8 +75,8 @@ pub fn install() -> Result<()> {
 
 pub fn uninstall() -> Result<()> {
     let ps = "\
-Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\CodeRunner' -Recurse -Force -ErrorAction SilentlyContinue; \
-Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\CodeRunner' -Recurse -Force -ErrorAction SilentlyContinue";
+Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_CodeRunner' -Recurse -Force -ErrorAction SilentlyContinue; \
+Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_CodeRunner' -Recurse -Force -ErrorAction SilentlyContinue";
 
     let _ = cmd::run("powershell", &["-NoProfile", "-Command", ps]);
 
@@ -91,17 +91,17 @@ pub fn install_opencode() -> Result<()> {
     println!("[INFO] Icon exists: {}", std::path::Path::new(&icon).exists());
 
     let ps = format!(
-        "New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\OpenCode' -Force | Out-Null; \
-         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\OpenCode' -Name '(default)' -Value 'Open with OpenCode'; \
-         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\OpenCode' -Name 'Icon' -Type String -Value '{icon}'; \
-         New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\OpenCode\\command' -Force | Out-Null; \
-         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\OpenCode\\command' -Name '(default)' -Value 'cmd.exe /c start \"OpenCode\" /D \"%1\" cmd.exe /c \"opencode\"'; \
+        "New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_OpenCode' -Force | Out-Null; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_OpenCode' -Name '(default)' -Value 'Open with OpenCode'; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_OpenCode' -Name 'Icon' -Type String -Value '{icon}'; \
+         New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_OpenCode\\command' -Force | Out-Null; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_OpenCode\\command' -Name '(default)' -Value 'cmd.exe /c start \"OpenCode\" /D \"%1\" cmd.exe /c \"opencode\"'; \
          \
-         New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\OpenCode' -Force | Out-Null; \
-         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\OpenCode' -Name '(default)' -Value 'Open with OpenCode'; \
-         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\OpenCode' -Name 'Icon' -Type String -Value '{icon}'; \
-         New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\OpenCode\\command' -Force | Out-Null; \
-         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\OpenCode\\command' -Name '(default)' -Value 'cmd.exe /c start \"OpenCode\" /D \"%W\" cmd.exe /c \"opencode\"'"
+         New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_OpenCode' -Force | Out-Null; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_OpenCode' -Name '(default)' -Value 'Open with OpenCode'; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_OpenCode' -Name 'Icon' -Type String -Value '{icon}'; \
+         New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_OpenCode\\command' -Force | Out-Null; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_OpenCode\\command' -Name '(default)' -Value 'cmd.exe /c start \"OpenCode\" /D \"%W\" cmd.exe /c \"opencode\"'"
     );
 
     let output = cmd::run("powershell", &["-NoProfile", "-Command", &ps])?;
@@ -122,8 +122,8 @@ pub fn install_opencode() -> Result<()> {
 
 pub fn uninstall_opencode() -> Result<()> {
     let ps = "\
-Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\OpenCode' -Recurse -Force -ErrorAction SilentlyContinue; \
-Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\OpenCode' -Recurse -Force -ErrorAction SilentlyContinue";
+Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_OpenCode' -Recurse -Force -ErrorAction SilentlyContinue; \
+Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_OpenCode' -Recurse -Force -ErrorAction SilentlyContinue";
 
     let _ = cmd::run("powershell", &["-NoProfile", "-Command", ps]);
 
@@ -139,8 +139,8 @@ pub fn toggle() -> Result<()> {
         println!("╚══════════════════════════════════════════════════╝");
         println!();
 
-        let cr_installed = is_installed("CodeRunner");
-        let oc_installed = is_installed("OpenCode");
+        let cr_installed = is_installed("zz_CodeRunner");
+        let oc_installed = is_installed("zz_OpenCode");
 
         let cr_label = if cr_installed { "✔ Code Runner" } else { "  Code Runner" };
         let oc_label = if oc_installed { "✔ OpenCode" } else { "  OpenCode" };
