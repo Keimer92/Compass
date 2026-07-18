@@ -153,8 +153,8 @@ Tareas largas (dev servers, builds) se lanzan en **nueva ventana PowerShell** co
 ### Gradle en Windows (KMP)
 Los comandos de Gradle se ejecutan como `cmd /c gradlew.bat <args>` porque PowerShell no puede ejecutar `.bat` directamente.
 
-### Hot reload detection (KMP)
-`kotlin::run_windows()` verifica si `composeApp/build.gradle.kts` contiene `hot-reload`, `hotReload` o `hot_run`. Si existe, usa `:composeApp:hotRunDesktop --auto`.
+### KMP Desktop (Hot Reload)
+`kotlin::run_windows()` ejecuta `:composeApp:run` con Hot Reload incorporado.
 
 ### Android signing
 `signer::patch_build_gradle()` soporta tanto `build.gradle.kts` (Kotlin Script) como `build.gradle` (Groovy), inyectando:

@@ -19,38 +19,21 @@ fn ensure_gradle(ctx: &ProjectContext) -> Result<()> {
     Ok(())
 }
 
-fn has_hot_reload(ctx: &ProjectContext) -> bool {
-    if let Ok(content) = std::fs::read_to_string(ctx.script_dir.join("composeApp\\build.gradle.kts")) {
-        content.contains("hot-reload") || content.contains("hotReload") || content.contains("hot_run")
-    } else {
-        false
-    }
-}
-
 pub fn run_windows(ctx: &ProjectContext) -> Result<()> {
     ensure_gradle(ctx)?;
     ensure_whatsapp_npm(ctx)?;
 
-    if has_hot_reload(ctx) {
-        cmd::clear_screen();
-        println!("╔══════════════════════════════════════════════════╗");
-        println!("║     KMP DESKTOP CON HOT RELOAD                  ║");
-        println!("╚══════════════════════════════════════════════════╝");
-        println!("[INFO] Hot Reload detectado! Usando hotRunDesktop");
-        println!("[INFO] Guarda archivos (Ctrl+S) para recargar cambios.");
-        println!();
-        cmd::spawn_new_window(
-            "KMP Desktop (Hot Reload)",
-            &ctx.script_dir,
-            &gradlew_cmd(":composeApp:hotRunDesktop --auto"),
-        )?;
-    } else {
-        cmd::spawn_new_window(
-            "KMP Desktop (Run)",
-            &ctx.script_dir,
-            &gradlew_cmd(":composeApp:run"),
-        )?;
-    }
+    cmd::clear_screen();
+    println!("╔══════════════════════════════════════════════════╗");
+    println!("║     KMP DESKTOP                                  ║");
+    println!("╚══════════════════════════════════════════════════╝");
+    println!("[INFO] Iniciando con Hot Reload...");
+    println!();
+    cmd::spawn_new_window(
+        "KMP Desktop (Run)",
+        &ctx.script_dir,
+        &gradlew_cmd(":composeApp:run"),
+    )?;
 
     Ok(())
 }
