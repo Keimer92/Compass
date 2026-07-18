@@ -7,13 +7,14 @@ pub enum ProjectType {
     Tauri,
     Flutter,
     Kotlin,
+    Rust,
 }
 
 impl ProjectType {
     pub fn whatsapp_path(&self, root: &PathBuf) -> PathBuf {
         match self {
             Self::Tauri => root.join("src-tauri\\whatsapp-engine"),
-            Self::Flutter | Self::Kotlin => root.join("whatsapp_engine"),
+            Self::Flutter | Self::Kotlin | Self::Rust => root.join("whatsapp_engine"),
         }
     }
 }
@@ -50,6 +51,7 @@ pub fn detect() -> Result<ProjectContext> {
         ProjectType::Tauri => script_dir.join("src-tauri\\gen\\android\\gradlew.bat").exists(),
         ProjectType::Flutter => script_dir.join("android\\gradlew.bat").exists(),
         ProjectType::Kotlin => script_dir.join("gradlew.bat").exists(),
+        ProjectType::Rust => false,
     };
     let has_whatsapp_engine = project_type.whatsapp_path(&script_dir).exists();
 
@@ -83,11 +85,14 @@ fn detect_project_root() -> Result<(PathBuf, ProjectType)> {
         if d.join("package.json").exists() {
             return Ok((d.to_path_buf(), ProjectType::Tauri));
         }
+        if d.join("Cargo.toml").exists() {
+            return Ok((d.to_path_buf(), ProjectType::Rust));
+        }
         dir = d.parent();
     }
 
     anyhow::bail!(
-        "No se encontró un proyecto Tauri, Flutter/Dart o Kotlin Multiplatform en este directorio ni en sus padres.\n\
+        "No se encontró un proyecto Tauri, Flutter/Dart, Kotlin Multiplatform o Rust en este directorio ni en sus padres.\n\
          Asegúrate de ejecutar este comando dentro de la raíz de un proyecto válido."
     );
 }

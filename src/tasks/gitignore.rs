@@ -4,6 +4,39 @@ use crate::utils::{cmd, context::{ProjectContext, ProjectType}};
 
 fn gitignore_content(project_type: ProjectType) -> &'static str {
     match project_type {
+        ProjectType::Rust => r#"# ============================================
+# .gitignore para Rust / Cargo
+# ============================================
+
+# --- Build artifacts (el mas pesado) ---
+target/
+
+# --- Cargo lock (normalmente se incluye en binarios) ---
+# Cargo.lock
+
+# --- IDE ---
+.vscode/
+.idea/
+*.iml
+*.sublime-project
+*.sublime-workspace
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~
+
+# --- Environment ---
+.env
+.env.local
+.env.*.local
+
+# --- Logs ---
+*.log
+"#,
         ProjectType::Tauri => r#"# ============================================
 # .gitignore para Rust/Tauri + Windows/Android
 # ============================================
@@ -161,6 +194,14 @@ Desktop.ini
 
 fn print_preserved(project_type: ProjectType) {
     match project_type {
+        ProjectType::Rust => {
+            println!("  - src/ (código Rust)");
+            println!("  - Cargo.toml + Cargo.lock");
+            println!("  - build.rs (si existe)");
+            println!("  - tests/ (pruebas de integracion)");
+            println!("  - examples/ (ejemplos)");
+            println!("  - assets/ (recursos estaticos)");
+        }
         ProjectType::Tauri => {
             println!("  - src/ (código frontend)");
             println!("  - src-tauri/src/ (código Rust)");
@@ -193,6 +234,11 @@ fn print_preserved(project_type: ProjectType) {
 
 fn print_instructions(project_type: ProjectType) {
     match project_type {
+        ProjectType::Rust => {
+            println!("  1. git clone <repo>");
+            println!("  2. cargo build");
+            println!("  3. cargo run");
+        }
         ProjectType::Tauri => {
             println!("  1. git clone <repo>");
             println!("  2. npm install");
@@ -218,6 +264,7 @@ pub fn create(ctx: &ProjectContext) -> Result<()> {
     cmd::clear_screen();
     println!("╔══════════════════════════════════════════════════╗");
     match ctx.project_type {
+        ProjectType::Rust => println!("║        CREAR .gitignore PARA RUST                 ║"),
         ProjectType::Tauri => println!("║        CREAR .gitignore PARA RUST/TAURI          ║"),
         ProjectType::Flutter => println!("║        CREAR .gitignore PARA FLUTTER/DART         ║"),
         ProjectType::Kotlin => println!("║   CREAR .gitignore PARA KOTLIN MULTIPLATFORM       ║"),

@@ -13,6 +13,11 @@ pub fn create_or_import(ctx: &ProjectContext) -> Result<()> {
         ProjectType::Tauri => (ctx.script_dir.join("src-tauri\\gen\\android\\app"), "keystore.properties"),
         ProjectType::Flutter => (ctx.script_dir.join("android\\app"), "key.properties"),
         ProjectType::Kotlin => (ctx.script_dir.join("composeApp"), "keystore.properties"),
+        ProjectType::Rust => {
+            eprintln!("[ERROR] No aplicable a proyectos Rust.");
+            pause();
+            return Ok(());
+        }
     };
 
     if !android_dir.exists() {
@@ -21,6 +26,7 @@ pub fn create_or_import(ctx: &ProjectContext) -> Result<()> {
             ProjectType::Tauri => eprintln!("Ejecuta primero: npx tauri android init"),
             ProjectType::Flutter => eprintln!("Asegúrate de que exista android/app/ en tu proyecto Flutter."),
             ProjectType::Kotlin => eprintln!("Asegúrate de que exista composeApp/ en tu proyecto KMP."),
+            ProjectType::Rust => {} // already handled above
         }
         pause();
         return Ok(());

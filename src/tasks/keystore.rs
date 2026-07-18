@@ -53,6 +53,7 @@ fn android_app_dir(ctx: &ProjectContext) -> PathBuf {
         ProjectType::Tauri => ctx.script_dir.join("src-tauri\\gen\\android\\app"),
         ProjectType::Flutter => ctx.script_dir.join("android\\app"),
         ProjectType::Kotlin => ctx.script_dir.join("composeApp"),
+        ProjectType::Rust => PathBuf::new(),
     }
 }
 

@@ -65,26 +65,31 @@ fn run_task_direct(ctx: &crate::utils::context::ProjectContext, task: &str) -> R
             crate::utils::context::ProjectType::Tauri => tasks::windows::dev(ctx),
             crate::utils::context::ProjectType::Flutter => tasks::flutter::run_windows(ctx),
             crate::utils::context::ProjectType::Kotlin => tasks::kotlin::run_windows(ctx),
+            crate::utils::context::ProjectType::Rust => tasks::rust::run(ctx),
         },
         "android-dev" => match ctx.project_type {
             crate::utils::context::ProjectType::Tauri => tasks::android::dev(ctx),
             crate::utils::context::ProjectType::Flutter => tasks::flutter::run_android(ctx),
             crate::utils::context::ProjectType::Kotlin => tasks::kotlin::run_android(ctx),
+            crate::utils::context::ProjectType::Rust => anyhow::bail!("No aplicable a proyectos Rust"),
         },
         "windows-build" => match ctx.project_type {
             crate::utils::context::ProjectType::Tauri => tasks::windows::build(ctx),
             crate::utils::context::ProjectType::Flutter => tasks::flutter::build_windows(ctx),
             crate::utils::context::ProjectType::Kotlin => tasks::kotlin::build_windows(ctx),
+            crate::utils::context::ProjectType::Rust => tasks::rust::build(ctx),
         },
         "android-arm64" => match ctx.project_type {
             crate::utils::context::ProjectType::Tauri => tasks::android::build_arm64(ctx),
             crate::utils::context::ProjectType::Flutter => tasks::flutter::build_apk(ctx),
             crate::utils::context::ProjectType::Kotlin => tasks::kotlin::build_apk(ctx),
+            crate::utils::context::ProjectType::Rust => anyhow::bail!("No aplicable a proyectos Rust"),
         },
         "android-all" => match ctx.project_type {
             crate::utils::context::ProjectType::Tauri => tasks::android::build_all(ctx),
             crate::utils::context::ProjectType::Flutter => tasks::flutter::build_aab(ctx),
             crate::utils::context::ProjectType::Kotlin => tasks::kotlin::build_aab(ctx),
+            crate::utils::context::ProjectType::Rust => anyhow::bail!("No aplicable a proyectos Rust"),
         },
         "clean-cache" => tasks::cleanup::clean_cache(ctx),
         "debug-android" => match ctx.project_type {
@@ -97,12 +102,17 @@ fn run_task_direct(ctx: &crate::utils::context::ProjectContext, task: &str) -> R
                 println!("[INFO] Para depurar KMP: ./gradlew :composeApp:installDebug");
                 Ok(())
             }
+            crate::utils::context::ProjectType::Rust => {
+                println!("[INFO] No aplicable a proyectos Rust.");
+                Ok(())
+            }
         },
         "sign" => tasks::android::configure_signing(ctx),
         "clean-project" => match ctx.project_type {
             crate::utils::context::ProjectType::Tauri => tasks::cleanup::clean_project(ctx),
             crate::utils::context::ProjectType::Flutter => tasks::flutter::clean(ctx),
             crate::utils::context::ProjectType::Kotlin => tasks::kotlin::clean(ctx),
+            crate::utils::context::ProjectType::Rust => tasks::rust::clean(ctx),
         },
         "gitignore" => tasks::gitignore::create(ctx),
         "git-init" => tasks::git::init(ctx),
@@ -110,6 +120,7 @@ fn run_task_direct(ctx: &crate::utils::context::ProjectContext, task: &str) -> R
             crate::utils::context::ProjectType::Tauri => tasks::keystore::manage(ctx),
             crate::utils::context::ProjectType::Flutter => tasks::android::configure_signing(ctx),
             crate::utils::context::ProjectType::Kotlin => tasks::android::configure_signing(ctx),
+            crate::utils::context::ProjectType::Rust => anyhow::bail!("No aplicable a proyectos Rust"),
         },
         "whatsapp" => tasks::whatsapp::build(ctx),
         "terminal" => tasks::terminal::configure(ctx),

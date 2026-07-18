@@ -80,18 +80,26 @@ impl MenuItem {
 
     fn label(&self, project_type: ProjectType) -> &str {
         match self {
-            Self::WindowsDev => "Windows",
+            Self::WindowsDev => match project_type {
+                ProjectType::Rust => "Run",
+                _ => "Windows",
+            },
             Self::AndroidDev => "Android",
-            Self::WindowsBuild => "Win Build",
+            Self::WindowsBuild => match project_type {
+                ProjectType::Rust => "Build",
+                _ => "Win Build",
+            },
             Self::AndroidBuildArm64 => match project_type {
                 ProjectType::Tauri => "Android a64",
                 ProjectType::Flutter => "APK",
                 ProjectType::Kotlin => "APK",
+                ProjectType::Rust => "",
             },
             Self::AndroidBuildAll => match project_type {
                 ProjectType::Tauri => "Android All",
                 ProjectType::Flutter => "AAB",
                 ProjectType::Kotlin => "AAB",
+                ProjectType::Rust => "",
             },
             Self::CleanCache => "Clean Cache",
             Self::DebugAndroid => "Debug Andr",
@@ -118,6 +126,24 @@ impl MenuItem {
 
     fn description(&self, project_type: ProjectType) -> &str {
         match project_type {
+            ProjectType::Rust => match self {
+                Self::WindowsDev => "cargo run",
+                Self::AndroidDev => "",
+                Self::WindowsBuild => "cargo build --release",
+                Self::AndroidBuildArm64 => "",
+                Self::AndroidBuildAll => "",
+                Self::CleanCache => "Limpia target/ y cache",
+                Self::DebugAndroid => "",
+                Self::ConfigureSigning => "",
+                Self::CleanProject => "cargo clean",
+                Self::CreateGitignore => "Crea .gitignore",
+                Self::InitGit => "Git init + commit",
+                Self::ManageKeystore => "",
+                Self::BuildWhatsApp => "Compila WhatsApp",
+                Self::ConfigureTerminal => "Autocompletado",
+                Self::ContextMenu => "Menu contextual",
+                Self::Exit => "Cierra programa",
+            },
             ProjectType::Tauri => match self {
                 Self::WindowsDev => "Inicia el dev server",
                 Self::AndroidDev => "Dev con target Android",
@@ -207,7 +233,17 @@ impl MenuState {
         ];
 
         let items: Vec<MenuItem> = base.into_iter()
-            .filter(|item| matches!((item, project_type), _))
+            .filter(|item| match project_type {
+                ProjectType::Rust => !matches!(item,
+                    MenuItem::AndroidDev
+                    | MenuItem::AndroidBuildArm64
+                    | MenuItem::AndroidBuildAll
+                    | MenuItem::DebugAndroid
+                    | MenuItem::ConfigureSigning
+                    | MenuItem::ManageKeystore
+                ),
+                _ => true,
+            })
             .collect();
 
         Self {
@@ -341,6 +377,7 @@ fn render_header(frame: &mut Frame, area: Rect, ctx: &ProjectContext) {
         ProjectType::Tauri => ("\u{1f980}", "Code Runner for Rust / Tauri"),
         ProjectType::Flutter => ("\u{1f3af}", "Code Runner for Dart / Flutter"),
         ProjectType::Kotlin => ("\u{1f537}", "Code Runner for Kotlin / KMP"),
+        ProjectType::Rust => ("\u{2699}", "Code Runner for Rust"),
     };
 
     let mut lines = vec![
@@ -514,6 +551,7 @@ pub fn run(ctx: &ProjectContext) -> anyhow::Result<()> {
                 (MenuItem::WindowsDev, ProjectType::Tauri) => tasks::windows::dev(ctx)?,
                 (MenuItem::WindowsDev, ProjectType::Flutter) => tasks::flutter::run_windows(ctx)?,
                 (MenuItem::WindowsDev, ProjectType::Kotlin) => tasks::kotlin::run_windows(ctx)?,
+                (MenuItem::WindowsDev, ProjectType::Rust) => tasks::rust::run(ctx)?,
 
                 (MenuItem::AndroidDev, ProjectType::Tauri) => tasks::android::dev(ctx)?,
                 (MenuItem::AndroidDev, ProjectType::Flutter) => tasks::flutter::run_android(ctx)?,
@@ -522,6 +560,7 @@ pub fn run(ctx: &ProjectContext) -> anyhow::Result<()> {
                 (MenuItem::WindowsBuild, ProjectType::Tauri) => tasks::windows::build(ctx)?,
                 (MenuItem::WindowsBuild, ProjectType::Flutter) => tasks::flutter::build_windows(ctx)?,
                 (MenuItem::WindowsBuild, ProjectType::Kotlin) => tasks::kotlin::build_windows(ctx)?,
+                (MenuItem::WindowsBuild, ProjectType::Rust) => tasks::rust::build(ctx)?,
 
                 (MenuItem::AndroidBuildArm64, ProjectType::Tauri) => tasks::android::build_arm64(ctx)?,
                 (MenuItem::AndroidBuildArm64, ProjectType::Flutter) => tasks::flutter::build_apk(ctx)?,
@@ -558,6 +597,7 @@ pub fn run(ctx: &ProjectContext) -> anyhow::Result<()> {
                 (MenuItem::CleanProject, ProjectType::Tauri) => tasks::cleanup::clean_project(ctx)?,
                 (MenuItem::CleanProject, ProjectType::Flutter) => tasks::flutter::clean(ctx)?,
                 (MenuItem::CleanProject, ProjectType::Kotlin) => tasks::kotlin::clean(ctx)?,
+                (MenuItem::CleanProject, ProjectType::Rust) => tasks::rust::clean(ctx)?,
 
                 (MenuItem::CreateGitignore, _) => tasks::gitignore::create(ctx)?,
                 (MenuItem::InitGit, _) => tasks::git::init(ctx)?,

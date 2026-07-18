@@ -6,6 +6,7 @@ pub mod git;
 pub mod gitignore;
 pub mod keystore;
 pub mod kotlin;
+pub mod rust;
 pub mod signer;
 pub mod terminal;
 pub mod whatsapp;

@@ -172,6 +172,31 @@ fn clean_cache_flutter(ctx: &ProjectContext, aggressive: bool) -> Result<()> {
     Ok(())
 }
 
+fn clean_cache_rust(ctx: &ProjectContext, aggressive: bool) -> Result<()> {
+    if aggressive {
+        println!("[INFO] Limpieza agresiva...\n");
+        let target_dir = ctx.script_dir.join("target");
+        if target_dir.exists() {
+            let size = dir_size(&target_dir);
+            cmd::remove_dir(&target_dir).ok();
+            println!("  [OK] target/ eliminado ({})", format_size(size));
+        }
+        println!("\n[INFO] Ejecutando cargo clean...");
+        cmd::run_in_dir_status("cargo", &["clean"], &ctx.script_dir)?;
+    } else {
+        println!("\n[INFO] Limpieza rápida (target/)...\n");
+        let target_dir = ctx.script_dir.join("target");
+        if target_dir.exists() {
+            let size = dir_size(&target_dir);
+            cmd::remove_dir(&target_dir).ok();
+            println!("  [OK] target/ eliminado ({})", format_size(size));
+        } else {
+            println!("  [--] No hay target/");
+        }
+    }
+    Ok(())
+}
+
 pub fn clean_cache(ctx: &ProjectContext) -> Result<()> {
     cmd::clear_screen();
     println!("╔══════════════════════════════════════════════════╗");
@@ -183,6 +208,7 @@ pub fn clean_cache(ctx: &ProjectContext) -> Result<()> {
         ProjectType::Tauri => ("1. Rápida - Solo limpia builds (Android + Windows)", "2. Agresiva - Limpia TODO (target, node_modules, npm cache, builds)"),
         ProjectType::Flutter => ("1. Rápida - Solo limpia builds (Android + Flutter)", "2. Agresiva - Limpia TODO (build, node_modules, Flutter cache)"),
         ProjectType::Kotlin => ("1. Rápida - Solo limpia builds (Gradle + Kotlin)", "2. Agresiva - Limpia TODO (build, .gradle, node_modules, npm cache)"),
+        ProjectType::Rust => ("1. Rápida - Solo limpia target/", "2. Agresiva - cargo clean + cache"),
     };
 
     let options = vec![opt1, opt2];
@@ -198,6 +224,7 @@ pub fn clean_cache(ctx: &ProjectContext) -> Result<()> {
         ProjectType::Tauri => clean_cache_tauri(ctx, aggressive)?,
         ProjectType::Flutter => clean_cache_flutter(ctx, aggressive)?,
         ProjectType::Kotlin => clean_cache_android_common(ctx, aggressive)?,
+        ProjectType::Rust => clean_cache_rust(ctx, aggressive)?,
     }
 
     println!("\n[OK] Limpieza completada!");
