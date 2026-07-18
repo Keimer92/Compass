@@ -54,6 +54,15 @@ echo Ya puedes usar el comando 'code-runner'
 echo desde cualquier terminal.
 echo.
 
+echo [INFO] Copiando icono al directorio del binario...
+copy /Y "assets\icon\icons8-terminal-64.ico" "%USERPROFILE%\.cargo\bin\" >nul 2>nul
+if errorlevel 1 (
+    echo [WARN] No se pudo copiar el icono.
+) else (
+    echo [OK] Icono copiado.
+)
+echo.
+
 echo [INFO] Configurando menu contextual...
 call "%USERPROFILE%\.cargo\bin\code-runner.exe" --task context-menu-install
 if errorlevel 1 (

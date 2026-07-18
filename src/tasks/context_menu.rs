@@ -2,16 +2,25 @@ use std::io::{self, Write};
 use anyhow::Result;
 use crate::utils::cmd;
 
-fn exe_path() -> String {
-    std::env::current_exe()
-        .ok()
+fn exe_dir() -> Option<std::path::PathBuf> {
+    std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_path_buf()))
+}
+
+fn icon_path() -> String {
+    exe_dir()
+        .map(|d| d.join("icons8-terminal-64.ico"))
         .and_then(|p| p.to_str().map(|s| s.to_string()))
-        .unwrap_or_else(|| "code-runner.exe".to_string())
+        .unwrap_or_else(|| {
+            let home = std::env::var("USERPROFILE").unwrap_or_default();
+            format!("{}\\.cargo\\bin\\icons8-terminal-64.ico", home)
+        })
 }
 
 pub fn install() -> Result<()> {
-    let exe = exe_path();
-    let icon = r"%SystemRoot%\System32\shell32.dll,3";
+    let exe = exe_dir()
+        .and_then(|d| d.join("code-runner.exe").to_str().map(|s| s.to_string()))
+        .unwrap_or_else(|| "code-runner.exe".to_string());
+    let icon = icon_path();
 
     let ps = format!(
         "New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\CodeRunner' -Force | Out-Null; \

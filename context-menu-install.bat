@@ -8,10 +8,8 @@ echo =============================================
 echo.
 
 :: Buscar code-runner en PATH o en la carpeta de Cargo
-where code-runner >nul 2>nul
-if %errorlevel% equ 0 (
-    set "CR=code-runner"
-) else (
+for /f "delims=" %%F in ('where code-runner 2^>nul') do set "CR=%%~F"
+if not defined CR (
     if exist "%USERPROFILE%\.cargo\bin\code-runner.exe" (
         set "CR=%USERPROFILE%\.cargo\bin\code-runner.exe"
     ) else (
@@ -25,6 +23,20 @@ if %errorlevel% equ 0 (
         pause
         exit /b 1
     )
+)
+
+:: Copiar icono junto al binario si existe localmente
+if exist "assets\icon\icons8-terminal-64.ico" (
+    echo [INFO] Copiando icono al directorio del binario...
+    for %%I in ("%CR%") do set "BIN_DIR=%%~dpI"
+    if not defined BIN_DIR set "BIN_DIR=%USERPROFILE%\.cargo\bin\"
+    copy /Y "assets\icon\icons8-terminal-64.ico" "%BIN_DIR%" >nul 2>nul
+    if errorlevel 1 (
+        echo [WARN] No se pudo copiar el icono.
+    ) else (
+        echo [OK] Icono copiado.
+    )
+    echo.
 )
 
 echo [INFO] Ejecutando: "%CR%" --task context-menu-install
