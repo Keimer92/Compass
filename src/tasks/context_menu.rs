@@ -44,13 +44,13 @@ pub fn install() -> Result<()> {
 
     let ps = format!(
         "New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\CodeRunner' -Force | Out-Null; \
-         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\CodeRunner' -Name '(default)' -Value 'Abrir con Code Runner'; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\CodeRunner' -Name '(default)' -Value 'Open with Code Runner'; \
          Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\CodeRunner' -Name 'Icon' -Type String -Value '{icon}'; \
          New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\CodeRunner\\command' -Force | Out-Null; \
          Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\CodeRunner\\command' -Name '(default)' -Value '\"{exe}\" -p \"%1\"'; \
          \
          New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\CodeRunner' -Force | Out-Null; \
-         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\CodeRunner' -Name '(default)' -Value 'Abrir con Code Runner'; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\CodeRunner' -Name '(default)' -Value 'Open with Code Runner'; \
          Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\CodeRunner' -Name 'Icon' -Type String -Value '{icon}'; \
          New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\CodeRunner\\command' -Force | Out-Null; \
          Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\CodeRunner\\command' -Name '(default)' -Value '\"{exe}\" -p \"%W\"'"
@@ -62,10 +62,10 @@ pub fn install() -> Result<()> {
         anyhow::bail!("Error al instalar menú contextual:\n{}", stderr);
     }
 
-    println!("[OK] Menú contextual instalado.");
+    println!("[OK] Menú contextual Code Runner instalado.");
     println!("  Ruta: {exe}");
     println!("  Icono: {icon}");
-    println!("  Haz clic derecho en una carpeta → 'Abrir con Code Runner'");
+    println!("  Haz clic derecho en una carpeta → 'Open with Code Runner'");
     println!();
     println!("[INFO] Si el icono no aparece, intenta:");
     println!("  1. Cerrar sesion y volver a iniciar");
@@ -110,7 +110,7 @@ pub fn install_opencode() -> Result<()> {
         anyhow::bail!("Error al instalar menú OpenCode:\n{}", stderr);
     }
 
-    println!("[OK] Menú contextual OpenCode instalado.");
+    println!("[OK] Menú contextual 'Open with OpenCode' instalado.");
     println!("  Icono: {icon}");
     println!("  Haz clic derecho en una carpeta → 'Open with OpenCode'");
     println!();
@@ -127,7 +127,7 @@ Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\OpenC
 
     let _ = cmd::run("powershell", &["-NoProfile", "-Command", ps]);
 
-    println!("[OK] Menú contextual OpenCode eliminado.");
+    println!("[OK] Menú contextual 'Open with OpenCode' eliminado.");
     Ok(())
 }
 

@@ -44,6 +44,7 @@ set "EXIT_CODE=%errorlevel%"
 echo.
 echo Presiona cualquier tecla para ver el resultado...
 pause >nul
+
 if "%EXIT_CODE%"=="0" (
 echo.
 echo =============================================
@@ -52,6 +53,15 @@ echo =============================================
 echo.
 echo Ya puedes usar el comando 'code-runner'
 echo desde cualquier terminal.
+) else (
+echo.
+echo =============================================
+echo   [WARN] La compilacion tuvo problemas.
+echo =============================================
+echo.
+echo Se usara la version anterior de code-runner
+echo si esta instalada.
+)
 echo.
 
 echo [INFO] Copiando iconos al directorio del binario...
@@ -91,10 +101,6 @@ if errorlevel 1 (
 ) else (
     echo [OK] Menu contextual de OpenCode instalado.
 )
-) else (
-echo.
-echo [ERROR] La instalacion fallo. Revisa los errores arriba.
-echo.
-)
+
 pause
 exit /b %EXIT_CODE%

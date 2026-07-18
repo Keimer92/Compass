@@ -74,7 +74,7 @@ echo     [OK] Menus contextuales instalados!
 echo =============================================
 echo.
 echo  - Haz clic derecho en una carpeta
-echo    → "Abrir con Code Runner"
+echo    → "Open with Code Runner"
 echo    → "Open with OpenCode"
 echo.
 echo Para cambiar iconos, coloca estos archivos
