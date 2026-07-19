@@ -2,7 +2,7 @@ use std::io::{self, Write};
 use anyhow::Result;
 use indicatif::{ProgressBar, ProgressStyle};
 
-use crate::utils::{cmd, context::ProjectContext};
+use crate::utils::{android as android_utils, cmd, context::ProjectContext};
 
 fn gradlew_cmd(args: &str) -> String {
     if cfg!(windows) {
@@ -41,10 +41,19 @@ pub fn run_windows(ctx: &ProjectContext) -> Result<()> {
 pub fn run_android(ctx: &ProjectContext) -> Result<()> {
     ensure_gradle(ctx)?;
 
+    let device = android_utils::select_device(ctx)?;
+    let serial = &device.serial;
+
+    let cmd = format!(
+        "$env:ANDROID_SERIAL='{}'; {}",
+        serial,
+        gradlew_cmd(":composeApp:installDebug"),
+    );
+
     cmd::spawn_new_window(
         "KMP Android (Run)",
         &ctx.script_dir,
-        &gradlew_cmd(":composeApp:installDebug"),
+        &cmd,
     )?;
 
     Ok(())

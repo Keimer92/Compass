@@ -122,6 +122,7 @@ fn run_task_direct(ctx: &crate::utils::context::ProjectContext, task: &str) -> R
             crate::utils::context::ProjectType::Kotlin => tasks::android::configure_signing(ctx),
             crate::utils::context::ProjectType::Rust => anyhow::bail!("No aplicable a proyectos Rust"),
         },
+        "launch-emulator" => tasks::android::launch(ctx),
         "whatsapp" => tasks::whatsapp::build(ctx),
         "terminal" => tasks::terminal::configure(ctx),
         _ => anyhow::bail!("Tarea desconocida: '{}'. Usa --help para ver las opciones.", task),

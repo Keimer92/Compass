@@ -1,5 +1,6 @@
 use std::io::{self, stdout};
 
+use anyhow::Context;
 use crossterm::{
     event::{
         DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, MouseButton,
@@ -17,8 +18,8 @@ use ratatui::{
     Frame, Terminal,
 };
 
-use crate::tasks;
-use crate::utils::{cmd, context::{ProjectContext, ProjectType}};
+use crate::utils::cmd;
+use crate::utils::context::{ProjectContext, ProjectType};
 
 const COLS: usize = 3;
 const CARD_W: u16 = 24;
@@ -32,6 +33,7 @@ pub enum MenuItem {
     WindowsBuild,
     AndroidBuildArm64,
     AndroidBuildAll,
+    LaunchEmulator,
     // MNT section
     CleanCache,
     DebugAndroid,
@@ -55,6 +57,7 @@ impl MenuItem {
             Self::WindowsBuild => "\u{1f4e6}",
             Self::AndroidBuildArm64 => "\u{1f680}",
             Self::AndroidBuildAll => "\u{1f680}",
+            Self::LaunchEmulator => "\u{1f4f1}",
             Self::CleanCache => "\u{1f9f9}",
             Self::DebugAndroid => "\u{1f50d}",
             Self::ConfigureSigning => "\u{1f511}",
@@ -71,7 +74,7 @@ impl MenuItem {
 
     fn section(&self) -> &str {
         match self {
-            Self::WindowsDev | Self::AndroidDev | Self::WindowsBuild | Self::AndroidBuildArm64 | Self::AndroidBuildAll => "DEV",
+            Self::WindowsDev | Self::AndroidDev | Self::WindowsBuild | Self::AndroidBuildArm64 | Self::AndroidBuildAll | Self::LaunchEmulator => "DEV",
             Self::CleanCache | Self::DebugAndroid | Self::ConfigureSigning | Self::CleanProject => "MNT",
             Self::CreateGitignore | Self::InitGit | Self::ManageKeystore | Self::BuildWhatsApp | Self::ConfigureTerminal | Self::ContextMenu => "CFG",
             Self::Exit => "",
@@ -101,6 +104,7 @@ impl MenuItem {
                 ProjectType::Kotlin => "AAB",
                 ProjectType::Rust => "",
             },
+            Self::LaunchEmulator => "Emulator",
             Self::CleanCache => "Clean Cache",
             Self::DebugAndroid => "Debug Andr",
             Self::ConfigureSigning => "Configure",
@@ -139,6 +143,7 @@ impl MenuItem {
                 Self::CreateGitignore => "Crea .gitignore",
                 Self::InitGit => "Git init + commit",
                 Self::ManageKeystore => "",
+                Self::LaunchEmulator => "",
                 Self::BuildWhatsApp => "Compila WhatsApp",
                 Self::ConfigureTerminal => "Autocompletado",
                 Self::ContextMenu => "Menu contextual",
@@ -157,6 +162,7 @@ impl MenuItem {
                 Self::CreateGitignore => "Crea .gitignore",
                 Self::InitGit => "Git init + commit",
                 Self::ManageKeystore => "Administra llaves",
+                Self::LaunchEmulator => "Lanza emulador",
                 Self::BuildWhatsApp => "Compila WhatsApp",
                 Self::ConfigureTerminal => "Autocompletado",
                 Self::ContextMenu => "Menu contextual",
@@ -175,6 +181,7 @@ impl MenuItem {
                 Self::CreateGitignore => "Crea .gitignore",
                 Self::InitGit => "Git init + commit",
                 Self::ManageKeystore => "Administrar firmas",
+                Self::LaunchEmulator => "Lanza emulador",
                 Self::BuildWhatsApp => "Compila WhatsApp",
                 Self::ConfigureTerminal => "Autocompletado",
                 Self::ContextMenu => "Menu contextual",
@@ -192,6 +199,7 @@ impl MenuItem {
                 Self::CleanProject => "Limpia proyecto",
                 Self::CreateGitignore => "Crea .gitignore",
                 Self::InitGit => "Git init + commit",
+                Self::LaunchEmulator => "Lanza emulador",
                 Self::ManageKeystore => "Administrar firmas",
                 Self::BuildWhatsApp => "Compila WhatsApp",
                 Self::ConfigureTerminal => "Autocompletado",
@@ -219,6 +227,7 @@ impl MenuState {
             MenuItem::WindowsBuild,
             MenuItem::AndroidBuildArm64,
             MenuItem::AndroidBuildAll,
+            MenuItem::LaunchEmulator,
             MenuItem::CleanCache,
             MenuItem::DebugAndroid,
             MenuItem::ConfigureSigning,
@@ -238,6 +247,7 @@ impl MenuState {
                     MenuItem::AndroidDev
                     | MenuItem::AndroidBuildArm64
                     | MenuItem::AndroidBuildAll
+                    | MenuItem::LaunchEmulator
                     | MenuItem::DebugAndroid
                     | MenuItem::ConfigureSigning
                     | MenuItem::ManageKeystore
@@ -529,9 +539,55 @@ fn handle_event(state: &mut MenuState, ctx: &ProjectContext) -> anyhow::Result<O
     }
 }
 
+fn menu_item_to_task(item: MenuItem, ptype: ProjectType) -> &'static str {
+    match (item, ptype) {
+        (MenuItem::WindowsDev, ProjectType::Tauri) => "windows-dev",
+        (MenuItem::WindowsDev, ProjectType::Flutter) => "windows-dev",
+        (MenuItem::WindowsDev, ProjectType::Kotlin) => "windows-dev",
+        (MenuItem::WindowsDev, ProjectType::Rust) => "windows-dev",
+
+        (MenuItem::AndroidDev, _) => "android-dev",
+
+        (MenuItem::WindowsBuild, _) => "windows-build",
+
+        (MenuItem::AndroidBuildArm64, ProjectType::Tauri) => "android-arm64",
+        (MenuItem::AndroidBuildArm64, ProjectType::Flutter) => "android-arm64",
+        (MenuItem::AndroidBuildArm64, ProjectType::Kotlin) => "android-arm64",
+
+        (MenuItem::AndroidBuildAll, ProjectType::Tauri) => "android-all",
+        (MenuItem::AndroidBuildAll, ProjectType::Flutter) => "android-all",
+        (MenuItem::AndroidBuildAll, ProjectType::Kotlin) => "android-all",
+
+        (MenuItem::LaunchEmulator, _) => "launch-emulator",
+
+        (MenuItem::CleanCache, _) => "clean-cache",
+
+        (MenuItem::DebugAndroid, _) => "debug-android",
+
+        (MenuItem::ConfigureSigning, _) => "sign",
+
+        (MenuItem::CleanProject, _) => "clean-project",
+
+        (MenuItem::CreateGitignore, _) => "gitignore",
+        (MenuItem::InitGit, _) => "git-init",
+
+        (MenuItem::ManageKeystore, _) => "keystore",
+
+        (MenuItem::BuildWhatsApp, _) => "whatsapp",
+        (MenuItem::ConfigureTerminal, _) => "terminal",
+        (MenuItem::ContextMenu, _) => "context-menu",
+
+        _ => unreachable!(),
+    }
+}
+
 pub fn run(ctx: &ProjectContext) -> anyhow::Result<()> {
     let mut terminal = setup_terminal()?;
     let mut state = MenuState::new(ctx.project_type);
+
+    let exe_path = std::env::current_exe()
+        .context("No se pudo determinar la ruta del ejecutable")?;
+    let project_path = &ctx.script_dir;
 
     loop {
         terminal.draw(|f| draw_menu(f, &mut state, ctx))?;
@@ -544,84 +600,21 @@ pub fn run(ctx: &ProjectContext) -> anyhow::Result<()> {
                 std::process::exit(0);
             }
 
-            restore_terminal(&mut terminal)?;
-            cmd::clear_screen();
+            let task = menu_item_to_task(item, ctx.project_type);
+            let command = format!(
+                "& '{}' --task {} --path '{}'; Write-Host ''; Write-Host 'Presiona Enter para cerrar...'; Read-Host",
+                exe_path.display(),
+                task,
+                project_path.display(),
+            );
 
-            match (item, ctx.project_type) {
-                (MenuItem::WindowsDev, ProjectType::Tauri) => tasks::windows::dev(ctx)?,
-                (MenuItem::WindowsDev, ProjectType::Flutter) => tasks::flutter::run_windows(ctx)?,
-                (MenuItem::WindowsDev, ProjectType::Kotlin) => tasks::kotlin::run_windows(ctx)?,
-                (MenuItem::WindowsDev, ProjectType::Rust) => tasks::rust::run(ctx)?,
-
-                (MenuItem::AndroidDev, ProjectType::Tauri) => tasks::android::dev(ctx)?,
-                (MenuItem::AndroidDev, ProjectType::Flutter) => tasks::flutter::run_android(ctx)?,
-                (MenuItem::AndroidDev, ProjectType::Kotlin) => tasks::kotlin::run_android(ctx)?,
-
-                (MenuItem::WindowsBuild, ProjectType::Tauri) => tasks::windows::build(ctx)?,
-                (MenuItem::WindowsBuild, ProjectType::Flutter) => tasks::flutter::build_windows(ctx)?,
-                (MenuItem::WindowsBuild, ProjectType::Kotlin) => tasks::kotlin::build_windows(ctx)?,
-                (MenuItem::WindowsBuild, ProjectType::Rust) => tasks::rust::build(ctx)?,
-
-                (MenuItem::AndroidBuildArm64, ProjectType::Tauri) => tasks::android::build_arm64(ctx)?,
-                (MenuItem::AndroidBuildArm64, ProjectType::Flutter) => tasks::flutter::build_apk(ctx)?,
-                (MenuItem::AndroidBuildArm64, ProjectType::Kotlin) => tasks::kotlin::build_apk(ctx)?,
-
-                (MenuItem::AndroidBuildAll, ProjectType::Tauri) => tasks::android::build_all(ctx)?,
-                (MenuItem::AndroidBuildAll, ProjectType::Flutter) => tasks::flutter::build_aab(ctx)?,
-                (MenuItem::AndroidBuildAll, ProjectType::Kotlin) => tasks::kotlin::build_aab(ctx)?,
-
-                (MenuItem::CleanCache, _) => tasks::cleanup::clean_cache(ctx)?,
-
-                (MenuItem::DebugAndroid, ProjectType::Tauri) => tasks::android::debug(ctx)?,
-                (MenuItem::DebugAndroid, ProjectType::Flutter) => {
-                    cmd::clear_screen();
-                    println!("╔══════════════════════════════════════════════════╗");
-                    println!("║         DEPURAR ANDROID (FLUTTER)                ║");
-                    println!("╚══════════════════════════════════════════════════╝");
-                    println!("[INFO] Ejecuta en otra terminal:");
-                    println!("  flutter run --debug");
-                    pause();
-                }
-                (MenuItem::DebugAndroid, ProjectType::Kotlin) => {
-                    cmd::clear_screen();
-                    println!("╔══════════════════════════════════════════════════╗");
-                    println!("║         DEPURAR ANDROID (KMP)                   ║");
-                    println!("╚══════════════════════════════════════════════════╝");
-                    println!("[INFO] Ejecuta en otra terminal:");
-                    println!("  ./gradlew :composeApp:installDebug");
-                    pause();
-                }
-
-                (MenuItem::ConfigureSigning, _) => tasks::android::configure_signing(ctx)?,
-
-                (MenuItem::CleanProject, ProjectType::Tauri) => tasks::cleanup::clean_project(ctx)?,
-                (MenuItem::CleanProject, ProjectType::Flutter) => tasks::flutter::clean(ctx)?,
-                (MenuItem::CleanProject, ProjectType::Kotlin) => tasks::kotlin::clean(ctx)?,
-                (MenuItem::CleanProject, ProjectType::Rust) => tasks::rust::clean(ctx)?,
-
-                (MenuItem::CreateGitignore, _) => tasks::gitignore::create(ctx)?,
-                (MenuItem::InitGit, _) => tasks::git::init(ctx)?,
-
-                (MenuItem::ManageKeystore, ProjectType::Tauri) => tasks::keystore::manage(ctx)?,
-                (MenuItem::ManageKeystore, ProjectType::Flutter) => tasks::android::configure_signing(ctx)?,
-                (MenuItem::ManageKeystore, ProjectType::Kotlin) => tasks::android::configure_signing(ctx)?,
-
-                (MenuItem::BuildWhatsApp, _) => tasks::whatsapp::build(ctx)?,
-                (MenuItem::ConfigureTerminal, _) => tasks::terminal::configure(ctx)?,
-                (MenuItem::ContextMenu, _) => tasks::context_menu::toggle()?,
-
-                _ => unreachable!(),
-            }
-
-            terminal = setup_terminal()?;
+            cmd::spawn_new_window(
+                &format!("Code Runner - {}", task),
+                project_path,
+                &command,
+            )?;
         }
     }
 }
 
-fn pause() {
-    use std::io::{self, Write};
-    print!("\nPresiona Enter para continuar...");
-    io::stdout().flush().ok();
-    let mut _input = String::new();
-    io::stdin().read_line(&mut _input).ok();
-}
+

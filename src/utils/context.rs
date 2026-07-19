@@ -23,6 +23,7 @@ pub struct ProjectContext {
     pub script_dir: PathBuf,
     pub project_type: ProjectType,
     pub android_home: Option<PathBuf>,
+    pub emulator_path: Option<PathBuf>,
     pub ndk_home: Option<PathBuf>,
     pub adb_path: Option<PathBuf>,
     pub sdk_manager: Option<PathBuf>,
@@ -43,6 +44,7 @@ impl ProjectContext {
 pub fn detect() -> Result<ProjectContext> {
     let (script_dir, project_type) = detect_project_root()?;
     let android_home = detect_android_home();
+    let emulator_path = detect_emulator_path(&android_home);
     let ndk_home = android_home.as_ref().map(|a| a.join("ndk\\27.0.12077973"));
     let adb_path = android_home.as_ref().map(|a| a.join("platform-tools\\adb.exe"));
     let sdk_manager = android_home.as_ref().map(|a| a.join("cmdline-tools\\latest\\bin\\sdkmanager.bat"));
@@ -59,6 +61,7 @@ pub fn detect() -> Result<ProjectContext> {
         script_dir,
         project_type,
         android_home,
+        emulator_path,
         ndk_home,
         adb_path,
         sdk_manager,
@@ -95,6 +98,20 @@ fn detect_project_root() -> Result<(PathBuf, ProjectType)> {
         "No se encontró un proyecto Tauri, Flutter/Dart, Kotlin Multiplatform o Rust en este directorio ni en sus padres.\n\
          Asegúrate de ejecutar este comando dentro de la raíz de un proyecto válido."
     );
+}
+
+/// Detecta la ruta del emulator.exe desde ANDROID_HOME o desde rutas fijas.
+fn detect_emulator_path(android_home: &Option<PathBuf>) -> Option<PathBuf> {
+    let candidates = [
+        android_home.as_ref().map(|h| h.join("emulator\\emulator.exe")),
+        Some(PathBuf::from("E:\\SDKs\\Android\\emulator\\emulator.exe")),
+    ];
+    for c in candidates.iter().flatten() {
+        if c.exists() {
+            return Some(c.clone());
+        }
+    }
+    None
 }
 
 fn detect_android_home() -> Option<PathBuf> {

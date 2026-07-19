@@ -81,12 +81,14 @@ tasks/
 | AndroidBuildAll | `android::build_all` | `flutter::build_aab` | `kotlin::build_aab` | oculto |
 | CleanCache | `cleanup::clean_cache` | `cleanup::clean_cache` | `cleanup::clean_cache` | `cleanup::clean_cache` |
 | DebugAndroid | `android::debug` | mensaje info | mensaje info | oculto |
+| LaunchEmulator | `android::launch` | `android::launch` | `android::launch` | oculto |
 | ConfigureSigning | `android::configure_signing` | `android::configure_signing` | `android::configure_signing` | oculto |
 | CleanProject | `cleanup::clean_project` | `flutter::clean` | `kotlin::clean` | `rust::clean` |
 | CreateGitignore | `gitignore::create` | `gitignore::create` | `gitignore::create` | `gitignore::create` |
 | InitGit | `git::init` | `git::init` | `git::init` | `git::init` |
 | ManageKeystore | `keystore::manage` | `android::configure_signing` | `android::configure_signing` | oculto |
 | BuildWhatsApp | `whatsapp::build` | `whatsapp::build` | `whatsapp::build` | `whatsapp::build` |
+| LaunchEmulator | `android::launch` | `android::launch` | `android::launch` | oculto |
 | ConfigureTerminal | `terminal::configure` | `terminal::configure` | `terminal::configure` | `terminal::configure` |
 | InstallContextMenu | `context_menu::toggle` | `context_menu::toggle` | `context_menu::toggle` | `context_menu::toggle` |
 | Exit | `process::exit(0)` | `process::exit(0)` | `process::exit(0)` | `process::exit(0)` |
@@ -168,6 +170,9 @@ Los comandos de Gradle se ejecutan como `cmd /c gradlew.bat <args>` porque Power
 
 ### Directory removal (Windows)
 `cmd::remove_dir()` usa `powershell Remove-Item -Recurse -Force` para rutas largas que `std::fs::remove_dir_all` no puede manejar.
+
+### TUI Menu — Ventana separada
+Todas las tareas del menú TUI se lanzan en una **nueva ventana PowerShell** ejecutando `code-runner --task <task> --path "<proyecto>"`. El menú principal permanece abierto. La ventana secundaria se cierra al presionar Enter.
 
 ### CLI directo (sin TUI)
 ```bash

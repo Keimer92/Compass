@@ -3,7 +3,7 @@ use std::io::{self, Write};
 use anyhow::{Context, Result};
 use inquire::Select;
 
-use crate::utils::{cmd, context::ProjectContext};
+use crate::utils::{android as android_utils, cmd, context::ProjectContext};
 use crate::tasks::signer;
 
 fn ensure_node_modules(ctx: &ProjectContext) -> Result<()> {
@@ -102,39 +102,6 @@ fn clear_arch_env() {
     env::remove_var("ORG_GRADLE_PROJECT_targetList");
 }
 
-fn list_devices(ctx: &ProjectContext) -> Result<String> {
-    if let Some(adb) = &ctx.adb_path {
-        let output = cmd::run(adb.to_str().unwrap(), &["devices", "-l"])?;
-        let stdout = String::from_utf8_lossy(&output.stdout);
-
-        let devices: Vec<String> = stdout.lines()
-            .skip(1)
-            .filter(|l| !l.trim().is_empty() && !l.contains("offline") && l.contains("device"))
-            .map(|l| l.trim().to_string())
-            .collect();
-
-        if devices.is_empty() {
-            anyhow::bail!(
-                "No hay dispositivos Android conectados.\n\
-                 Conecta USB con depuración activada."
-            );
-        }
-
-        println!("\nDispositivos disponibles:");
-        for (i, d) in devices.iter().enumerate() {
-            println!("  {}. {}", i + 1, d);
-        }
-        println!();
-
-        let selection = Select::new("Selecciona un dispositivo:", devices.clone())
-            .prompt()?;
-
-        Ok(selection)
-    } else {
-        anyhow::bail!("ADB no encontrado.");
-    }
-}
-
 fn get_pc_ip() -> String {
     let output = cmd::run("ipconfig", &[]);
     if let Ok(o) = output {
@@ -160,7 +127,7 @@ pub fn dev(ctx: &ProjectContext) -> Result<()> {
     ensure_ndk(ctx)?;
     ensure_rust_targets()?;
 
-    let selected_device = list_devices(ctx)?;
+    let selected_device = android_utils::select_device(ctx)?;
     let pc_ip = get_pc_ip();
 
     println!();
@@ -174,7 +141,7 @@ pub fn dev(ctx: &ProjectContext) -> Result<()> {
     println!("   New-NetFirewallRule -DisplayName \"Vite Dev\" -Direction Inbound -LocalPort 1420 -Protocol TCP -Action Allow");
     println!("==============================================");
     println!();
-    println!("[OK] Seleccionado: {}", selected_device);
+    println!("[OK] Seleccionado: {}", selected_device.serial);
     println!();
 
     println!("[INFO] Iniciando servidor Vite y Android...");
@@ -258,6 +225,46 @@ pub fn debug(_ctx: &ProjectContext) -> Result<()> {
 
 pub fn configure_signing(ctx: &ProjectContext) -> Result<()> {
     signer::create_or_import(ctx)?;
+    Ok(())
+}
+
+pub fn launch(ctx: &ProjectContext) -> Result<()> {
+    cmd::clear_screen();
+    println!("╔══════════════════════════════════════════════════╗");
+    println!("║         LANZAR EMULADOR ANDROID                 ║");
+    println!("╚══════════════════════════════════════════════════╝");
+
+    let emu_path = ctx.emulator_path.as_ref()
+        .context("[ERROR] No se encontró emulator.exe en E:\\SDKs\\Android ni en ANDROID_HOME.")?;
+
+    let avds = android_utils::list_avds(emu_path)?;
+
+    if avds.is_empty() {
+        anyhow::bail!("No hay AVDs creados. Créalos con Android Studio: Tools > AVD Manager.");
+    }
+
+    let selected_avd = if avds.len() == 1 {
+        let name = &avds[0];
+        println!("[INFO] Único AVD detectado: {}", name);
+        name.clone()
+    } else {
+        let prompt = format!("Selecciona un AVD ({} disponibles):", avds.len());
+        Select::new(&prompt, avds).prompt()?
+    };
+
+    println!("[OK] AVD seleccionado: {}", selected_avd);
+    println!();
+
+    android_utils::launch_emulator(emu_path, &selected_avd)?;
+
+    if let Some(adb) = &ctx.adb_path {
+        let serial = android_utils::wait_for_emulator_serial(adb, 120)?;
+        android_utils::wait_for_emulator_boot(adb, &serial, 120)?;
+    }
+
+    println!();
+    println!("[OK] Emulador listo para pruebas!");
+    pause();
     Ok(())
 }
 

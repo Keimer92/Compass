@@ -1,13 +1,12 @@
 use crate::utils::{cmd, context::ProjectContext};
 use anyhow::Result;
-use indicatif::{ProgressBar, ProgressStyle};
 
 pub fn dev(ctx: &ProjectContext) -> Result<()> {
-    let pb = ProgressBar::new_spinner();
-    pb.set_style(ProgressStyle::default_spinner().template("{spinner} {msg}")?);
-    pb.set_message("Iniciando desarrollo en Windows...");
+    if !ctx.has_node_modules {
+        println!("[INFO] node_modules no encontrado. Ejecutando npm install...");
+        cmd::run_npm_install(&ctx.script_dir)?;
+    }
 
-    pb.finish_and_clear();
     println!("\n[INFO] Iniciando desarrollo en Windows...");
     println!("[INFO] Servidor: http://localhost:1420\n");
 
@@ -21,6 +20,11 @@ pub fn dev(ctx: &ProjectContext) -> Result<()> {
 }
 
 pub fn build(ctx: &ProjectContext) -> Result<()> {
+    if !ctx.has_node_modules {
+        println!("[INFO] node_modules no encontrado. Ejecutando npm install...");
+        cmd::run_npm_install(&ctx.script_dir)?;
+    }
+
     println!("\n[INFO] Compilando Windows (Release)...\n");
 
     cmd::spawn_new_window(

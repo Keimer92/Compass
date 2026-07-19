@@ -2,7 +2,7 @@ use std::io::{self, Write};
 use anyhow::Result;
 use indicatif::{ProgressBar, ProgressStyle};
 
-use crate::utils::{cmd, context::ProjectContext};
+use crate::utils::{android as android_utils, cmd, context::ProjectContext};
 
 pub fn run_windows(ctx: &ProjectContext) -> Result<()> {
     ensure_pubget(ctx)?;
@@ -20,10 +20,13 @@ pub fn run_windows(ctx: &ProjectContext) -> Result<()> {
 pub fn run_android(ctx: &ProjectContext) -> Result<()> {
     ensure_pubget(ctx)?;
 
+    let device = android_utils::select_device(ctx)?;
+    let serial = &device.serial;
+
     cmd::spawn_new_window(
         "Flutter Android (Dev)",
         &ctx.script_dir,
-        "flutter run",
+        &format!("flutter run -d {}", serial),
     )?;
 
     Ok(())
