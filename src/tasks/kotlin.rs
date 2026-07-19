@@ -38,16 +38,50 @@ pub fn run_windows(ctx: &ProjectContext) -> Result<()> {
     Ok(())
 }
 
+fn extract_namespace(project_dir: &std::path::Path) -> Option<String> {
+    let paths = [
+        project_dir.join("composeApp/build.gradle.kts"),
+        project_dir.join("composeApp/build.gradle"),
+    ];
+    for p in &paths {
+        if let Ok(content) = std::fs::read_to_string(p) {
+            for line in content.lines() {
+                let trimmed = line.trim();
+                if let Some(ns) = trimmed.strip_prefix("namespace = ") {
+                    return Some(ns.trim_matches('"').to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
 pub fn run_android(ctx: &ProjectContext) -> Result<()> {
     ensure_gradle(ctx)?;
 
     let device = android_utils::select_device(ctx)?;
     let serial = &device.serial;
 
+    let adb_path = ctx
+        .adb_path
+        .as_ref()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|| "adb".to_string());
+
+    let namespace = extract_namespace(&ctx.script_dir)
+        .unwrap_or_else(|| "com.example.app".to_string());
+
     let cmd = format!(
-        "$env:ANDROID_SERIAL='{}'; {}",
+        "$env:ANDROID_SERIAL='{}'; \
+         {}; \
+         if ($LASTEXITCODE -eq 0) {{ \
+             Write-Host '[OK] Abriendo aplicacion...'; \
+             & '{}' shell am start -n '{}/.MainActivity' \
+         }}",
         serial,
         gradlew_cmd(":composeApp:installDebug"),
+        adb_path,
+        namespace,
     );
 
     cmd::spawn_new_window(
