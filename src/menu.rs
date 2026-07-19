@@ -602,13 +602,13 @@ pub fn run(ctx: &ProjectContext) -> anyhow::Result<()> {
 
             let task = menu_item_to_task(item, ctx.project_type);
             let command = format!(
-                "& '{}' --task {} --path '{}'; Write-Host ''; Write-Host 'Presiona Enter para cerrar...'; Read-Host",
+                "& '{}' --task {} --path '{}'",
                 exe_path.display(),
                 task,
                 project_path.display(),
             );
 
-            cmd::spawn_new_window(
+            cmd::spawn_new_window_autoexit(
                 &format!("Code Runner - {}", task),
                 project_path,
                 &command,

@@ -111,6 +111,32 @@ pub fn spawn_new_window(title: &str, dir: &std::path::Path, command: &str) -> Re
     Ok(())
 }
 
+/// Igual que spawn_new_window pero sin -NoExit (la ventana se cierra al terminar).
+pub fn spawn_new_window_autoexit(title: &str, dir: &std::path::Path, command: &str) -> Result<()> {
+    let ps_command = format!(
+        "$host.UI.RawUI.WindowTitle = '{}'; Set-Location '{}'; {}",
+        title,
+        dir.display(),
+        command
+    );
+    #[cfg(windows)]
+    {
+        Command::new("powershell")
+            .creation_flags(CREATE_NEW_CONSOLE)
+            .args(["-Command", &ps_command])
+            .spawn()
+            .context("No se pudo abrir nueva ventana de PowerShell")?;
+    }
+    #[cfg(not(windows))]
+    {
+        Command::new("powershell")
+            .args(["-Command", &ps_command])
+            .spawn()
+            .context("No se pudo abrir nueva ventana de PowerShell")?;
+    }
+    Ok(())
+}
+
 /// Elimina un directorio recursivamente manejando rutas largas en Windows.
 /// En Windows usa PowerShell (Remove-Item -LiteralPath -Recurse -Force)
 /// que soporta rutas de más de 260 caracteres.
