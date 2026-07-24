@@ -174,6 +174,9 @@ Los comandos de Gradle se ejecutan como `cmd /c gradlew.bat <args>` porque Power
 ### TUI Menu — Ventana separada
 Todas las tareas del menú TUI se lanzan en una **nueva ventana PowerShell** ejecutando `code-runner --task <task> --path "<proyecto>"`. El menú principal permanece abierto. La ventana secundaria se cierra al presionar Enter.
 
+### Android HMR (Hot Module Replacement)
+`android::dev()` detecta automáticamente si el dispositivo seleccionado es un **emulador** (usa `10.0.2.2`) o un **dispositivo físico** (detecta IP LAN). Crea un override temporal `src-tauri/.code-runner-config.json` con la `devUrl` correcta y lanza `npx tauri android dev --config <override>`. El servidor Vite se inicia con `TAURI_DEV_HOST` para que el WebSocket de HMR apunte al host correcto.
+
 ### CLI directo (sin TUI)
 ```bash
 code-runner --task windows-dev

@@ -1,5 +1,7 @@
 use std::env;
 use std::io::{self, Write};
+use std::path::Path;
+
 use anyhow::{Context, Result};
 use inquire::Select;
 
@@ -117,6 +119,37 @@ fn get_pc_ip() -> String {
     "No detectada".to_string()
 }
 
+fn tauri_config_dir(ctx: &ProjectContext) -> Option<std::path::PathBuf> {
+    let candidates = [
+        ctx.script_dir.join("src-tauri/tauri.conf.json"),
+        ctx.script_dir.join("tauri.conf.json"),
+    ];
+    for c in &candidates {
+        if c.exists() {
+            return Some(c.parent().unwrap().to_path_buf());
+        }
+    }
+    None
+}
+
+fn dev_host_for_device(device: &android_utils::Device) -> String {
+    match &device.kind {
+        android_utils::DeviceKind::Emulator { .. } => "10.0.2.2".to_string(),
+        android_utils::DeviceKind::Physical => get_pc_ip(),
+    }
+}
+
+fn create_tauri_config_override(ctx: &ProjectContext, dev_url: &str) -> Result<String> {
+    let content = format!(r#"{{ "build": {{ "devUrl": "{}" }} }}"#, dev_url);
+    let gen_dir = ctx.script_dir.join("src-tauri\\gen\\android");
+    std::fs::create_dir_all(&gen_dir)
+        .context("No se pudo crear src-tauri/gen/android")?;
+    let config_path = gen_dir.join("tauri.android.dev.json");
+    std::fs::write(&config_path, &content)
+        .with_context(|| format!("No se pudo escribir {}", config_path.display()))?;
+    Ok(config_path.display().to_string())
+}
+
 pub fn dev(ctx: &ProjectContext) -> Result<()> {
     ensure_node_modules(ctx)?;
     ctx.assert_android_sdk()?;
@@ -128,31 +161,37 @@ pub fn dev(ctx: &ProjectContext) -> Result<()> {
     ensure_rust_targets()?;
 
     let selected_device = android_utils::select_device(ctx)?;
+    let dev_host = dev_host_for_device(&selected_device);
     let pc_ip = get_pc_ip();
 
+    let target_url = format!("http://{}:1420", dev_host);
+
     println!();
     println!("==============================================");
-    println!("[INFO] IMPORTANTE PARA DISPOSITIVO FÍSICO:");
+    println!("[INFO] Android HMR activado");
+    println!("  Dispositivo : {}", selected_device.serial);
+    println!("  Dev URL     : {}", target_url);
     println!("==============================================");
-    println!("1. Asegúrate que el firewall permita el puerto 1420");
-    println!("2. La PC y el dispositivo deben estar en la misma red");
-    println!("3. IP de tu PC: {}", pc_ip);
-    println!("4. Si falla, ejecuta en PowerShell (como Admin):");
-    println!("   New-NetFirewallRule -DisplayName \"Vite Dev\" -Direction Inbound -LocalPort 1420 -Protocol TCP -Action Allow");
+    if matches!(selected_device.kind, android_utils::DeviceKind::Physical) {
+        println!("1. Asegúrate que el firewall permita el puerto 1420");
+        println!("2. La PC y el dispositivo deben estar en la misma red");
+        println!("3. IP de tu PC: {}", pc_ip);
+        println!("4. Si falla, ejecuta en PowerShell (como Admin):");
+        println!("   New-NetFirewallRule -DisplayName \"Vite Dev\" -Direction Inbound -LocalPort 1420 -Protocol TCP -Action Allow");
+    }
     println!("==============================================");
-    println!();
-    println!("[OK] Seleccionado: {}", selected_device.serial);
     println!();
 
-    println!("[INFO] Iniciando servidor Vite y Android...");
+    println!("[INFO] Creando config override en src-tauri/gen/android/tauri.android.dev.json ...");
+    let config_path = create_tauri_config_override(ctx, &target_url)?;
 
-    cmd::spawn_new_window("Vite Dev Server", &ctx.script_dir, "npm run dev")?;
-    std::thread::sleep(std::time::Duration::from_secs(5));
-    cmd::spawn_new_window(
-        "Tauri Android (Dev)",
-        &ctx.script_dir,
-        "npx tauri android dev",
-    )?;
+    println!("[INFO] Iniciando Tauri Android Dev con HMR...");
+    let ps_cmd = format!(
+        "$env:TAURI_DEV_HOST='{}'; npx tauri android dev --config \"{}\" --no-dev-server-wait",
+        dev_host, config_path,
+    );
+
+    cmd::spawn_new_window("Tauri Android HMR", &ctx.script_dir, &ps_cmd)?;
 
     Ok(())
 }
@@ -200,24 +239,69 @@ pub fn build_all(ctx: &ProjectContext) -> Result<()> {
     Ok(())
 }
 
-pub fn debug(_ctx: &ProjectContext) -> Result<()> {
+pub fn debug(ctx: &ProjectContext) -> Result<()> {
     cmd::clear_screen();
     println!("╔══════════════════════════════════════════════════╗");
     println!("║         DEPURADOR DE CHROME (Android)            ║");
     println!("╚══════════════════════════════════════════════════╝");
-    println!("[INFO] La URL chrome://inspect/#devices ha sido copiada al portapapeles.");
-    println!("[INFO] 1. Abre Chrome (o Edge).");
-    println!("[INFO] 2. Pega la URL en la barra de direcciones (Ctrl+V).");
-    println!("[INFO] 3. Haz clic en inspect bajo tu dispositivo.");
+
+    let adb = ctx.adb_path.as_ref()
+        .context("[ERROR] ADB no encontrado. Verifica ANDROID_HOME.")?;
+    let adb_str = adb.to_str().unwrap();
+
+    println!("[1/4] Reiniciando servidor ADB...");
+    cmd::run(adb_str, &["kill-server"]).ok();
+    std::thread::sleep(std::time::Duration::from_secs(1));
+    cmd::run(adb_str, &["start-server"])?;
+    std::thread::sleep(std::time::Duration::from_secs(2));
+
+    println!("[2/4] Buscando dispositivos...");
+    let output = cmd::run(adb_str, &["devices", "-l"])?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    println!("{}", stdout);
+
+    let has_device = stdout.lines().skip(1).any(|l| {
+        let t = l.trim();
+        !t.is_empty() && t.contains("device") && !t.contains("offline")
+    });
+
+    if !has_device {
+        println!("\n[WARNING] Ningún dispositivo Android detectado.");
+        println!("  Asegúrate que el emulador esté encendido o el dispositivo físico conectado.");
+        println!("  Luego abre chrome://inspect/#devices manualmente.\n");
+    } else {
+        println!("[3/4] Abriendo puerto de depuración...");
+        for line in stdout.lines().skip(1) {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.contains("offline") || !trimmed.contains("device") {
+                continue;
+            }
+            let serial = trimmed.split_whitespace().next().unwrap_or("");
+            if !serial.is_empty() {
+                let _ = cmd::run(adb_str, &["-s", serial, "forward", "tcp:9222", "localabstract:chrome_devtools_remote"]);
+                let _ = cmd::run(adb_str, &["-s", serial, "forward", "tcp:9229", "localabstract:firefox_devtools_remote"]);
+            }
+        }
+        println!("[4/4] Abriendo Chrome DevTools...");
+    }
+
     println!();
+    println!("[INFO] Abriendo edge://inspect/#devices ...");
 
-    // Copy to clipboard using PowerShell
     let _ = cmd::run("powershell", &[
-        "-Command", "Set-Clipboard", "chrome://inspect/#devices"
+        "-Command", "Set-Clipboard", "edge://inspect/#devices"
     ]);
+    let _ = cmd::run("cmd", &["/c", "start", "msedge", "chrome://inspect/#devices"]);
 
-    // Try to open Chrome
-    let _ = cmd::run("cmd", &["/c", "start", "chrome"]);
+    if has_device {
+        #[cfg(windows)]
+        {
+            println!("[INFO] Si no ves el dispositivo en Edge, verifica:");
+            println!("  1. En edge://inspect, haz clic en 'Discover USB devices'");
+            println!("  2. O usa: adb forward tcp:9222 localabstract:chrome_devtools_remote");
+            println!("  3. Abre http://localhost:9222/json en Edge");
+        }
+    }
 
     pause();
     Ok(())
