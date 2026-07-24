@@ -1,6 +1,5 @@
 use std::env;
 use std::io::{self, Write};
-use std::path::Path;
 
 use anyhow::{Context, Result};
 use inquire::Select;
@@ -117,19 +116,6 @@ fn get_pc_ip() -> String {
         }
     }
     "No detectada".to_string()
-}
-
-fn tauri_config_dir(ctx: &ProjectContext) -> Option<std::path::PathBuf> {
-    let candidates = [
-        ctx.script_dir.join("src-tauri/tauri.conf.json"),
-        ctx.script_dir.join("tauri.conf.json"),
-    ];
-    for c in &candidates {
-        if c.exists() {
-            return Some(c.parent().unwrap().to_path_buf());
-        }
-    }
-    None
 }
 
 fn dev_host_for_device(device: &android_utils::Device) -> String {
