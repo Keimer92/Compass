@@ -1,12 +1,11 @@
 use std::env;
 use std::fs;
-use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use anyhow::{Context, Result};
-use inquire::{Password, Select, Text};
+use inquire::Select;
 
-use crate::utils::{cmd, context::{ProjectContext, ProjectType}};
+use crate::utils::{cmd, context::{ProjectContext, ProjectType}, ui};
 
 pub fn create_or_import(ctx: &ProjectContext) -> Result<()> {
     let (android_dir, props_name) = match ctx.project_type {
@@ -15,7 +14,7 @@ pub fn create_or_import(ctx: &ProjectContext) -> Result<()> {
         ProjectType::Kotlin => (ctx.script_dir.join("composeApp"), "keystore.properties"),
         ProjectType::Rust => {
             eprintln!("[ERROR] No aplicable a proyectos Rust.");
-            pause();
+            ui::pause();
             return Ok(());
         }
     };
@@ -28,7 +27,7 @@ pub fn create_or_import(ctx: &ProjectContext) -> Result<()> {
             ProjectType::Kotlin => eprintln!("Asegúrate de que exista composeApp/ en tu proyecto KMP."),
             ProjectType::Rust => {} // already handled above
         }
-        pause();
+        ui::pause();
         return Ok(());
     }
 
@@ -65,25 +64,20 @@ pub fn create_or_import(ctx: &ProjectContext) -> Result<()> {
         }
     }
 
-    pause();
+    ui::pause();
     Ok(())
 }
 
 fn create_keystore(_ctx: &ProjectContext, android_app: &Path, props_name: &str) -> Result<()> {
-    println!("\n--- Creando nueva llave (Keystore) ---\n");
+    println!();
+    ui::info_banner("Crear nueva llave (Keystore)");
 
-    let raw_name: String = Text::new("Nombre del keystore (sin extensión):")
-        .with_default("release")
-        .prompt()?;
+    let raw_name = ui::ask_text("Nombre del keystore (sin extensión)", Some("release"))?;
     let name = if raw_name.ends_with(".keystore") { raw_name } else { format!("{}.keystore", raw_name) };
 
-    let alias: String = Text::new("Alias de la llave:")
-        .with_default("upload")
-        .prompt()?;
+    let alias = ui::ask_text("Alias de la llave", Some("upload"))?;
 
-    let pass = Password::new("Contraseña para el Keystore (mínimo 6 caracteres):")
-        .without_confirmation()
-        .prompt()?;
+    let pass = ui::ask_password("Contraseña para el Keystore (mín 6 caracteres)")?;
 
     let dest_keystore = android_app.join(&name);
 
@@ -175,15 +169,15 @@ fn create_keystore(_ctx: &ProjectContext, android_app: &Path, props_name: &str) 
     write_properties(android_app, &name, &pass, &pass, &alias, props_name)?;
     patch_build_gradle(android_app, props_name)?;
 
-    println!("\n[OK] ¡Firmas configuradas exitosamente!");
+    ui::success_banner("Firmas configuradas exitosamente");
     Ok(())
 }
 
 fn import_keystore(_ctx: &ProjectContext, android_app: &Path, props_name: &str) -> Result<()> {
-    println!("\n--- Usando llave existente ---\n");
+    println!();
+    ui::info_banner("Usando llave existente");
 
-    let path_str: String = Text::new("Ruta a tu archivo .keystore o .jks:")
-        .prompt()?;
+    let path_str = ui::ask_text("Ruta a tu archivo .keystore o .jks", None)?;
 
     let mut keystore_file = PathBuf::from(&path_str);
 
@@ -215,17 +209,11 @@ fn import_keystore(_ctx: &ProjectContext, android_app: &Path, props_name: &str) 
         println!("  Llave encontrada: {}", keystore_file.file_name().unwrap().to_string_lossy());
     }
 
-    let alias: String = Text::new("Alias de la llave (Key Alias):")
-        .prompt()?;
+    let alias = ui::ask_text("Alias de la llave (Key Alias)", None)?;
 
-    let store_pass = Password::new("Contraseña del Keystore (Store Password):")
-        .without_confirmation()
-        .prompt()?;
+    let store_pass = ui::ask_password("Contraseña del Keystore (Store Password)")?;
 
-    let key_pass_input = Password::new("Contraseña de la Llave (Key Password) [Enter si es la misma]:")
-        .without_confirmation()
-        .prompt()
-        .unwrap_or_default();
+    let key_pass_input = ui::ask_password("Contraseña de la Llave (Key Password)")?;
     let key_pass = if key_pass_input.is_empty() { store_pass.clone() } else { key_pass_input };
 
     let k_name = keystore_file.file_name().unwrap().to_str().unwrap().to_string();
@@ -236,35 +224,27 @@ fn import_keystore(_ctx: &ProjectContext, android_app: &Path, props_name: &str) 
     write_properties(android_app, &k_name, &store_pass, &key_pass, &alias, props_name)?;
     patch_build_gradle(android_app, props_name)?;
 
-    println!("\n[OK] ¡Firmas configuradas exitosamente!");
+    ui::success_banner("Firmas configuradas exitosamente");
     Ok(())
 }
 
 fn manual_configure(_ctx: &ProjectContext, android_app: &Path, props_name: &str) -> Result<()> {
-    println!("\n--- Configuración manual ---\n");
+    println!();
+    ui::info_banner("Configuración manual");
 
-    let name: String = Text::new("Nombre del archivo .keystore (ej: release.keystore):")
-        .with_default("release.keystore")
-        .prompt()?;
+    let name = ui::ask_text("Nombre del archivo .keystore (ej: release.keystore)", Some("release.keystore"))?;
 
-    let alias: String = Text::new("Alias de la llave:")
-        .with_default("upload")
-        .prompt()?;
+    let alias = ui::ask_text("Alias de la llave", Some("upload"))?;
 
-    let store_pass = Password::new("Contraseña del Keystore (Store Password):")
-        .without_confirmation()
-        .prompt()?;
+    let store_pass = ui::ask_password("Contraseña del Keystore (Store Password)")?;
 
-    let key_pass_input = Password::new("Contraseña de la Llave (Key Password) [Enter si es la misma]:")
-        .without_confirmation()
-        .prompt()
-        .unwrap_or_default();
+    let key_pass_input = ui::ask_password("Contraseña de la Llave (Key Password)")?;
     let key_pass = if key_pass_input.is_empty() { store_pass.clone() } else { key_pass_input };
 
     write_properties(android_app, &name, &store_pass, &key_pass, &alias, props_name)?;
     patch_build_gradle(android_app, props_name)?;
 
-    println!("\n[OK] Configuración manual completada.");
+    ui::success_banner("Configuración manual completada");
     println!("  Asegúrate de que '{}' exista en la carpeta app/.", name);
     Ok(())
 }
@@ -409,9 +389,4 @@ fn patch_build_gradle(android_app: &Path, props_name: &str) -> Result<()> {
     Ok(())
 }
 
-fn pause() {
-    print!("\nPresiona Enter para continuar...");
-    io::stdout().flush().ok();
-    let mut _input = String::new();
-    io::stdin().read_line(&mut _input).ok();
-}
+

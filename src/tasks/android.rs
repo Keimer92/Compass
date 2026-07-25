@@ -1,10 +1,8 @@
 use std::env;
-use std::io::{self, Write};
-
 use anyhow::{Context, Result};
 use inquire::Select;
 
-use crate::utils::{android as android_utils, cmd, context::ProjectContext};
+use crate::utils::{android as android_utils, cmd, context::ProjectContext, ui};
 use crate::tasks::signer;
 
 fn ensure_node_modules(ctx: &ProjectContext) -> Result<()> {
@@ -200,7 +198,7 @@ pub fn build_arm64(ctx: &ProjectContext) -> Result<()> {
         "npx tauri android build --target aarch64",
     )?;
 
-    pause();
+    ui::pause();
     Ok(())
 }
 
@@ -221,15 +219,13 @@ pub fn build_all(ctx: &ProjectContext) -> Result<()> {
         "npx tauri android build",
     )?;
 
-    pause();
+    ui::pause();
     Ok(())
 }
 
 pub fn debug(ctx: &ProjectContext) -> Result<()> {
     cmd::clear_screen();
-    println!("╔══════════════════════════════════════════════════╗");
-    println!("║         DEPURADOR DE CHROME (Android)            ║");
-    println!("╚══════════════════════════════════════════════════╝");
+    ui::info_banner("Depurador Chrome (Android)");
 
     let adb = ctx.adb_path.as_ref()
         .context("[ERROR] ADB no encontrado. Verifica ANDROID_HOME.")?;
@@ -289,7 +285,7 @@ pub fn debug(ctx: &ProjectContext) -> Result<()> {
         }
     }
 
-    pause();
+    ui::pause();
     Ok(())
 }
 
@@ -300,9 +296,7 @@ pub fn configure_signing(ctx: &ProjectContext) -> Result<()> {
 
 pub fn launch(ctx: &ProjectContext) -> Result<()> {
     cmd::clear_screen();
-    println!("╔══════════════════════════════════════════════════╗");
-    println!("║         LANZAR EMULADOR ANDROID                 ║");
-    println!("╚══════════════════════════════════════════════════╝");
+    ui::info_banner("Lanzar Emulador Android");
 
     let emu_path = ctx.emulator_path.as_ref()
         .context("[ERROR] No se encontró emulator.exe en E:\\SDKs\\Android ni en ANDROID_HOME.")?;
@@ -332,31 +326,9 @@ pub fn launch(ctx: &ProjectContext) -> Result<()> {
         android_utils::wait_for_emulator_boot(adb, &serial, 120)?;
     }
 
-    println!();
-    println!("[OK] Emulador listo para pruebas!");
-    pause();
+    ui::success_banner("Emulador listo para pruebas");
+    ui::pause();
     Ok(())
 }
 
-fn pause() {
-    use crossterm::event::{read, Event, KeyCode, KeyEventKind};
-    use crossterm::terminal::{enable_raw_mode, disable_raw_mode};
 
-    print!("\nPresiona Enter para continuar...");
-    io::stdout().flush().ok();
-
-    if enable_raw_mode().is_ok() {
-        loop {
-            if let Ok(Event::Key(key)) = read() {
-                if key.kind == KeyEventKind::Press && key.code == KeyCode::Enter {
-                    break;
-                }
-            }
-        }
-        let _ = disable_raw_mode();
-    } else {
-        // Fallback: esperar con read_line si raw mode falla
-        let mut input = String::new();
-        let _ = io::stdin().read_line(&mut input);
-    }
-}
