@@ -137,6 +137,32 @@ pub fn spawn_new_window_autoexit(title: &str, dir: &std::path::Path, command: &s
     Ok(())
 }
 
+/// Abre una nueva ventana CMD con stdin funcional para comandos interactivos
+/// (flutter run, gradle run, etc.). Internamente usa cmd /c en vez de
+/// powershell -Command porque este último no reenvía correctamente el
+/// teclado a procesos hijo en ciertas configuraciones de Windows.
+pub fn spawn_new_window_interactive(title: &str, dir: &std::path::Path, command: &str) -> Result<()> {
+    #[cfg(windows)]
+    {
+        let cmd_line = format!("title {} & {} & pause", title, command);
+        Command::new("cmd")
+            .creation_flags(CREATE_NEW_CONSOLE)
+            .current_dir(dir)
+            .args(["/c", &cmd_line])
+            .spawn()
+            .context("No se pudo abrir nueva ventana de CMD")?;
+    }
+    #[cfg(not(windows))]
+    {
+        Command::new("sh")
+            .arg("-c")
+            .arg(format!("{}; echo 'Presiona Enter para cerrar...'; read", command))
+            .spawn()
+            .context("No se pudo abrir nueva terminal")?;
+    }
+    Ok(())
+}
+
 /// Elimina un directorio recursivamente manejando rutas largas en Windows.
 /// En Windows usa PowerShell (Remove-Item -LiteralPath -Recurse -Force)
 /// que soporta rutas de más de 260 caracteres.

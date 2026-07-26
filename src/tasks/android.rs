@@ -170,12 +170,12 @@ pub fn dev(ctx: &ProjectContext) -> Result<()> {
     let config_path = create_tauri_config_override(ctx, &target_url)?;
 
     println!("[INFO] Iniciando Tauri Android Dev con HMR...");
-    let ps_cmd = format!(
-        "$env:TAURI_DEV_HOST='{}'; npx tauri android dev --config \"{}\" --no-dev-server-wait",
+    let cmd = format!(
+        "set TAURI_DEV_HOST={} && npx tauri android dev --config \"{}\" --no-dev-server-wait",
         dev_host, config_path,
     );
 
-    cmd::spawn_new_window("Tauri Android HMR", &ctx.script_dir, &ps_cmd)?;
+    cmd::spawn_new_window_interactive("Tauri Android HMR", &ctx.script_dir, &cmd)?;
 
     Ok(())
 }

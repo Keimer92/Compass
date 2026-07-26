@@ -10,7 +10,7 @@ pub fn dev(ctx: &ProjectContext) -> Result<()> {
     println!("\n[INFO] Iniciando desarrollo en Windows...");
     println!("[INFO] Servidor: http://localhost:1420\n");
 
-    cmd::spawn_new_window(
+    cmd::spawn_new_window_interactive(
         "Tauri Windows (Dev)",
         &ctx.script_dir,
         "npm run tauri dev",

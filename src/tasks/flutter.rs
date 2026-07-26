@@ -8,7 +8,7 @@ pub fn run_windows(ctx: &ProjectContext) -> Result<()> {
     ensure_pubget(ctx)?;
     ensure_whatsapp_npm(ctx)?;
 
-    cmd::spawn_new_window(
+    cmd::spawn_new_window_interactive(
         "Flutter Windows (Dev)",
         &ctx.script_dir,
         "flutter run -d windows",
@@ -23,7 +23,7 @@ pub fn run_android(ctx: &ProjectContext) -> Result<()> {
     let device = android_utils::select_device(ctx)?;
     let serial = &device.serial;
 
-    cmd::spawn_new_window(
+    cmd::spawn_new_window_interactive(
         "Flutter Android (Dev)",
         &ctx.script_dir,
         &format!("flutter run -d {}", serial),

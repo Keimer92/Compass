@@ -29,10 +29,10 @@ pub fn run_windows(ctx: &ProjectContext) -> Result<()> {
     println!("╚══════════════════════════════════════════════════╝");
     println!("[INFO] Iniciando con Hot Reload...");
     println!();
-    cmd::spawn_new_window(
+    cmd::spawn_new_window_interactive(
         "KMP Desktop (Run)",
         &ctx.script_dir,
-        &gradlew_cmd(":composeApp:run"),
+        "gradlew.bat :composeApp:run",
     )?;
 
     Ok(())
