@@ -131,7 +131,7 @@ fn create_tauri_config_override(ctx: &ProjectContext, dev_url: &str) -> Result<S
     let config_path = gen_dir.join("tauri.android.dev.json");
     std::fs::write(&config_path, &content)
         .with_context(|| format!("No se pudo escribir {}", config_path.display()))?;
-    Ok(config_path.display().to_string())
+    Ok("src-tauri\\gen\\android\\tauri.android.dev.json".to_string())
 }
 
 pub fn dev(ctx: &ProjectContext) -> Result<()> {
@@ -171,7 +171,7 @@ pub fn dev(ctx: &ProjectContext) -> Result<()> {
 
     println!("[INFO] Iniciando Tauri Android Dev con HMR...");
     let cmd = format!(
-        "set TAURI_DEV_HOST={} && npx tauri android dev --config \"{}\" --no-dev-server-wait",
+        "set TAURI_DEV_HOST={} && npx tauri android dev --config {} --no-dev-server-wait",
         dev_host, config_path,
     );
 
