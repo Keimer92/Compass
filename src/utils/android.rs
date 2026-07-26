@@ -169,25 +169,7 @@ pub fn wait_for_emulator_serial(adb_path: &Path, timeout_secs: u64) -> Result<St
 pub fn select_device(ctx: &ProjectContext) -> Result<Device> {
     let mut options: Vec<Device> = Vec::new();
 
-    let running_emus = ctx
-        .adb_path
-        .as_ref()
-        .map(|adb| running_emulators(adb))
-        .unwrap_or_default();
-
-    if let Some(emu_path) = &ctx.emulator_path {
-        if let Ok(avds) = list_avds(emu_path) {
-            for avd in avds {
-                let serial = running_emus.get(&avd).cloned().unwrap_or_default();
-                let running = !serial.is_empty();
-                options.push(Device {
-                    serial,
-                    kind: DeviceKind::Emulator { avd_name: avd, running },
-                });
-            }
-        }
-    }
-
+    // Physical devices first
     if let Some(adb) = &ctx.adb_path {
         if let Ok(output) = cmd::run(adb.to_str().unwrap(), &["devices", "-l"]) {
             let stdout = String::from_utf8_lossy(&output.stdout);
@@ -206,6 +188,26 @@ pub fn select_device(ctx: &ProjectContext) -> Result<Device> {
                 options.push(Device {
                     serial,
                     kind: DeviceKind::Physical,
+                });
+            }
+        }
+    }
+
+    // Emulators after
+    let running_emus = ctx
+        .adb_path
+        .as_ref()
+        .map(|adb| running_emulators(adb))
+        .unwrap_or_default();
+
+    if let Some(emu_path) = &ctx.emulator_path {
+        if let Ok(avds) = list_avds(emu_path) {
+            for avd in avds {
+                let serial = running_emus.get(&avd).cloned().unwrap_or_default();
+                let running = !serial.is_empty();
+                options.push(Device {
+                    serial,
+                    kind: DeviceKind::Emulator { avd_name: avd, running },
                 });
             }
         }
