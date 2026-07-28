@@ -101,39 +101,6 @@ fn clear_arch_env() {
     env::remove_var("ORG_GRADLE_PROJECT_targetList");
 }
 
-fn get_pc_ip() -> String {
-    let output = cmd::run("ipconfig", &[]);
-    if let Ok(o) = output {
-        let stdout = String::from_utf8_lossy(&o.stdout);
-        for line in stdout.lines() {
-            if line.to_lowercase().contains("ipv4") {
-                if let Some(ip) = line.split(':').nth(1) {
-                    return ip.trim().to_string();
-                }
-            }
-        }
-    }
-    "No detectada".to_string()
-}
-
-fn dev_host_for_device(device: &android_utils::Device) -> String {
-    match &device.kind {
-        android_utils::DeviceKind::Emulator { .. } => "10.0.2.2".to_string(),
-        android_utils::DeviceKind::Physical => get_pc_ip(),
-    }
-}
-
-fn create_tauri_config_override(ctx: &ProjectContext, dev_url: &str) -> Result<String> {
-    let content = format!(r#"{{ "build": {{ "devUrl": "{}" }} }}"#, dev_url);
-    let gen_dir = ctx.script_dir.join("src-tauri\\gen\\android");
-    std::fs::create_dir_all(&gen_dir)
-        .context("No se pudo crear src-tauri/gen/android")?;
-    let config_path = gen_dir.join("tauri.android.dev.json");
-    std::fs::write(&config_path, &content)
-        .with_context(|| format!("No se pudo escribir {}", config_path.display()))?;
-    Ok("src-tauri\\gen\\android\\tauri.android.dev.json".to_string())
-}
-
 pub fn dev(ctx: &ProjectContext) -> Result<()> {
     ensure_node_modules(ctx)?;
     ctx.assert_android_sdk()?;
@@ -144,38 +111,18 @@ pub fn dev(ctx: &ProjectContext) -> Result<()> {
     ensure_ndk(ctx)?;
     ensure_rust_targets()?;
 
-    let selected_device = android_utils::select_device(ctx)?;
-    let dev_host = dev_host_for_device(&selected_device);
-    let pc_ip = get_pc_ip();
+    // Select device (launches emulator if needed)
+    let _device = android_utils::select_device(ctx)?;
 
-    let target_url = format!("http://{}:1420", dev_host);
-
-    println!();
-    println!("==============================================");
-    println!("[INFO] Android HMR activado");
-    println!("  Dispositivo : {}", selected_device.serial);
-    println!("  Dev URL     : {}", target_url);
-    println!("==============================================");
-    if matches!(selected_device.kind, android_utils::DeviceKind::Physical) {
-        println!("1. Asegúrate que el firewall permita el puerto 1420");
-        println!("2. La PC y el dispositivo deben estar en la misma red");
-        println!("3. IP de tu PC: {}", pc_ip);
-        println!("4. Si falla, ejecuta en PowerShell (como Admin):");
-        println!("   New-NetFirewallRule -DisplayName \"Vite Dev\" -Direction Inbound -LocalPort 1420 -Protocol TCP -Action Allow");
-    }
-    println!("==============================================");
+    ui::info_banner("Iniciando desarrollo Android");
+    println!("  Tauri se conectará automáticamente al dispositivo disponible.");
     println!();
 
-    println!("[INFO] Creando config override en src-tauri/gen/android/tauri.android.dev.json ...");
-    let config_path = create_tauri_config_override(ctx, &target_url)?;
-
-    println!("[INFO] Iniciando Tauri Android Dev con HMR...");
-    let cmd = format!(
-        "set TAURI_DEV_HOST={} && npx tauri android dev --config {} --no-dev-server-wait",
-        dev_host, config_path,
-    );
-
-    cmd::spawn_new_window_interactive("Tauri Android HMR", &ctx.script_dir, &cmd)?;
+    cmd::spawn_new_window_interactive(
+        "Tauri Android Dev",
+        &ctx.script_dir,
+        "npx tauri android dev",
+    )?;
 
     Ok(())
 }
