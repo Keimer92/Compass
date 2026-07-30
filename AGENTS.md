@@ -50,7 +50,9 @@ menu.rs
 
 utils/
   ├─ context.rs — detect(), ProjectType, ProjectContext, whatsapp_path()
-  └─ cmd.rs — run*, spawn_new_window, run_npm_install, clear_screen, remove_dir
+  ├─ cmd.rs — run*, spawn_new_window, spawn_new_window_autoexit, spawn_new_window_interactive, run_npm_install, clear_screen, remove_dir
+  ├─ ui.rs — ask_text(), ask_password(), success_banner(), info_banner(), pause()
+  └─ android.rs — select_device(), list_avds(), running_emulators(), launch_emulator(), wait_for_emulator_*()
 
 tasks/
   ├─ windows.rs — dev(), build()                         [Tauri only]
@@ -147,7 +149,15 @@ Dos entradas en el menú contextual del Explorador de Windows:
 ## Key Patterns
 
 ### New window execution
-Tareas largas (dev servers, builds) se lanzan en **nueva ventana PowerShell** con `CREATE_NEW_CONSOLE` vía `cmd::spawn_new_window()`. La TUI retorna inmediatamente.
+Tareas largas se lanzan en **nueva ventana** con `CREATE_NEW_CONSOLE`. Tres variantes:
+
+| Variante | Interno | Uso |
+|----------|---------|-----|
+| `spawn_new_window()` | `powershell -NoExit -Command` | Windows Build (no interactivo, ventana se queda abierta) |
+| `spawn_new_window_autoexit()` | `powershell -Command` | Menú TUI (sin `-NoExit`, ventana se cierra al terminar) |
+| `spawn_new_window_interactive()` | `cmd /c "title & command & pause"` | Dev servers interactivos (`flutter run`, `gradlew :composeApp:run`, `npx tauri android dev`). Usa `cmd` en vez de PowerShell porque este último no reenvía correctamente el teclado a procesos hijo en modo `-Command`. |
+
+La TUI retorna inmediatamente en todos los casos.
 
 ### npm en Windows
 `cmd::run_npm_install()` usa `cmd /c npm.cmd install` — necesario porque `npm` en Windows es realmente `npm.cmd`.
@@ -174,8 +184,34 @@ Los comandos de Gradle se ejecutan como `cmd /c gradlew.bat <args>` porque Power
 ### TUI Menu — Ventana separada
 Todas las tareas del menú TUI se lanzan en una **nueva ventana PowerShell** ejecutando `code-runner --task <task> --path "<proyecto>"`. El menú principal permanece abierto. La ventana secundaria se cierra al presionar Enter.
 
-### Android HMR (Hot Module Replacement)
-`android::dev()` detecta automáticamente si el dispositivo seleccionado es un **emulador** (usa `10.0.2.2`) o un **dispositivo físico** (detecta IP LAN). Crea un override temporal `src-tauri/gen/android/tauri.android.dev.json` con la `devUrl` correcta y lanza `npx tauri android dev --config <override> --no-dev-server-wait`. El `beforeDevCommand` del `tauri.conf.json` (ej. `npm run dev`) se ejecuta automáticamente con `TAURI_DEV_HOST` en el entorno para que el WebSocket de HMR apunte al host correcto.
+### Android dev (Tauri)
+`android::dev()` corre `npx tauri android dev` directamente. Antes ejecuta:
+1. `ensure_node_modules()` — npm install si falta `node_modules/`
+2. `ensure_android_project()` — `npx tauri android init` si falta `src-tauri/gen/android/`
+3. `select_device()` — elige dispositivo (ver sección Device Selection)
+4. NDK / Rust targets según sea necesario
+
+### Device Selection (`android::select_device()`)
+`android::select_device()` elige automáticamente el dispositivo Android:
+
+| Escenario | Comportamiento |
+|-----------|---------------|
+| 1 físico conectado | Auto-selecciona, imprime `[OK] Dispositivo físico detectado: <serial>`, sin menú |
+| > 1 físicos | Muestra menú solo con los físicos |
+| 0 físicos | Muestra menú solo con emuladores (lanza y espera boot si está apagado) |
+| 0 físicos + 0 emuladores | Error |
+
+### UI Helpers (`ui.rs`)
+| Función | Descripción |
+|---------|-------------|
+| `ask_text(prompt, default)` | Prompt inline (cursor después de `: `), no usa inquire |
+| `ask_password(prompt)` | Password inline con enmascaramiento `*`, raw mode vía crossterm |
+| `success_banner(title)` | Borde ┌─┐└─┘ con ✅ centrado |
+| `info_banner(title)` | Borde ┌─┐└─┘ con ℹ️ centrado |
+| `pause()` | Espera Enter (read_line, sin raw mode) |
+
+### Signer prompts
+`signer.rs` usa `ui::ask_text()` y `ui::ask_password()` en vez de `inquire::Text`/`inquire::Password` para que el cursor aparezca después de los dos puntos en la misma línea.
 
 ### CLI directo (sin TUI)
 ```bash
