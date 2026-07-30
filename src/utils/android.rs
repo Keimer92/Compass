@@ -167,9 +167,8 @@ pub fn wait_for_emulator_serial(adb_path: &Path, timeout_secs: u64) -> Result<St
 }
 
 pub fn select_device(ctx: &ProjectContext) -> Result<Device> {
-    let mut options: Vec<Device> = Vec::new();
-
-    // Physical devices first
+    // Collect physical devices
+    let mut phys: Vec<Device> = Vec::new();
     if let Some(adb) = &ctx.adb_path {
         if let Ok(output) = cmd::run(adb.to_str().unwrap(), &["devices", "-l"]) {
             let stdout = String::from_utf8_lossy(&output.stdout);
@@ -185,27 +184,40 @@ pub fn select_device(ctx: &ProjectContext) -> Result<Device> {
                 if serial.is_empty() || serial.starts_with("emulator-") {
                     continue;
                 }
-                options.push(Device {
-                    serial,
-                    kind: DeviceKind::Physical,
-                });
+                phys.push(Device { serial, kind: DeviceKind::Physical });
             }
         }
     }
 
-    // Emulators after
+    // Auto-select if exactly one physical device
+    if phys.len() == 1 {
+        let device = phys.into_iter().next().unwrap();
+        println!("[OK] Dispositivo físico detectado: {}", device.serial);
+        return Ok(device);
+    }
+
+    // Multiple physical devices → show menu
+    if phys.len() > 1 {
+        let labels: Vec<String> = phys.iter().map(|d| d.label()).collect();
+        let selection = Select::new("Varios dispositivos físicos. Selecciona uno:", labels).prompt()?;
+        let idx = phys.iter().position(|d| d.label() == selection).context("Selección inválida")?;
+        return Ok(phys.into_iter().nth(idx).unwrap());
+    }
+
+    // No physical devices → fallback to emulators
     let running_emus = ctx
         .adb_path
         .as_ref()
         .map(|adb| running_emulators(adb))
         .unwrap_or_default();
 
+    let mut emus: Vec<Device> = Vec::new();
     if let Some(emu_path) = &ctx.emulator_path {
         if let Ok(avds) = list_avds(emu_path) {
             for avd in avds {
                 let serial = running_emus.get(&avd).cloned().unwrap_or_default();
                 let running = !serial.is_empty();
-                options.push(Device {
+                emus.push(Device {
                     serial,
                     kind: DeviceKind::Emulator { avd_name: avd, running },
                 });
@@ -213,7 +225,7 @@ pub fn select_device(ctx: &ProjectContext) -> Result<Device> {
         }
     }
 
-    if options.is_empty() {
+    if emus.is_empty() {
         anyhow::bail!(
             "No se encontraron dispositivos Android.\n\
              Conecta un dispositivo físico con depuración USB activada,\n\
@@ -221,22 +233,12 @@ pub fn select_device(ctx: &ProjectContext) -> Result<Device> {
         );
     }
 
-    let labels: Vec<String> = options.iter().map(|d| d.label()).collect();
+    let labels: Vec<String> = emus.iter().map(|d| d.label()).collect();
+    let selection = Select::new("Selecciona un emulador:", labels).prompt()?;
+    let idx = emus.iter().position(|d| d.label() == selection).context("Selección inválida")?;
+    let mut device = emus.into_iter().nth(idx).unwrap();
 
-    let selection = Select::new("Selecciona un dispositivo:", labels).prompt()?;
-
-    let idx = options
-        .iter()
-        .position(|d| d.label() == selection)
-        .context("Selección inválida")?;
-
-    let mut device = options.into_iter().nth(idx).unwrap();
-
-    if let DeviceKind::Emulator {
-        ref avd_name,
-        running: false,
-    } = &device.kind
-    {
+    if let DeviceKind::Emulator { ref avd_name, running: false } = &device.kind {
         if let Some(emu_path) = &ctx.emulator_path {
             launch_emulator(emu_path, avd_name)?;
         }
