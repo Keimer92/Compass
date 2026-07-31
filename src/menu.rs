@@ -32,6 +32,7 @@ pub enum MenuItem {
     AndroidDev,
     WindowsBuild,
     AndroidBuildArm64,
+    AndroidBuildArmv7,
     AndroidBuildAll,
     LaunchEmulator,
     // MNT section
@@ -56,6 +57,7 @@ impl MenuItem {
             Self::AndroidDev => "\u{1f4f1}",
             Self::WindowsBuild => "\u{1f4e6}",
             Self::AndroidBuildArm64 => "\u{1f680}",
+            Self::AndroidBuildArmv7 => "\u{1f680}",
             Self::AndroidBuildAll => "\u{1f680}",
             Self::LaunchEmulator => "\u{1f4f1}",
             Self::CleanCache => "\u{1f9f9}",
@@ -74,7 +76,7 @@ impl MenuItem {
 
     fn section(&self) -> &str {
         match self {
-            Self::WindowsDev | Self::AndroidDev | Self::WindowsBuild | Self::AndroidBuildArm64 | Self::AndroidBuildAll | Self::LaunchEmulator => "DEV",
+            Self::WindowsDev | Self::AndroidDev | Self::WindowsBuild | Self::AndroidBuildArm64 | Self::AndroidBuildArmv7 | Self::AndroidBuildAll | Self::LaunchEmulator => "DEV",
             Self::CleanCache | Self::DebugAndroid | Self::ConfigureSigning | Self::CleanProject => "MNT",
             Self::CreateGitignore | Self::InitGit | Self::ManageKeystore | Self::BuildWhatsApp | Self::ConfigureTerminal | Self::ContextMenu => "CFG",
             Self::Exit => "",
@@ -96,6 +98,12 @@ impl MenuItem {
                 ProjectType::Tauri => "Android a64",
                 ProjectType::Flutter => "APK",
                 ProjectType::Kotlin => "APK",
+                ProjectType::Rust => "",
+            },
+            Self::AndroidBuildArmv7 => match project_type {
+                ProjectType::Tauri => "Android a7",
+                ProjectType::Flutter => "",
+                ProjectType::Kotlin => "",
                 ProjectType::Rust => "",
             },
             Self::AndroidBuildAll => match project_type {
@@ -135,6 +143,7 @@ impl MenuItem {
                 Self::AndroidDev => "",
                 Self::WindowsBuild => "cargo build --release",
                 Self::AndroidBuildArm64 => "",
+                Self::AndroidBuildArmv7 => "",
                 Self::AndroidBuildAll => "",
                 Self::CleanCache => "Limpia target/ y cache",
                 Self::DebugAndroid => "",
@@ -154,6 +163,7 @@ impl MenuItem {
                 Self::AndroidDev => "Dev con target Android",
                 Self::WindowsBuild => "Compila produccion",
                 Self::AndroidBuildArm64 => "Compila APK arm64",
+                Self::AndroidBuildArmv7 => "Compila APK armv7",
                 Self::AndroidBuildAll => "Compila todas las APK",
                 Self::CleanCache => "Limpia cache y npm",
                 Self::DebugAndroid => "Chrome DevTools",
@@ -173,6 +183,7 @@ impl MenuItem {
                 Self::AndroidDev => "flutter run android",
                 Self::WindowsBuild => "flutter build windows",
                 Self::AndroidBuildArm64 => "flutter build apk",
+                Self::AndroidBuildArmv7 => "",
                 Self::AndroidBuildAll => "flutter build appbundle",
                 Self::CleanCache => "Limpia cache Flutter",
                 Self::DebugAndroid => "Depurar Android",
@@ -192,6 +203,7 @@ impl MenuItem {
                 Self::AndroidDev => "gradlew :installDebug",
                 Self::WindowsBuild => "gradlew :packageDist",
                 Self::AndroidBuildArm64 => "gradlew :assembleDebug",
+                Self::AndroidBuildArmv7 => "",
                 Self::AndroidBuildAll => "gradlew :bundleRelease",
                 Self::CleanCache => "Limpia Gradle/Kotlin",
                 Self::DebugAndroid => "Depurar Android",
@@ -226,6 +238,7 @@ impl MenuState {
             MenuItem::AndroidDev,
             MenuItem::WindowsBuild,
             MenuItem::AndroidBuildArm64,
+            MenuItem::AndroidBuildArmv7,
             MenuItem::AndroidBuildAll,
             MenuItem::LaunchEmulator,
             MenuItem::CleanCache,
@@ -246,13 +259,15 @@ impl MenuState {
                 ProjectType::Rust => !matches!(item,
                     MenuItem::AndroidDev
                     | MenuItem::AndroidBuildArm64
+                    | MenuItem::AndroidBuildArmv7
                     | MenuItem::AndroidBuildAll
                     | MenuItem::LaunchEmulator
                     | MenuItem::DebugAndroid
                     | MenuItem::ConfigureSigning
                     | MenuItem::ManageKeystore
                 ),
-                _ => true,
+                ProjectType::Tauri => true,
+                _ => !matches!(item, MenuItem::AndroidBuildArmv7),
             })
             .collect();
 
@@ -495,7 +510,10 @@ fn handle_event(state: &mut MenuState, ctx: &ProjectContext) -> anyhow::Result<O
                 _ => {}
             },
             Event::Mouse(mouse) => {
-                if mouse.kind == MouseEventKind::Down(MouseButton::Left) {
+                // Usamos Up (release) en vez de Down (press) porque en Windows
+                // el primer Down puede ser consumido al recuperar el foco de la terminal
+                // después de que una ventana secundaria se cierra.
+                if mouse.kind == MouseEventKind::Up(MouseButton::Left) {
                     let col = mouse.column;
                     let row = mouse.row;
 
@@ -553,6 +571,8 @@ fn menu_item_to_task(item: MenuItem, ptype: ProjectType) -> &'static str {
         (MenuItem::AndroidBuildArm64, ProjectType::Tauri) => "android-arm64",
         (MenuItem::AndroidBuildArm64, ProjectType::Flutter) => "android-arm64",
         (MenuItem::AndroidBuildArm64, ProjectType::Kotlin) => "android-arm64",
+
+        (MenuItem::AndroidBuildArmv7, ProjectType::Tauri) => "android-armv7",
 
         (MenuItem::AndroidBuildAll, ProjectType::Tauri) => "android-all",
         (MenuItem::AndroidBuildAll, ProjectType::Flutter) => "android-all",

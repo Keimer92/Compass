@@ -149,6 +149,34 @@ pub fn build_arm64(ctx: &ProjectContext) -> Result<()> {
     Ok(())
 }
 
+fn set_arch_armv7() {
+    env::set_var("ORG_GRADLE_PROJECT_abiList", "armeabi-v7a");
+    env::set_var("ORG_GRADLE_PROJECT_archList", "arm");
+    env::set_var("ORG_GRADLE_PROJECT_targetList", "armv7");
+}
+
+pub fn build_armv7(ctx: &ProjectContext) -> Result<()> {
+    ensure_node_modules(ctx)?;
+    ctx.assert_android_sdk()?;
+    ensure_android_project(ctx)?;
+
+    set_arch_armv7();
+
+    println!();
+    println!("[INFO] Compilando Android solo armv7 (Release)...");
+    println!("[INFO] Usando: npx tauri android build --target armv7");
+    println!();
+
+    cmd::spawn_new_window(
+        "Android Build armv7",
+        &ctx.script_dir,
+        "npx tauri android build --target armv7",
+    )?;
+
+    ui::pause();
+    Ok(())
+}
+
 pub fn build_all(ctx: &ProjectContext) -> Result<()> {
     ensure_node_modules(ctx)?;
     ctx.assert_android_sdk()?;

@@ -85,6 +85,12 @@ fn run_task_direct(ctx: &crate::utils::context::ProjectContext, task: &str) -> R
             crate::utils::context::ProjectType::Kotlin => tasks::kotlin::build_apk(ctx),
             crate::utils::context::ProjectType::Rust => anyhow::bail!("No aplicable a proyectos Rust"),
         },
+        "android-armv7" => match ctx.project_type {
+            crate::utils::context::ProjectType::Tauri => tasks::android::build_armv7(ctx),
+            crate::utils::context::ProjectType::Flutter => anyhow::bail!("No aplicable a proyectos Flutter"),
+            crate::utils::context::ProjectType::Kotlin => anyhow::bail!("No aplicable a proyectos Kotlin"),
+            crate::utils::context::ProjectType::Rust => anyhow::bail!("No aplicable a proyectos Rust"),
+        },
         "android-all" => match ctx.project_type {
             crate::utils::context::ProjectType::Tauri => tasks::android::build_all(ctx),
             crate::utils::context::ProjectType::Flutter => tasks::flutter::build_aab(ctx),
