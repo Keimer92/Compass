@@ -148,7 +148,6 @@ pub fn build_arm64(ctx: &ProjectContext) -> Result<()> {
         &cmd_line,
     )?;
 
-    ui::pause();
     Ok(())
 }
 
@@ -179,7 +178,6 @@ pub fn build_armv7(ctx: &ProjectContext) -> Result<()> {
         &cmd_line,
     )?;
 
-    ui::pause();
     Ok(())
 }
 
@@ -203,7 +201,6 @@ pub fn build_all(ctx: &ProjectContext) -> Result<()> {
         &cmd_line,
     )?;
 
-    ui::pause();
     Ok(())
 }
 

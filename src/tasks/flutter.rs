@@ -46,7 +46,6 @@ pub fn build_windows(ctx: &ProjectContext) -> Result<()> {
         &cmd_line,
     )?;
 
-    pause();
     Ok(())
 }
 
@@ -63,7 +62,6 @@ pub fn build_apk(ctx: &ProjectContext) -> Result<()> {
         &cmd_line,
     )?;
 
-    pause();
     Ok(())
 }
 
@@ -80,7 +78,6 @@ pub fn build_aab(ctx: &ProjectContext) -> Result<()> {
         &cmd_line,
     )?;
 
-    pause();
     Ok(())
 }
 

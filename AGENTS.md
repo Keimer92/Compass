@@ -42,10 +42,11 @@ main.rs
           └─ run_global_task() para context-menu y opencode
 
 menu.rs
-  ├─ MenuItem (15+ variants: WindowsDev, AndroidDev, ..., ContextMenu, Exit)
+  ├─ MenuItem (16 variants: WindowsDev, AndroidDev, ..., ContextMenu)
   ├─ ratatui TUI con cards en grilla 3-columnas, 3 secciones (DEV/MNT/CFG)
   ├─ Filtro por tipo de proyecto (Rust oculta Android/Signing/Keystore)
-  ├─ handle_event(): teclado + mouse (cálculo matemático de grid)
+  ├─ handle_event(): devuelve MenuAction (Run | Quit); teclado + mouse (grid matemático)
+  ├─ Sin botón Salir: `Esc` cierra el programa (`MenuAction::Quit`)
   └─ run(): loop: draw → handle → restore → execute → re-enter
 
 utils/
@@ -93,7 +94,7 @@ tasks/
 | LaunchEmulator | `android::launch` | `android::launch` | `android::launch` | oculto |
 | ConfigureTerminal | `terminal::configure` | `terminal::configure` | `terminal::configure` | `terminal::configure` |
 | InstallContextMenu | `context_menu::toggle` | `context_menu::toggle` | `context_menu::toggle` | `context_menu::toggle` |
-| Exit | `process::exit(0)` | `process::exit(0)` | `process::exit(0)` | `process::exit(0)` |
+| Salir | `Esc` → `process::exit(0)` | ídem | ídem | ídem |
 
 ### Tareas globales (sin projecto)
 
@@ -159,11 +160,13 @@ Tareas largas se lanzan en **nueva ventana** con `CREATE_NEW_CONSOLE`. Tres vari
 
 La TUI retorna inmediatamente en todos los casos.
 
-### Reveal build artifact (`cmd::reveal_on_success`)
+### Reveal build artifact + auto-close (`cmd::reveal_on_success`)
 Todos los builds **release** envuelven su comando con `cmd::reveal_on_success(command, folder, exts)`:
-encadena `<comando>; if ($?) { ... explorer.exe /select,<artefacto> ... }` a la ventana de build.
-Al terminar con éxito, abre el Explorador resaltando el artefacto más reciente (`exe/msi/apk/aab`)
-dentro de `folder` (ruta absoluta derivada de `ctx.script_dir`). Si el build falla, no abre nada.
+encadena `<comando>; if ($?) { ... explorer.exe /select,<artefacto> ...; exit } else { ... Read-Host; exit }`.
+Al terminar con éxito abre el Explorador resaltando el artefacto más reciente (`exe/msi/apk/aab`)
+dentro de `folder` (ruta absoluta derivada de `ctx.script_dir`) y **la ventana de build se cierra sola** (`exit`).
+Si el build falla, la ventana muestra `[ERROR]` y espera una tecla antes de cerrarse (para poder leer el error).
+Las tareas de build ya no llaman a `pause()`/`ui::pause()`, por lo que la ventana intermedia de `code-runner --task` también se cierra sola.
 
 | Task | folder | exts |
 |------|--------|------|

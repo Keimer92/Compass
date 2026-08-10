@@ -163,9 +163,10 @@ pub fn spawn_new_window_interactive(title: &str, dir: &std::path::Path, command:
     Ok(())
 }
 
-/// Envuelve un comando para que, al terminar con éxito, abra el Explorador de
-/// Windows resaltando el artefacto de build más reciente (setup.exe, APK, AAB)
-/// dentro de `folder`. Se encadena al final del comando de una ventana de build.
+/// Envuelve un comando de build para que, al terminar con éxito, abra el
+/// Explorador de Windows resaltando el artefacto más reciente (setup.exe, APK,
+/// AAB) dentro de `folder` y cierre la ventana. Si el build falla, muestra un
+/// mensaje y espera una tecla (la ventana no se cierra sola para poder leer el error).
 pub fn reveal_on_success(command: &str, folder: &std::path::Path, exts: &[&str]) -> String {
     let folder_ps = folder.display().to_string().replace('\'', "''");
     let ext_list = exts
@@ -174,7 +175,7 @@ pub fn reveal_on_success(command: &str, folder: &std::path::Path, exts: &[&str])
         .collect::<Vec<_>>()
         .join(",");
     format!(
-        "{}; if ($?) {{ $f = Get-ChildItem -LiteralPath '{}' -Recurse -File | Where-Object {{ $_.Extension -in {} }} | Sort-Object LastWriteTime -Descending | Select-Object -First 1; if ($f) {{ explorer.exe (\"/select,\" + $f.FullName) }} }}",
+        "{}; if ($?) {{ $f = Get-ChildItem -LiteralPath '{}' -Recurse -File | Where-Object {{ $_.Extension -in {} }} | Sort-Object LastWriteTime -Descending | Select-Object -First 1; if ($f) {{ explorer.exe (\"/select,\" + $f.FullName) }}; exit }} else {{ Write-Host ''; Write-Host '[ERROR] El build fallo. Presiona Enter para cerrar...' -ForegroundColor Red; Read-Host; exit }}",
         command, folder_ps, ext_list
     )
 }

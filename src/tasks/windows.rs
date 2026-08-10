@@ -36,14 +36,5 @@ pub fn build(ctx: &ProjectContext) -> Result<()> {
         &cmd_line,
     )?;
 
-    pause();
     Ok(())
-}
-
-fn pause() {
-    use std::io::{self, Write};
-    print!("\nPresiona Enter para continuar...");
-    io::stdout().flush().ok();
-    let mut _input = String::new();
-    io::stdin().read_line(&mut _input).ok();
 }

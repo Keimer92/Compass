@@ -24,7 +24,6 @@ use crate::utils::context::{ProjectContext, ProjectType};
 const COLS: usize = 3;
 const CARD_W: u16 = 24;
 const CARD_H: u16 = 4;
-const EXIT_H: u16 = 3;
 const FOOTER_H: u16 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,7 +48,6 @@ pub enum MenuItem {
     BuildWhatsApp,
     ConfigureTerminal,
     ContextMenu,
-    Exit,
 }
 
 impl MenuItem {
@@ -72,7 +70,6 @@ impl MenuItem {
             Self::BuildWhatsApp => "\u{1f4ac}",
             Self::ConfigureTerminal => "\u{2699}",
             Self::ContextMenu => "\u{1f4c1}",
-            Self::Exit => "\u{1f6aa}",
         }
     }
 
@@ -81,7 +78,6 @@ impl MenuItem {
             Self::WindowsDev | Self::AndroidDev | Self::WindowsBuild | Self::AndroidBuildArm64 | Self::AndroidBuildArmv7 | Self::AndroidBuildAll | Self::LaunchEmulator => "DEV",
             Self::CleanCache | Self::DebugAndroid | Self::ConfigureSigning | Self::CleanProject => "MNT",
             Self::CreateGitignore | Self::InitGit | Self::ManageKeystore | Self::BuildWhatsApp | Self::ConfigureTerminal | Self::ContextMenu => "CFG",
-            Self::Exit => "",
         }
     }
 
@@ -125,7 +121,6 @@ impl MenuItem {
             Self::BuildWhatsApp => "WhatsApp",
             Self::ConfigureTerminal => "Terminal",
             Self::ContextMenu => "Menu Ctx",
-            Self::Exit => "Salir",
         }
     }
 
@@ -158,7 +153,6 @@ impl MenuItem {
                 Self::BuildWhatsApp => "Compila WhatsApp",
                 Self::ConfigureTerminal => "Autocompletado",
                 Self::ContextMenu => "Menu contextual",
-                Self::Exit => "Cierra programa",
             },
             ProjectType::Tauri => match self {
                 Self::WindowsDev => "Inicia el dev server",
@@ -178,7 +172,6 @@ impl MenuItem {
                 Self::BuildWhatsApp => "Compila WhatsApp",
                 Self::ConfigureTerminal => "Autocompletado",
                 Self::ContextMenu => "Menu contextual",
-                Self::Exit => "Cierra programa",
             },
             ProjectType::Flutter => match self {
                 Self::WindowsDev => "flutter run windows",
@@ -198,7 +191,6 @@ impl MenuItem {
                 Self::BuildWhatsApp => "Compila WhatsApp",
                 Self::ConfigureTerminal => "Autocompletado",
                 Self::ContextMenu => "Menu contextual",
-                Self::Exit => "Cierra programa",
             },
             ProjectType::Kotlin => match self {
                 Self::WindowsDev => "gradlew :composeApp:run",
@@ -218,7 +210,6 @@ impl MenuItem {
                 Self::BuildWhatsApp => "Compila WhatsApp",
                 Self::ConfigureTerminal => "Autocompletado",
                 Self::ContextMenu => "Menu contextual",
-                Self::Exit => "Cierra programa",
             },
         }
     }
@@ -228,7 +219,6 @@ struct MenuState {
     items: Vec<MenuItem>,
     selected: usize,
     groups: Vec<(String, Color, Vec<MenuItem>)>,
-    exit_area: Rect,
     area_width: u16,
     header_height: u16,
 }
@@ -253,7 +243,6 @@ impl MenuState {
             MenuItem::BuildWhatsApp,
             MenuItem::ConfigureTerminal,
             MenuItem::ContextMenu,
-            MenuItem::Exit,
         ];
 
         let items: Vec<MenuItem> = base.into_iter()
@@ -277,7 +266,6 @@ impl MenuState {
             items,
             selected: 0,
             groups: Vec::new(),
-            exit_area: Rect::default(),
             area_width: 0,
             header_height: 2,
         }
@@ -309,7 +297,6 @@ fn calc_group_sizes(items: &[MenuItem]) -> Vec<(String, Color, Vec<MenuItem>)> {
     let mut cfg = Vec::new();
 
     for item in items {
-        if *item == MenuItem::Exit { continue; }
         match item.section() {
             "DEV" => dev.push(*item),
             "MNT" => mnt.push(*item),
@@ -333,7 +320,7 @@ fn calc_total_height(ctx: &ProjectContext, items: &[MenuItem]) -> u16 {
         let rows = (items.len() + COLS - 1) / COLS;
         rows as u16 * CARD_H
     }).sum();
-    header_h + sec_h + cards_h + EXIT_H + FOOTER_H
+    header_h + sec_h + cards_h + FOOTER_H
 }
 
 fn draw_menu(frame: &mut Frame, state: &mut MenuState, ctx: &ProjectContext) {
@@ -361,7 +348,6 @@ fn draw_menu(frame: &mut Frame, state: &mut MenuState, ctx: &ProjectContext) {
     }
 
     state.groups.clear();
-    state.exit_area = Rect::default();
 
     let mut y = area.y;
     let header_h: u16 = if ctx.android_home.is_none() { 3 } else { 2 };
@@ -389,8 +375,6 @@ fn draw_menu(frame: &mut Frame, state: &mut MenuState, ctx: &ProjectContext) {
         render_group_cards(frame, Rect { x: area.x, y, width: area.width, height: cards_h }, state, items, start_idx, ctx.project_type);
         y += cards_h;
     }
-
-    render_exit(frame, Rect { x: area.x, y, width: area.width, height: EXIT_H }, state);
 
     render_footer(
         frame,
@@ -468,35 +452,6 @@ fn render_group_cards(frame: &mut Frame, area: Rect, state: &MenuState, items: &
     }
 }
 
-fn render_exit(frame: &mut Frame, area: Rect, state: &mut MenuState) {
-    let btn_w = 20u16;
-    let btn_x = area.x + (area.width.saturating_sub(btn_w)) / 2;
-    let btn_y = area.y;
-
-    let rect = Rect { x: btn_x, y: btn_y, width: btn_w, height: EXIT_H };
-    state.exit_area = rect;
-
-    let is_selected = state.selected == state.items.len() - 1;
-    let border = if is_selected {
-        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(Color::DarkGray)
-    };
-    let fg = if is_selected { Color::Red } else { Color::DarkGray };
-
-    let card = Paragraph::new(Text::from(vec![Line::from(vec![
-        Span::styled("\u{1f6aa}  Salir", Style::default().fg(fg).add_modifier(Modifier::BOLD)),
-    ])]))
-    .alignment(Alignment::Center)
-    .block(
-        Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(border),
-    );
-    frame.render_widget(card, rect);
-}
-
 fn render_footer(frame: &mut Frame, area: Rect) {
     let line = Line::from(vec![
         Span::styled("  \u{2191}\u{2193}\u{2190}\u{2192}", Style::default().fg(Color::White)),
@@ -564,14 +519,19 @@ fn create_card(item: &MenuItem, is_selected: bool, project_type: ProjectType) ->
     .block(block)
 }
 
-fn handle_event(state: &mut MenuState, ctx: &ProjectContext) -> anyhow::Result<Option<MenuItem>> {
+enum MenuAction {
+    Run(MenuItem),
+    Quit,
+}
+
+fn handle_event(state: &mut MenuState, ctx: &ProjectContext) -> anyhow::Result<MenuAction> {
     loop {
         let evt = crossterm::event::read()?;
 
         match evt {
             Event::Key(key) if key.kind == KeyEventKind::Press => match key.code {
-                KeyCode::Esc => return Ok(Some(MenuItem::Exit)),
-                KeyCode::Enter => return Ok(Some(state.items[state.selected])),
+                KeyCode::Esc => return Ok(MenuAction::Quit),
+                KeyCode::Enter => return Ok(MenuAction::Run(state.items[state.selected])),
                 KeyCode::Up => {
                     state.selected = state.selected.saturating_sub(COLS);
                 }
@@ -596,14 +556,6 @@ fn handle_event(state: &mut MenuState, ctx: &ProjectContext) -> anyhow::Result<O
                     let col = mouse.column;
                     let row = mouse.row;
 
-                    if col >= state.exit_area.x
-                        && col < state.exit_area.x + state.exit_area.width
-                        && row >= state.exit_area.y
-                        && row < state.exit_area.y + state.exit_area.height
-                    {
-                        return Ok(Some(MenuItem::Exit));
-                    }
-
                     let header_h: u16 = if ctx.android_home.is_none() { 3 } else { 2 };
                     let mut y_cursor = header_h;
 
@@ -623,7 +575,7 @@ fn handle_event(state: &mut MenuState, ctx: &ProjectContext) -> anyhow::Result<O
                             if rel_idx < items.len() {
                                 let global_idx = state.items.iter().position(|i| *i == items[rel_idx]).unwrap_or(0);
                                 state.selected = global_idx;
-                                return Ok(Some(state.items[global_idx]));
+                                return Ok(MenuAction::Run(state.items[global_idx]));
                             }
                         }
 
@@ -691,27 +643,26 @@ pub fn run(ctx: &ProjectContext) -> anyhow::Result<()> {
     loop {
         terminal.draw(|f| draw_menu(f, &mut state, ctx))?;
 
-        let selection = handle_event(&mut state, ctx)?;
-
-        if let Some(item) = selection {
-            if item == MenuItem::Exit {
+        match handle_event(&mut state, ctx)? {
+            MenuAction::Quit => {
                 let _ = restore_terminal(&mut terminal);
                 std::process::exit(0);
             }
+            MenuAction::Run(item) => {
+                let task = menu_item_to_task(item, ctx.project_type);
+                let command = format!(
+                    "& '{}' --task {} --path '{}'",
+                    exe_path.display(),
+                    task,
+                    project_path.display(),
+                );
 
-            let task = menu_item_to_task(item, ctx.project_type);
-            let command = format!(
-                "& '{}' --task {} --path '{}'",
-                exe_path.display(),
-                task,
-                project_path.display(),
-            );
-
-            cmd::spawn_new_window_autoexit(
-                &format!("Code Runner - {}", task),
-                project_path,
-                &command,
-            )?;
+                cmd::spawn_new_window_autoexit(
+                    &format!("Code Runner - {}", task),
+                    project_path,
+                    &command,
+                )?;
+            }
         }
     }
 }

@@ -1,1 +1,33 @@
-/target
+# ============================================
+# .gitignore para Rust / Cargo
+# ============================================
+
+# --- Build artifacts (el mas pesado) ---
+target/
+
+# --- Cargo lock (normalmente se incluye en binarios) ---
+# Cargo.lock
+
+# --- IDE ---
+.vscode/
+.idea/
+*.iml
+*.sublime-project
+*.sublime-workspace
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~
+
+# --- Environment ---
+.env
+.env.example
+.env.local
+.env.*.local
+
+# --- Logs ---
+*.log
