@@ -98,10 +98,17 @@ pub fn build_windows(ctx: &ProjectContext) -> Result<()> {
     ensure_gradle(ctx)?;
     ensure_whatsapp_npm(ctx)?;
 
+    let dist_dir = ctx.script_dir.join("composeApp\\build\\compose\\binaries\\main");
+    let cmd_line = cmd::reveal_on_success(
+        &gradlew_cmd(":composeApp:packageDistributionForCurrentOS"),
+        &dist_dir,
+        &["exe"],
+    );
+
     cmd::spawn_new_window(
         "KMP Desktop Build",
         &ctx.script_dir,
-        &gradlew_cmd(":composeApp:packageDistributionForCurrentOS"),
+        &cmd_line,
     )?;
 
     pause();
@@ -112,10 +119,17 @@ pub fn build_apk(ctx: &ProjectContext) -> Result<()> {
     println!("\n[INFO] Compilando Android APK (Debug)...\n");
     ensure_gradle(ctx)?;
 
+    let apk_dir = ctx.script_dir.join("composeApp\\build\\outputs\\apk");
+    let cmd_line = cmd::reveal_on_success(
+        &gradlew_cmd(":composeApp:assembleDebug"),
+        &apk_dir,
+        &["apk"],
+    );
+
     cmd::spawn_new_window(
         "KMP Android APK",
         &ctx.script_dir,
-        &gradlew_cmd(":composeApp:assembleDebug"),
+        &cmd_line,
     )?;
 
     pause();
@@ -126,10 +140,17 @@ pub fn build_aab(ctx: &ProjectContext) -> Result<()> {
     println!("\n[INFO] Compilando Android AAB (Release)...\n");
     ensure_gradle(ctx)?;
 
+    let aab_dir = ctx.script_dir.join("composeApp\\build\\outputs\\bundle\\release");
+    let cmd_line = cmd::reveal_on_success(
+        &gradlew_cmd(":composeApp:bundleRelease"),
+        &aab_dir,
+        &["aab"],
+    );
+
     cmd::spawn_new_window(
         "KMP Android AAB",
         &ctx.script_dir,
-        &gradlew_cmd(":composeApp:bundleRelease"),
+        &cmd_line,
     )?;
 
     pause();

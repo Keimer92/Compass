@@ -27,10 +27,13 @@ pub fn build(ctx: &ProjectContext) -> Result<()> {
 
     println!("\n[INFO] Compilando Windows (Release)...\n");
 
+    let bundle_dir = ctx.script_dir.join("src-tauri\\target\\release\\bundle");
+    let cmd_line = cmd::reveal_on_success("npm run tauri build", &bundle_dir, &["exe", "msi"]);
+
     cmd::spawn_new_window(
         "Windows Build (Release)",
         &ctx.script_dir,
-        "npm run tauri build",
+        &cmd_line,
     )?;
 
     pause();

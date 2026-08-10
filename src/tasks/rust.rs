@@ -11,7 +11,11 @@ pub fn run(ctx: &ProjectContext) -> Result<()> {
 
 pub fn build(ctx: &ProjectContext) -> Result<()> {
     println!("[INFO] Ejecutando 'cargo build --release'...");
-    cmd::spawn_new_window("cargo build", &ctx.script_dir, "cargo build --release")?;
+
+    let release_dir = ctx.script_dir.join("target\\release");
+    let cmd_line = cmd::reveal_on_success("cargo build --release", &release_dir, &["exe"]);
+
+    cmd::spawn_new_window("cargo build", &ctx.script_dir, &cmd_line)?;
     println!("[OK] 'cargo build --release' lanzado en nueva ventana.");
     Ok(())
 }

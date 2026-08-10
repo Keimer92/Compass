@@ -139,10 +139,13 @@ pub fn build_arm64(ctx: &ProjectContext) -> Result<()> {
     println!("[INFO] Usando: npx tauri android build --target aarch64");
     println!();
 
+    let apk_dir = ctx.script_dir.join("src-tauri\\gen\\android\\app\\build\\outputs\\apk");
+    let cmd_line = cmd::reveal_on_success("npx tauri android build --target aarch64", &apk_dir, &["apk"]);
+
     cmd::spawn_new_window(
         "Android Build arm64",
         &ctx.script_dir,
-        "npx tauri android build --target aarch64",
+        &cmd_line,
     )?;
 
     ui::pause();
@@ -167,10 +170,13 @@ pub fn build_armv7(ctx: &ProjectContext) -> Result<()> {
     println!("[INFO] Usando: npx tauri android build --target armv7");
     println!();
 
+    let apk_dir = ctx.script_dir.join("src-tauri\\gen\\android\\app\\build\\outputs\\apk");
+    let cmd_line = cmd::reveal_on_success("npx tauri android build --target armv7", &apk_dir, &["apk"]);
+
     cmd::spawn_new_window(
         "Android Build armv7",
         &ctx.script_dir,
-        "npx tauri android build --target armv7",
+        &cmd_line,
     )?;
 
     ui::pause();
@@ -188,10 +194,13 @@ pub fn build_all(ctx: &ProjectContext) -> Result<()> {
     println!("[INFO] Compilando Android (Todas las arquitecturas)...");
     println!();
 
+    let apk_dir = ctx.script_dir.join("src-tauri\\gen\\android\\app\\build\\outputs\\apk");
+    let cmd_line = cmd::reveal_on_success("npx tauri android build", &apk_dir, &["apk"]);
+
     cmd::spawn_new_window(
         "Android Build (All)",
         &ctx.script_dir,
-        "npx tauri android build",
+        &cmd_line,
     )?;
 
     ui::pause();

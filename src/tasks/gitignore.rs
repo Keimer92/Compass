@@ -31,6 +31,7 @@ Desktop.ini
 
 # --- Environment ---
 .env
+.env.example
 .env.local
 .env.*.local
 
@@ -88,6 +89,7 @@ Desktop.ini
 
 # --- Variables de entorno ---
 .env
+.env.example
 .env.local
 .env.*.local
 
@@ -138,6 +140,7 @@ Desktop.ini
 
 # --- Variables de entorno ---
 .env
+.env.example
 .env.local
 .env.*.local
 
@@ -183,6 +186,7 @@ Desktop.ini
 
 # --- Environment ---
 .env
+.env.example
 .env.local
 .env.*.local
 

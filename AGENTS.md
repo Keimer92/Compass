@@ -159,6 +159,27 @@ Tareas largas se lanzan en **nueva ventana** con `CREATE_NEW_CONSOLE`. Tres vari
 
 La TUI retorna inmediatamente en todos los casos.
 
+### Reveal build artifact (`cmd::reveal_on_success`)
+Todos los builds **release** envuelven su comando con `cmd::reveal_on_success(command, folder, exts)`:
+encadena `<comando>; if ($?) { ... explorer.exe /select,<artefacto> ... }` a la ventana de build.
+Al terminar con éxito, abre el Explorador resaltando el artefacto más reciente (`exe/msi/apk/aab`)
+dentro de `folder` (ruta absoluta derivada de `ctx.script_dir`). Si el build falla, no abre nada.
+
+| Task | folder | exts |
+|------|--------|------|
+| `windows::build` (Tauri) | `src-tauri/target/release/bundle` | exe, msi |
+| `android::{build_arm64,build_armv7,build_all}` | `src-tauri/gen/android/app/build/outputs/apk` | apk |
+| `flutter::{build_windows}` | `build/windows/x64/runner/Release` | exe |
+| `flutter::{build_apk}` | `build/app/outputs/flutter-apk` | apk |
+| `flutter::{build_aab}` | `build/app/outputs/bundle/release` | aab |
+| `kotlin::{build_windows}` | `composeApp/build/compose/binaries/main` | exe |
+| `kotlin::{build_apk}` | `composeApp/build/outputs/apk` | apk |
+| `kotlin::{build_aab}` | `composeApp/build/outputs/bundle/release` | aab |
+| `rust::build` | `target/release` | exe |
+
+El filtrado usa `Get-ChildItem -LiteralPath ... -Recurse -File | Where-Object { $_.Extension -in ... }`
++ `Sort-Object LastWriteTime -Descending` (robusto a nombres de producto desconocidos y a `[` en rutas).
+
 ### npm en Windows
 `cmd::run_npm_install()` usa `cmd /c npm.cmd install` — necesario porque `npm` en Windows es realmente `npm.cmd`.
 

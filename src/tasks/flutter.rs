@@ -37,10 +37,13 @@ pub fn build_windows(ctx: &ProjectContext) -> Result<()> {
     ensure_pubget(ctx)?;
     ensure_whatsapp_npm(ctx)?;
 
+    let release_dir = ctx.script_dir.join("build\\windows\\x64\\runner\\Release");
+    let cmd_line = cmd::reveal_on_success("flutter build windows --release", &release_dir, &["exe"]);
+
     cmd::spawn_new_window(
         "Flutter Windows Build (Release)",
         &ctx.script_dir,
-        "flutter build windows --release",
+        &cmd_line,
     )?;
 
     pause();
@@ -51,10 +54,13 @@ pub fn build_apk(ctx: &ProjectContext) -> Result<()> {
     println!("\n[INFO] Compilando Android APK (Release)...\n");
     ensure_pubget(ctx)?;
 
+    let apk_dir = ctx.script_dir.join("build\\app\\outputs\\flutter-apk");
+    let cmd_line = cmd::reveal_on_success("flutter build apk --release", &apk_dir, &["apk"]);
+
     cmd::spawn_new_window(
         "Flutter APK Build",
         &ctx.script_dir,
-        "flutter build apk --release",
+        &cmd_line,
     )?;
 
     pause();
@@ -65,10 +71,13 @@ pub fn build_aab(ctx: &ProjectContext) -> Result<()> {
     println!("\n[INFO] Compilando Android AAB (Release)...\n");
     ensure_pubget(ctx)?;
 
+    let aab_dir = ctx.script_dir.join("build\\app\\outputs\\bundle\\release");
+    let cmd_line = cmd::reveal_on_success("flutter build appbundle --release", &aab_dir, &["aab"]);
+
     cmd::spawn_new_window(
         "Flutter AAB Build",
         &ctx.script_dir,
-        "flutter build appbundle --release",
+        &cmd_line,
     )?;
 
     pause();

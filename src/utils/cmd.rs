@@ -163,6 +163,22 @@ pub fn spawn_new_window_interactive(title: &str, dir: &std::path::Path, command:
     Ok(())
 }
 
+/// Envuelve un comando para que, al terminar con éxito, abra el Explorador de
+/// Windows resaltando el artefacto de build más reciente (setup.exe, APK, AAB)
+/// dentro de `folder`. Se encadena al final del comando de una ventana de build.
+pub fn reveal_on_success(command: &str, folder: &std::path::Path, exts: &[&str]) -> String {
+    let folder_ps = folder.display().to_string().replace('\'', "''");
+    let ext_list = exts
+        .iter()
+        .map(|e| format!("'.{}'", e))
+        .collect::<Vec<_>>()
+        .join(",");
+    format!(
+        "{}; if ($?) {{ $f = Get-ChildItem -LiteralPath '{}' -Recurse -File | Where-Object {{ $_.Extension -in {} }} | Sort-Object LastWriteTime -Descending | Select-Object -First 1; if ($f) {{ explorer.exe (\"/select,\" + $f.FullName) }} }}",
+        command, folder_ps, ext_list
+    )
+}
+
 /// Elimina un directorio recursivamente manejando rutas largas en Windows.
 /// En Windows usa PowerShell (Remove-Item -LiteralPath -Recurse -Force)
 /// que soporta rutas de más de 260 caracteres.
