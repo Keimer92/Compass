@@ -14,7 +14,7 @@ use ratatui::{
     layout::{Alignment, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, BorderType, Borders, Paragraph},
     Frame, Terminal,
 };
 
@@ -24,6 +24,8 @@ use crate::utils::context::{ProjectContext, ProjectType};
 const COLS: usize = 3;
 const CARD_W: u16 = 24;
 const CARD_H: u16 = 4;
+const EXIT_H: u16 = 3;
+const FOOTER_H: u16 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MenuItem {
@@ -331,7 +333,7 @@ fn calc_total_height(ctx: &ProjectContext, items: &[MenuItem]) -> u16 {
         let rows = (items.len() + COLS - 1) / COLS;
         rows as u16 * CARD_H
     }).sum();
-    header_h + sec_h + cards_h + CARD_H
+    header_h + sec_h + cards_h + EXIT_H + FOOTER_H
 }
 
 fn draw_menu(frame: &mut Frame, state: &mut MenuState, ctx: &ProjectContext) {
@@ -388,7 +390,17 @@ fn draw_menu(frame: &mut Frame, state: &mut MenuState, ctx: &ProjectContext) {
         y += cards_h;
     }
 
-    render_exit(frame, Rect { x: area.x, y, width: area.width, height: CARD_H }, state);
+    render_exit(frame, Rect { x: area.x, y, width: area.width, height: EXIT_H }, state);
+
+    render_footer(
+        frame,
+        Rect {
+            x: area.x,
+            y: area.y + area.height - FOOTER_H,
+            width: area.width,
+            height: FOOTER_H,
+        },
+    );
 }
 
 fn render_header(frame: &mut Frame, area: Rect, ctx: &ProjectContext) {
@@ -398,11 +410,17 @@ fn render_header(frame: &mut Frame, area: Rect, ctx: &ProjectContext) {
         .map(|n| n.to_string_lossy())
         .unwrap_or(std::borrow::Cow::Borrowed("Proyecto"));
 
-    let (emoji, label) = match ctx.project_type {
-        ProjectType::Tauri => ("\u{1f980}", "Code Runner for Rust / Tauri"),
-        ProjectType::Flutter => ("\u{1f3af}", "Code Runner for Dart / Flutter"),
-        ProjectType::Kotlin => ("\u{1f537}", "Code Runner for Kotlin / KMP"),
-        ProjectType::Rust => ("\u{2699}", "Code Runner for Rust"),
+    let (emoji, label, badge) = match ctx.project_type {
+        ProjectType::Tauri => ("\u{1f980}", "Code Runner for Rust / Tauri", "TAURI"),
+        ProjectType::Flutter => ("\u{1f3af}", "Code Runner for Dart / Flutter", "FLUTTER"),
+        ProjectType::Kotlin => ("\u{1f537}", "Code Runner for Kotlin / KMP", "KOTLIN"),
+        ProjectType::Rust => ("\u{2699}", "Code Runner for Rust", "RUST"),
+    };
+    let badge_color = match ctx.project_type {
+        ProjectType::Tauri => Color::Green,
+        ProjectType::Flutter => Color::Cyan,
+        ProjectType::Kotlin => Color::Magenta,
+        ProjectType::Rust => Color::Yellow,
     };
 
     let mut lines = vec![
@@ -413,6 +431,11 @@ fn render_header(frame: &mut Frame, area: Rect, ctx: &ProjectContext) {
         Line::from(vec![
             Span::styled("     Proyecto: ", Style::default().fg(Color::DarkGray)),
             Span::styled(project_name.to_string(), Style::default().fg(Color::White)),
+            Span::styled("  ", Style::default()),
+            Span::styled(
+                format!(" {} ", badge),
+                Style::default().bg(badge_color).fg(Color::Black).add_modifier(Modifier::BOLD),
+            ),
         ]),
     ];
 
@@ -446,16 +469,47 @@ fn render_group_cards(frame: &mut Frame, area: Rect, state: &MenuState, items: &
 }
 
 fn render_exit(frame: &mut Frame, area: Rect, state: &mut MenuState) {
-    let btn_w = 16u16;
+    let btn_w = 20u16;
     let btn_x = area.x + (area.width.saturating_sub(btn_w)) / 2;
     let btn_y = area.y;
 
-    let rect = Rect { x: btn_x, y: btn_y, width: btn_w, height: CARD_H };
+    let rect = Rect { x: btn_x, y: btn_y, width: btn_w, height: EXIT_H };
     state.exit_area = rect;
 
     let is_selected = state.selected == state.items.len() - 1;
-    let card = create_card(&MenuItem::Exit, is_selected, ProjectType::Tauri);
+    let border = if is_selected {
+        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
+    let fg = if is_selected { Color::Red } else { Color::DarkGray };
+
+    let card = Paragraph::new(Text::from(vec![Line::from(vec![
+        Span::styled("\u{1f6aa}  Salir", Style::default().fg(fg).add_modifier(Modifier::BOLD)),
+    ])]))
+    .alignment(Alignment::Center)
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(border),
+    );
     frame.render_widget(card, rect);
+}
+
+fn render_footer(frame: &mut Frame, area: Rect) {
+    let line = Line::from(vec![
+        Span::styled("  \u{2191}\u{2193}\u{2190}\u{2192}", Style::default().fg(Color::White)),
+        Span::styled(" navegar   ", Style::default().fg(Color::DarkGray)),
+        Span::styled("Enter", Style::default().fg(Color::White)),
+        Span::styled(" ejecutar   ", Style::default().fg(Color::DarkGray)),
+        Span::styled("Esc", Style::default().fg(Color::White)),
+        Span::styled(" salir      ", Style::default().fg(Color::DarkGray)),
+        Span::styled("\u{25cf} DEV ", Style::default().fg(Color::Cyan)),
+        Span::styled("\u{25cf} MNT ", Style::default().fg(Color::Yellow)),
+        Span::styled("\u{25cf} CFG", Style::default().fg(Color::Magenta)),
+    ]);
+    frame.render_widget(Paragraph::new(line), area);
 }
 
 fn create_card(item: &MenuItem, is_selected: bool, project_type: ProjectType) -> Paragraph<'static> {
@@ -477,12 +531,20 @@ fn create_card(item: &MenuItem, is_selected: bool, project_type: ProjectType) ->
         format!(" {} [{}] {}", icon, section, label)
     };
 
+    let mut block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(border);
+    if is_selected {
+        block = block.style(Style::default().bg(Color::DarkGray));
+    }
+
     Paragraph::new(Text::from(vec![
         Line::from(vec![Span::styled(line1, Style::default().fg(fg))]),
         Line::from(vec![Span::styled(format!(" {}", desc), Style::default().fg(Color::DarkGray))]),
     ]))
     .alignment(Alignment::Center)
-    .block(Block::default().borders(Borders::ALL).border_style(border))
+    .block(block)
 }
 
 fn handle_event(state: &mut MenuState, ctx: &ProjectContext) -> anyhow::Result<Option<MenuItem>> {
