@@ -512,18 +512,30 @@ fn render_footer(frame: &mut Frame, area: Rect) {
     frame.render_widget(Paragraph::new(line), area);
 }
 
+/// Tinte translucido para simular vidrio esmerilado: el color de la seccion
+/// oscurecido y desaturado hacia el negro del fondo de la terminal.
+fn glass_tint(color: Color) -> Color {
+    match color {
+        Color::Cyan => Color::Rgb(16, 38, 50),
+        Color::Yellow => Color::Rgb(52, 44, 16),
+        Color::Magenta => Color::Rgb(46, 20, 56),
+        _ => Color::Rgb(30, 30, 34),
+    }
+}
+
 fn create_card(item: &MenuItem, is_selected: bool, project_type: ProjectType) -> Paragraph<'static> {
+    let section = item.section();
+    let section_color = item.section_color();
+
     let border = if is_selected {
-        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+        Style::default().fg(section_color).add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(Color::DarkGray)
     };
 
     let icon = item.icon();
-    let section = item.section();
     let label = item.label(project_type);
     let desc = item.description(project_type);
-    let fg = if is_selected { Color::Cyan } else { item.section_color() };
 
     let line1 = if section.is_empty() {
         format!(" {}  {}", icon, label)
@@ -531,16 +543,21 @@ fn create_card(item: &MenuItem, is_selected: bool, project_type: ProjectType) ->
         format!(" {} [{}] {}", icon, section, label)
     };
 
+    let mut line1_style = Style::default().fg(section_color);
+    if is_selected {
+        line1_style = line1_style.add_modifier(Modifier::BOLD);
+    }
+
     let mut block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(border);
     if is_selected {
-        block = block.style(Style::default().bg(Color::DarkGray));
+        block = block.style(Style::default().bg(glass_tint(section_color)));
     }
 
     Paragraph::new(Text::from(vec![
-        Line::from(vec![Span::styled(line1, Style::default().fg(fg))]),
+        Line::from(vec![Span::styled(line1, line1_style)]),
         Line::from(vec![Span::styled(format!(" {}", desc), Style::default().fg(Color::DarkGray))]),
     ]))
     .alignment(Alignment::Center)
