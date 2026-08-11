@@ -175,8 +175,8 @@ pub fn reveal_on_success(command: &str, folder: &std::path::Path, exts: &[&str])
         .collect::<Vec<_>>()
         .join(",");
     format!(
-        "{}; if ($?) {{ $f = Get-ChildItem -LiteralPath '{}' -Recurse -File | Where-Object {{ $_.Extension -in {} }} | Sort-Object LastWriteTime -Descending | Select-Object -First 1; if ($f) {{ explorer.exe (\"/select,\" + $f.FullName) }}; exit }} else {{ Write-Host ''; Write-Host '[ERROR] El build fallo. Presiona Enter para cerrar...' -ForegroundColor Red; Read-Host; exit }}",
-        command, folder_ps, ext_list
+        "{}; if ($?) {{ $f = Get-ChildItem -LiteralPath '{}' -Recurse -File | Where-Object {{ $_.Extension -in {} }} | Sort-Object LastWriteTime -Descending | Select-Object -First 1; if ($f) {{ explorer.exe (\"/select,`\"\" + $f.FullName + \"`\"\") }} else {{ explorer.exe '{}' }}; exit }} else {{ Write-Host ''; Write-Host '[ERROR] El build fallo. Presiona Enter para cerrar...' -ForegroundColor Red; Read-Host; exit }}",
+        command, folder_ps, ext_list, folder_ps
     )
 }
 

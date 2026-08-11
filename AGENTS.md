@@ -182,6 +182,11 @@ Las tareas de build ya no llaman a `pause()`/`ui::pause()`, por lo que la ventan
 
 El filtrado usa `Get-ChildItem -LiteralPath ... -Recurse -File | Where-Object { $_.Extension -in ... }`
 + `Sort-Object LastWriteTime -Descending` (robusto a nombres de producto desconocidos y a `[` en rutas).
+Si no encuentra artefacto, abre la carpeta `folder` directamente (en vez de nada).
+
+**Importante**: la llamada a Explorer es `explorer.exe ("/select,`"" + $f.FullName + "`"")` — el path debe ir
+**entre comillas dobles embebidas** (`/select,"ruta con espacios"`). `explorer.exe /select,<path>` sin esas comillas
+falla el parser de Explorer cuando la ruta tiene espacios y abre **Documentos** en su lugar.
 
 ### npm en Windows
 `cmd::run_npm_install()` usa `cmd /c npm.cmd install` — necesario porque `npm` en Windows es realmente `npm.cmd`.
