@@ -219,6 +219,7 @@ struct MenuState {
     items: Vec<MenuItem>,
     selected: usize,
     groups: Vec<(String, Color, Vec<MenuItem>)>,
+    hover: Option<usize>,
     area_width: u16,
     header_height: u16,
 }
@@ -266,6 +267,7 @@ impl MenuState {
             items,
             selected: 0,
             groups: Vec::new(),
+            hover: None,
             area_width: 0,
             header_height: 2,
         }
@@ -447,7 +449,8 @@ fn render_group_cards(frame: &mut Frame, area: Rect, state: &MenuState, items: &
         let rect = Rect { x, y, width: CARD_W, height: CARD_H };
 
         let is_selected = state.selected == idx;
-        let card = create_card(&items[rel_idx], is_selected, project_type);
+        let is_hovered = state.hover == Some(idx);
+        let card = create_card(&items[rel_idx], is_selected, is_hovered, project_type);
         frame.render_widget(card, rect);
     }
 }
@@ -471,19 +474,21 @@ fn render_footer(frame: &mut Frame, area: Rect) {
 /// oscurecido y desaturado hacia el negro del fondo de la terminal.
 fn glass_tint(color: Color) -> Color {
     match color {
-        Color::Cyan => Color::Rgb(16, 38, 50),
-        Color::Yellow => Color::Rgb(52, 44, 16),
-        Color::Magenta => Color::Rgb(46, 20, 56),
-        _ => Color::Rgb(30, 30, 34),
+        Color::Cyan => Color::Rgb(22, 52, 68),
+        Color::Yellow => Color::Rgb(68, 58, 22),
+        Color::Magenta => Color::Rgb(60, 28, 72),
+        _ => Color::Rgb(36, 36, 40),
     }
 }
 
-fn create_card(item: &MenuItem, is_selected: bool, project_type: ProjectType) -> Paragraph<'static> {
+fn create_card(item: &MenuItem, is_selected: bool, is_hovered: bool, project_type: ProjectType) -> Paragraph<'static> {
     let section = item.section();
     let section_color = item.section_color();
 
     let border = if is_selected {
         Style::default().fg(section_color).add_modifier(Modifier::BOLD)
+    } else if is_hovered {
+        Style::default().fg(section_color)
     } else {
         Style::default().fg(Color::DarkGray)
     };
@@ -507,7 +512,7 @@ fn create_card(item: &MenuItem, is_selected: bool, project_type: ProjectType) ->
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(border);
-    if is_selected {
+    if is_selected || is_hovered {
         block = block.style(Style::default().bg(glass_tint(section_color)));
     }
 
@@ -517,6 +522,36 @@ fn create_card(item: &MenuItem, is_selected: bool, project_type: ProjectType) ->
     ]))
     .alignment(Alignment::Center)
     .block(block)
+}
+
+/// Devuelve el índice global (en `state.items`) de la card bajo las coordenadas
+/// del mouse, o None si está fuera de la grilla.
+fn card_at(col: u16, row: u16, state: &MenuState, ctx: &ProjectContext) -> Option<usize> {
+    let header_h: u16 = if ctx.android_home.is_none() { 3 } else { 2 };
+    let mut y_cursor = header_h;
+
+    let groups = calc_group_sizes(&state.items);
+    for (_, _color, items) in &groups {
+        y_cursor += 1;
+
+        let total_grid_w = COLS as u16 * CARD_W;
+        let grid_start_x = (state.area_width.saturating_sub(total_grid_w)) / 2;
+        let rows = (items.len() + COLS - 1) / COLS;
+        let cards_h = rows as u16 * CARD_H;
+
+        if row >= y_cursor && row < y_cursor + cards_h && col >= grid_start_x && col < grid_start_x + total_grid_w {
+            let rel_row = (row - y_cursor) / CARD_H;
+            let rel_col = (col - grid_start_x) / CARD_W;
+            let rel_idx = rel_row as usize * COLS + rel_col as usize;
+            if rel_idx < items.len() {
+                let global_idx = state.items.iter().position(|i| *i == items[rel_idx]).unwrap_or(0);
+                return Some(global_idx);
+            }
+        }
+
+        y_cursor += cards_h;
+    }
+    None
 }
 
 enum MenuAction {
@@ -529,59 +564,45 @@ fn handle_event(state: &mut MenuState, ctx: &ProjectContext) -> anyhow::Result<M
         let evt = crossterm::event::read()?;
 
         match evt {
-            Event::Key(key) if key.kind == KeyEventKind::Press => match key.code {
-                KeyCode::Esc => return Ok(MenuAction::Quit),
-                KeyCode::Enter => return Ok(MenuAction::Run(state.items[state.selected])),
-                KeyCode::Up => {
-                    state.selected = state.selected.saturating_sub(COLS);
+            Event::Key(key) if key.kind == KeyEventKind::Press => {
+                state.hover = None;
+                match key.code {
+                    KeyCode::Esc => return Ok(MenuAction::Quit),
+                    KeyCode::Enter => return Ok(MenuAction::Run(state.items[state.selected])),
+                    KeyCode::Up => {
+                        state.selected = state.selected.saturating_sub(COLS);
+                    }
+                    KeyCode::Down => {
+                        let max = state.items.len() - 1;
+                        state.selected = std::cmp::min(state.selected + COLS, max);
+                    }
+                    KeyCode::Left => {
+                        state.selected = state.selected.saturating_sub(1);
+                    }
+                    KeyCode::Right => {
+                        let max = state.items.len() - 1;
+                        state.selected = std::cmp::min(state.selected + 1, max);
+                    }
+                    _ => {}
                 }
-                KeyCode::Down => {
-                    let max = state.items.len() - 1;
-                    state.selected = std::cmp::min(state.selected + COLS, max);
-                }
-                KeyCode::Left => {
-                    state.selected = state.selected.saturating_sub(1);
-                }
-                KeyCode::Right => {
-                    let max = state.items.len() - 1;
-                    state.selected = std::cmp::min(state.selected + 1, max);
-                }
-                _ => {}
-            },
+            }
             Event::Mouse(mouse) => {
                 // Usamos Up (release) en vez de Down (press) porque en Windows
                 // el primer Down puede ser consumido al recuperar el foco de la terminal
                 // después de que una ventana secundaria se cierra.
-                if mouse.kind == MouseEventKind::Up(MouseButton::Left) {
-                    let col = mouse.column;
-                    let row = mouse.row;
-
-                    let header_h: u16 = if ctx.android_home.is_none() { 3 } else { 2 };
-                    let mut y_cursor = header_h;
-
-                    let groups = calc_group_sizes(&state.items);
-                    for (_, _color, items) in &groups {
-                        y_cursor += 1;
-
-                        let total_grid_w = COLS as u16 * CARD_W;
-                        let grid_start_x = (state.area_width.saturating_sub(total_grid_w)) / 2;
-                        let rows = (items.len() + COLS - 1) / COLS;
-                        let cards_h = rows as u16 * CARD_H;
-
-                        if row >= y_cursor && row < y_cursor + cards_h && col >= grid_start_x && col < grid_start_x + total_grid_w {
-                            let rel_row = (row - y_cursor) / CARD_H;
-                            let rel_col = (col - grid_start_x) / CARD_W;
-                            let rel_idx = rel_row as usize * COLS + rel_col as usize;
-                            if rel_idx < items.len() {
-                                let global_idx = state.items.iter().position(|i| *i == items[rel_idx]).unwrap_or(0);
-                                state.selected = global_idx;
-                                return Ok(MenuAction::Run(state.items[global_idx]));
-                            }
-                        }
-
-                        y_cursor += cards_h;
+                if let MouseEventKind::Up(MouseButton::Left) = mouse.kind {
+                    if let Some(idx) = card_at(mouse.column, mouse.row, state, ctx) {
+                        state.selected = idx;
+                        return Ok(MenuAction::Run(state.items[idx]));
                     }
                 }
+
+                // Actualizamos el hover con CUALQUIER actividad del mouse
+                // (Moved, Drag, Down, Up, scroll). El movimiento libre sin botón
+                // (Moved) no llega de forma fiable en consolas de Windows, pero el
+                // Drag (botón presionado, incluye el click) sí, y con esto el
+                // resaltado sigue al puntero en todos los escenarios.
+                state.hover = card_at(mouse.column, mouse.row, state, ctx);
             }
             _ => {}
         }
