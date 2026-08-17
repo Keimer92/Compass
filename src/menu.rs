@@ -1,4 +1,5 @@
 use std::io::{self, stdout};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::Context;
 use crossterm::{
@@ -25,6 +26,27 @@ const COLS: usize = 3;
 const CARD_W: u16 = 24;
 const CARD_H: u16 = 4;
 const FOOTER_H: u16 = 1;
+
+static TRACE: AtomicBool = AtomicBool::new(false);
+
+pub fn set_trace(on: bool) {
+    TRACE.store(on, Ordering::Relaxed);
+}
+
+fn trace_event(msg: &str) {
+    if !TRACE.load(Ordering::Relaxed) {
+        return;
+    }
+    let log = std::env::temp_dir().join("code-runner-tui.log");
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log)
+    {
+        use std::io::Write;
+        let _ = writeln!(f, "{}", msg);
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MenuItem {
@@ -562,6 +584,7 @@ enum MenuAction {
 fn handle_event(state: &mut MenuState, ctx: &ProjectContext) -> anyhow::Result<MenuAction> {
     loop {
         let evt = crossterm::event::read()?;
+        trace_event(&format!("EVENT: {:?}", evt));
 
         match evt {
             Event::Key(key) if key.kind == KeyEventKind::Press => {
@@ -587,14 +610,20 @@ fn handle_event(state: &mut MenuState, ctx: &ProjectContext) -> anyhow::Result<M
                 }
             }
             Event::Mouse(mouse) => {
+                trace_event(&format!(
+                    "MOUSE: {:?} col={} row={}",
+                    mouse.kind, mouse.column, mouse.row
+                ));
                 // Usamos Up (release) en vez de Down (press) porque en Windows
                 // el primer Down puede ser consumido al recuperar el foco de la terminal
                 // después de que una ventana secundaria se cierra.
                 if let MouseEventKind::Up(MouseButton::Left) = mouse.kind {
                     if let Some(idx) = card_at(mouse.column, mouse.row, state, ctx) {
+                        trace_event(&format!("  -> click en card idx={}", idx));
                         state.selected = idx;
                         return Ok(MenuAction::Run(state.items[idx]));
                     }
+                    trace_event("  -> click fuera de las cards");
                 }
 
                 // Actualizamos el hover con CUALQUIER actividad del mouse
@@ -602,7 +631,9 @@ fn handle_event(state: &mut MenuState, ctx: &ProjectContext) -> anyhow::Result<M
                 // (Moved) no llega de forma fiable en consolas de Windows, pero el
                 // Drag (botón presionado, incluye el click) sí, y con esto el
                 // resaltado sigue al puntero en todos los escenarios.
-                state.hover = card_at(mouse.column, mouse.row, state, ctx);
+                let h = card_at(mouse.column, mouse.row, state, ctx);
+                trace_event(&format!("  -> hover idx={:?}", h));
+                state.hover = h;
             }
             _ => {}
         }
@@ -654,8 +685,18 @@ fn menu_item_to_task(item: MenuItem, ptype: ProjectType) -> &'static str {
 }
 
 pub fn run(ctx: &ProjectContext) -> anyhow::Result<()> {
+    if TRACE.load(Ordering::Relaxed) {
+        let _ = std::fs::File::create(std::env::temp_dir().join("code-runner-tui.log"));
+    }
+
     let mut terminal = setup_terminal()?;
     let mut state = MenuState::new(ctx.project_type);
+
+    trace_event(&format!(
+        "TERMINAL SIZE: {:?} | project: {}",
+        terminal.size()?,
+        ctx.script_dir.display()
+    ));
 
     let exe_path = std::env::current_exe()
         .context("No se pudo determinar la ruta del ejecutable")?;

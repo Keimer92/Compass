@@ -17,6 +17,9 @@ struct Cli {
 
     #[arg(short, long, help = "Ruta del proyecto (se autodetecta por defecto)")]
     path: Option<String>,
+
+    #[arg(long, help = "Registrar eventos del menú TUI en %TEMP%\\code-runner-tui.log")]
+    trace: bool,
 }
 
 fn main() -> Result<()> {
@@ -42,6 +45,7 @@ fn main() -> Result<()> {
     if let Some(task) = &cli.task {
         run_task_direct(&ctx, task)?;
     } else {
+        menu::set_trace(cli.trace);
         menu::run(&ctx)?;
     }
 
