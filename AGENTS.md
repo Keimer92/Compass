@@ -42,7 +42,7 @@ main.rs
           └─ run_global_task() para context-menu y opencode
 
 menu.rs
-  ├─ MenuItem (16 variants: WindowsDev, AndroidDev, ..., ContextMenu)
+  ├─ MenuItem (17 variants: WindowsDev, AndroidDev, ..., Version, ContextMenu)
   ├─ ratatui TUI con cards en grilla 3-columnas, 3 secciones (DEV/MNT/CFG)
   ├─ Filtro por tipo de proyecto (Rust oculta Android/Signing/Keystore)
   ├─ handle_event(): devuelve MenuAction (Run | Quit); teclado + mouse (grid matemático)

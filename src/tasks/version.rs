@@ -8,7 +8,7 @@ use crate::utils::context::{ProjectContext, ProjectType};
 use crate::utils::ui;
 
 const RE_JSON: &str = r#""version"\s*:\s*"([^"]+)""#;
-const RE_TOML: &str = r"(?m)^version\s*=\s*"([^"]+)""#;
+const RE_TOML: &str = r#"(?m)^version\s*=\s*"([^"]+)""#;
 const RE_PACKAGE: &str = r"(?m)^\[package\]\s*$";
 const RE_NEW_VERSION: &str = r"^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$";
 
@@ -53,7 +53,9 @@ pub fn bump(ctx: &ProjectContext) -> Result<()> {
             bail!("No existe el archivo: {}", path.display());
         }
         let text = std::fs::read_to_string(&path)
-            .with_context(|| format!("No se pudo leer: {}", path.display()))?;
+            .with_context(|| format!("No se pudo leer: {}", path.display()))?
+            .trim_start_matches('\u{feff}')
+            .to_string();
 
         let re = Regex::new(if is_json { RE_JSON } else { RE_TOML })?;
         if let Some(cap) = re.captures(&text) {
