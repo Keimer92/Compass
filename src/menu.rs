@@ -63,6 +63,7 @@ pub enum MenuItem {
     DebugAndroid,
     ConfigureSigning,
     CleanProject,
+    Version,
     // CFG section
     CreateGitignore,
     InitGit,
@@ -86,6 +87,7 @@ impl MenuItem {
             Self::DebugAndroid => "\u{1f50d}",
             Self::ConfigureSigning => "\u{1f511}",
             Self::CleanProject => "\u{1f9fc}",
+            Self::Version => "\u{1f516}",
             Self::CreateGitignore => "\u{1f4c4}",
             Self::InitGit => "\u{1f527}",
             Self::ManageKeystore => "\u{1f5dd}",
@@ -98,7 +100,7 @@ impl MenuItem {
     fn section(&self) -> &str {
         match self {
             Self::WindowsDev | Self::AndroidDev | Self::WindowsBuild | Self::AndroidBuildArm64 | Self::AndroidBuildArmv7 | Self::AndroidBuildAll | Self::LaunchEmulator => "DEV",
-            Self::CleanCache | Self::DebugAndroid | Self::ConfigureSigning | Self::CleanProject => "MNT",
+            Self::CleanCache | Self::DebugAndroid | Self::ConfigureSigning | Self::CleanProject | Self::Version => "MNT",
             Self::CreateGitignore | Self::InitGit | Self::ManageKeystore | Self::BuildWhatsApp | Self::ConfigureTerminal | Self::ContextMenu => "CFG",
         }
     }
@@ -137,6 +139,7 @@ impl MenuItem {
             Self::DebugAndroid => "Debug Andr",
             Self::ConfigureSigning => "Configure",
             Self::CleanProject => "Clean Proj",
+            Self::Version => "Version",
             Self::CreateGitignore => ".gitignore",
             Self::InitGit => "Git Init",
             Self::ManageKeystore => "Keystore",
@@ -168,6 +171,7 @@ impl MenuItem {
                 Self::DebugAndroid => "",
                 Self::ConfigureSigning => "",
                 Self::CleanProject => "cargo clean",
+                Self::Version => "Actualiza Cargo.toml",
                 Self::CreateGitignore => "Crea .gitignore",
                 Self::InitGit => "Git init + commit",
                 Self::ManageKeystore => "",
@@ -192,6 +196,7 @@ impl MenuItem {
                 Self::ManageKeystore => "Administra llaves",
                 Self::LaunchEmulator => "Lanza emulador",
                 Self::BuildWhatsApp => "Compila WhatsApp",
+                Self::Version => "Bump pkg/cargo/tauri",
                 Self::ConfigureTerminal => "Autocompletado",
                 Self::ContextMenu => "Menu contextual",
             },
@@ -211,6 +216,7 @@ impl MenuItem {
                 Self::ManageKeystore => "Administrar firmas",
                 Self::LaunchEmulator => "Lanza emulador",
                 Self::BuildWhatsApp => "Compila WhatsApp",
+                Self::Version => "",
                 Self::ConfigureTerminal => "Autocompletado",
                 Self::ContextMenu => "Menu contextual",
             },
@@ -230,6 +236,7 @@ impl MenuItem {
                 Self::LaunchEmulator => "Lanza emulador",
                 Self::ManageKeystore => "Administrar firmas",
                 Self::BuildWhatsApp => "Compila WhatsApp",
+                Self::Version => "",
                 Self::ConfigureTerminal => "Autocompletado",
                 Self::ContextMenu => "Menu contextual",
             },
@@ -260,6 +267,7 @@ impl MenuState {
             MenuItem::DebugAndroid,
             MenuItem::ConfigureSigning,
             MenuItem::CleanProject,
+            MenuItem::Version,
             MenuItem::CreateGitignore,
             MenuItem::InitGit,
             MenuItem::ManageKeystore,
@@ -281,7 +289,7 @@ impl MenuState {
                     | MenuItem::ManageKeystore
                 ),
                 ProjectType::Tauri => true,
-                _ => !matches!(item, MenuItem::AndroidBuildArmv7),
+                _ => !matches!(item, MenuItem::AndroidBuildArmv7 | MenuItem::Version),
             })
             .collect();
 
@@ -671,6 +679,8 @@ fn menu_item_to_task(item: MenuItem, ptype: ProjectType) -> &'static str {
         (MenuItem::ConfigureSigning, _) => "sign",
 
         (MenuItem::CleanProject, _) => "clean-project",
+
+        (MenuItem::Version, _) => "version",
 
         (MenuItem::CreateGitignore, _) => "gitignore",
         (MenuItem::InitGit, _) => "git-init",

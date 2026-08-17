@@ -124,6 +124,7 @@ fn run_task_direct(ctx: &crate::utils::context::ProjectContext, task: &str) -> R
             crate::utils::context::ProjectType::Kotlin => tasks::kotlin::clean(ctx),
             crate::utils::context::ProjectType::Rust => tasks::rust::clean(ctx),
         },
+        "version" => tasks::version::bump(ctx),
         "gitignore" => tasks::gitignore::create(ctx),
         "git-init" => tasks::git::init(ctx),
         "keystore" => match ctx.project_type {

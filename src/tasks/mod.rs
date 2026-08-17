@@ -9,5 +9,6 @@ pub mod kotlin;
 pub mod rust;
 pub mod signer;
 pub mod terminal;
+pub mod version;
 pub mod whatsapp;
 pub mod windows;
