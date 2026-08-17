@@ -69,6 +69,7 @@ tasks/
   ├─ terminal.rs — configure() [PSReadLine profile]
   ├─ context_menu.rs — install/uninstall/toggle para CodeRunner + OpenCode
   └─ whatsapp.rs — build()
+  └─ version.rs — bump() [port de versionar.bat: Tauri/Rust, todo-o-nada]
 ```
 
 ## Task Routing
@@ -86,6 +87,7 @@ tasks/
 | DebugAndroid | `android::debug` | mensaje info | mensaje info | oculto |
 | LaunchEmulator | `android::launch` | `android::launch` | `android::launch` | oculto |
 | ConfigureSigning | `android::configure_signing` | `android::configure_signing` | `android::configure_signing` | oculto |
+| Version | `version::bump` (pkg/cargo/tauri) | mensaje info | mensaje info | `version::bump` (Cargo.toml) |
 | CleanProject | `cleanup::clean_project` | `flutter::clean` | `kotlin::clean` | `rust::clean` |
 | CreateGitignore | `gitignore::create` | `gitignore::create` | `gitignore::create` | `gitignore::create` |
 | InitGit | `git::init` | `git::init` | `git::init` | `git::init` |
