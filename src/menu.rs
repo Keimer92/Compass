@@ -579,65 +579,66 @@ fn card_at(col: u16, row: u16, state: &MenuState, ctx: &ProjectContext) -> Optio
 enum MenuAction {
     Run(MenuItem),
     Quit,
+    Continue,
 }
 
 fn handle_event(state: &mut MenuState, ctx: &ProjectContext) -> anyhow::Result<MenuAction> {
-    loop {
-        let evt = crossterm::event::read()?;
-        trace_event(&format!("EVENT: {:?}", evt));
+    let evt = crossterm::event::read()?;
+    trace_event(&format!("EVENT: {:?}", evt));
 
-        match evt {
-            Event::Key(key) if key.kind == KeyEventKind::Press => {
-                state.hover = None;
-                match key.code {
-                    KeyCode::Esc => return Ok(MenuAction::Quit),
-                    KeyCode::Enter => return Ok(MenuAction::Run(state.items[state.selected])),
-                    KeyCode::Up => {
-                        state.selected = state.selected.saturating_sub(COLS);
-                    }
-                    KeyCode::Down => {
-                        let max = state.items.len() - 1;
-                        state.selected = std::cmp::min(state.selected + COLS, max);
-                    }
-                    KeyCode::Left => {
-                        state.selected = state.selected.saturating_sub(1);
-                    }
-                    KeyCode::Right => {
-                        let max = state.items.len() - 1;
-                        state.selected = std::cmp::min(state.selected + 1, max);
-                    }
-                    _ => {}
+    match evt {
+        Event::Key(key) if key.kind == KeyEventKind::Press => {
+            state.hover = None;
+            match key.code {
+                KeyCode::Esc => return Ok(MenuAction::Quit),
+                KeyCode::Enter => return Ok(MenuAction::Run(state.items[state.selected])),
+                KeyCode::Up => {
+                    state.selected = state.selected.saturating_sub(COLS);
                 }
-            }
-            Event::Mouse(mouse) => {
-                trace_event(&format!(
-                    "MOUSE: {:?} col={} row={}",
-                    mouse.kind, mouse.column, mouse.row
-                ));
-                // Usamos Up (release) en vez de Down (press) porque en Windows
-                // el primer Down puede ser consumido al recuperar el foco de la terminal
-                // después de que una ventana secundaria se cierra.
-                if let MouseEventKind::Up(MouseButton::Left) = mouse.kind {
-                    if let Some(idx) = card_at(mouse.column, mouse.row, state, ctx) {
-                        trace_event(&format!("  -> click en card idx={}", idx));
-                        state.selected = idx;
-                        return Ok(MenuAction::Run(state.items[idx]));
-                    }
-                    trace_event("  -> click fuera de las cards");
+                KeyCode::Down => {
+                    let max = state.items.len() - 1;
+                    state.selected = std::cmp::min(state.selected + COLS, max);
                 }
-
-                // Actualizamos el hover con CUALQUIER actividad del mouse
-                // (Moved, Drag, Down, Up, scroll). El movimiento libre sin botón
-                // (Moved) no llega de forma fiable en consolas de Windows, pero el
-                // Drag (botón presionado, incluye el click) sí, y con esto el
-                // resaltado sigue al puntero en todos los escenarios.
-                let h = card_at(mouse.column, mouse.row, state, ctx);
-                trace_event(&format!("  -> hover idx={:?}", h));
-                state.hover = h;
+                KeyCode::Left => {
+                    state.selected = state.selected.saturating_sub(1);
+                }
+                KeyCode::Right => {
+                    let max = state.items.len() - 1;
+                    state.selected = std::cmp::min(state.selected + 1, max);
+                }
+                _ => {}
             }
-            _ => {}
         }
+        Event::Mouse(mouse) => {
+            trace_event(&format!(
+                "MOUSE: {:?} col={} row={}",
+                mouse.kind, mouse.column, mouse.row
+            ));
+            // Usamos Up (release) en vez de Down (press) porque en Windows
+            // el primer Down puede ser consumido al recuperar el foco de la terminal
+            // después de que una ventana secundaria se cierra.
+            if let MouseEventKind::Up(MouseButton::Left) = mouse.kind {
+                if let Some(idx) = card_at(mouse.column, mouse.row, state, ctx) {
+                    trace_event(&format!("  -> click en card idx={}", idx));
+                    state.selected = idx;
+                    return Ok(MenuAction::Run(state.items[idx]));
+                }
+                trace_event("  -> click fuera de las cards");
+            }
+
+            // Actualizamos el hover con CUALQUIER actividad del mouse
+            // (Moved, Drag, Down, Up, scroll). El movimiento libre sin botón
+            // (Moved) no llega de forma fiable en consolas de Windows, pero el
+            // Drag (botón presionado, incluye el click) sí, y con esto el
+            // resaltado sigue al puntero en todos los escenarios.
+            let h = card_at(mouse.column, mouse.row, state, ctx);
+            trace_event(&format!("  -> hover idx={:?}", h));
+            state.hover = h;
+        }
+        _ => {}
     }
+
+    Ok(MenuAction::Continue)
 }
 
 fn menu_item_to_task(item: MenuItem, ptype: ProjectType) -> &'static str {
@@ -725,6 +726,7 @@ pub fn run(ctx: &ProjectContext) -> anyhow::Result<()> {
                     &command,
                 )?;
             }
+            MenuAction::Continue => {}
         }
     }
 }
