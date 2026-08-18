@@ -42,8 +42,7 @@ echo [INFO] Compilando e instalando...
 cargo install --path . --force
 set "EXIT_CODE=%errorlevel%"
 echo.
-echo Presiona cualquier tecla para ver el resultado...
-pause >nul
+echo [INFO] Compilacion finalizada.
 
 if "%EXIT_CODE%"=="0" (
 echo.
@@ -86,21 +85,31 @@ if exist "assets\icon\opencode.ico" (
 echo.
 
 echo [INFO] Configurando menu contextual de Code Runner...
-call "%USERPROFILE%\.cargo\bin\code-runner.exe" --task context-menu-install
-if errorlevel 1 (
-    echo [WARN] No se pudo instalar el menu contextual de Code Runner.
+for /f %%i in ('powershell -NoProfile -Command "$v=(Get-ItemProperty -Path 'HKCU:\Software\Classes\Directory\shell\zz_CodeRunner\command' -ErrorAction SilentlyContinue).'(default)'; if($v -like '*code-runner.exe*'){'1'}else{'0'}"') do set "CR_CURRENT=%%i"
+if "%CR_CURRENT%"=="1" (
+    echo [SKIP] Menu contextual de Code Runner ya instalado.
 ) else (
-    echo [OK] Menu contextual de Code Runner instalado.
+    call "%USERPROFILE%\.cargo\bin\code-runner.exe" --task context-menu-install
+    if errorlevel 1 (
+        echo [WARN] No se pudo instalar el menu contextual de Code Runner.
+    ) else (
+        echo [OK] Menu contextual de Code Runner instalado.
+    )
 )
 echo.
 
 echo [INFO] Configurando menu contextual de OpenCode...
-call "%USERPROFILE%\.cargo\bin\code-runner.exe" --task opencode-install
-if errorlevel 1 (
-    echo [WARN] No se pudo instalar el menu contextual de OpenCode.
+for /f %%i in ('powershell -NoProfile -Command "$v=(Get-ItemProperty -Path 'HKCU:\Software\Classes\Directory\shell\zz_OpenCode\command' -ErrorAction SilentlyContinue).'(default)'; if($v -like '*opencode*'){'1'}else{'0'}"') do set "OC_CURRENT=%%i"
+if "%OC_CURRENT%"=="1" (
+    echo [SKIP] Menu contextual de OpenCode ya instalado.
 ) else (
-    echo [OK] Menu contextual de OpenCode instalado.
+    call "%USERPROFILE%\.cargo\bin\code-runner.exe" --task opencode-install
+    if errorlevel 1 (
+        echo [WARN] No se pudo instalar el menu contextual de OpenCode.
+    ) else (
+        echo [OK] Menu contextual de OpenCode instalado.
+    )
 )
 
-pause
+timeout /t 3 /nobreak >nul
 exit /b %EXIT_CODE%
