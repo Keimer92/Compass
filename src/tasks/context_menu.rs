@@ -37,6 +37,13 @@ fn exe_path() -> String {
 
 pub fn install() -> Result<()> {
     let exe = exe_path();
+
+    if command_is_current("zz_CodeRunner", &exe) {
+        println!("[SKIP] Menú contextual Code Runner ya está instalado.");
+        println!("  Ruta: {exe}");
+        return Ok(());
+    }
+
     let icon = icon_path();
 
     println!("[INFO] Icon path: {icon}");
@@ -85,6 +92,11 @@ Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_Co
 }
 
 pub fn install_opencode() -> Result<()> {
+    if command_is_current("zz_OpenCode", "opencode") {
+        println!("[SKIP] Menú contextual 'Open with OpenCode' ya está instalado.");
+        return Ok(());
+    }
+
     let icon = opencode_icon();
 
     println!("[INFO] OpenCode icon path: {icon}");
@@ -185,6 +197,15 @@ pub fn toggle() -> Result<()> {
 fn is_installed(name: &str) -> bool {
     let ps = format!(
         "Test-Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{name}\\command'"
+    );
+    let output = cmd::run("powershell", &["-NoProfile", "-Command", &ps]);
+    output.map(|o| String::from_utf8_lossy(&o.stdout).trim() == "True").unwrap_or(false)
+}
+
+fn command_is_current(name: &str, needle: &str) -> bool {
+    let ps = format!(
+        "$v = (Get-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{name}\\command' -ErrorAction SilentlyContinue).'(default)'; \
+         if ($null -eq $v) {{ 'false' }} else {{ $v.Contains('{needle}') }}"
     );
     let output = cmd::run("powershell", &["-NoProfile", "-Command", &ps]);
     output.map(|o| String::from_utf8_lossy(&o.stdout).trim() == "True").unwrap_or(false)

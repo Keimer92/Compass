@@ -56,6 +56,33 @@ fn extract_namespace(project_dir: &std::path::Path) -> Option<String> {
     None
 }
 
+fn extract_main_activity_package(project_dir: &std::path::Path) -> Option<String> {
+    let kotlin_dir = project_dir.join("composeApp").join("src");
+    let mut stack = vec![kotlin_dir];
+    while let Some(dir) = stack.pop() {
+        let entries = std::fs::read_dir(&dir).ok()?;
+        for entry in entries {
+            let entry = entry.ok()?;
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if entry.file_name() == "MainActivity.kt" {
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    for line in content.lines() {
+                        let trimmed = line.trim();
+                        if let Some(pkg) = trimmed.strip_prefix("package ") {
+                            return Some(
+                                pkg.trim_end_matches(';').trim().to_string(),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
 pub fn run_android(ctx: &ProjectContext) -> Result<()> {
     ensure_gradle(ctx)?;
 
@@ -71,17 +98,22 @@ pub fn run_android(ctx: &ProjectContext) -> Result<()> {
     let namespace = extract_namespace(&ctx.script_dir)
         .unwrap_or_else(|| "com.example.app".to_string());
 
+    let activity = extract_main_activity_package(&ctx.script_dir)
+        .map(|p| format!("{}.MainActivity", p))
+        .unwrap_or_else(|| format!("{}.MainActivity", namespace));
+
     let cmd = format!(
         "$env:ANDROID_SERIAL='{}'; \
          {}; \
          if ($LASTEXITCODE -eq 0) {{ \
              Write-Host '[OK] Abriendo aplicacion...'; \
-             & '{}' shell am start -n '{}/.MainActivity' \
+             & '{}' shell am start -n '{}/{}' \
          }}",
         serial,
         gradlew_cmd(":composeApp:installDebug"),
         adb_path,
         namespace,
+        activity,
     );
 
     cmd::spawn_new_window(
