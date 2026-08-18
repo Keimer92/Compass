@@ -56,6 +56,7 @@ fn run_global_task(task: &str) -> Result<()> {
     match task {
         "context-menu" => tasks::context_menu::toggle(),
         "context-menu-install" => tasks::context_menu::install(),
+        "context-menu-uninstall" => tasks::context_menu::uninstall(),
         "opencode" => tasks::context_menu::toggle(),
         "opencode-install" => tasks::context_menu::install_opencode(),
         "opencode-uninstall" => tasks::context_menu::uninstall_opencode(),
