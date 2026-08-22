@@ -62,6 +62,7 @@ pub enum MenuItem {
     CleanCache,
     DebugAndroid,
     ConfigureSigning,
+    Sha1,
     CleanProject,
     Version,
     // CFG section
@@ -86,6 +87,7 @@ impl MenuItem {
             Self::CleanCache => "\u{1f9f9}",
             Self::DebugAndroid => "\u{1f50d}",
             Self::ConfigureSigning => "\u{1f511}",
+            Self::Sha1 => "\u{1f194}",
             Self::CleanProject => "\u{1f9fc}",
             Self::Version => "\u{1f516}",
             Self::CreateGitignore => "\u{1f4c4}",
@@ -100,7 +102,7 @@ impl MenuItem {
     fn section(&self) -> &str {
         match self {
             Self::WindowsDev | Self::AndroidDev | Self::WindowsBuild | Self::AndroidBuildArm64 | Self::AndroidBuildArmv7 | Self::AndroidBuildAll | Self::LaunchEmulator => "DEV",
-            Self::CleanCache | Self::DebugAndroid | Self::ConfigureSigning | Self::CleanProject | Self::Version => "MNT",
+            Self::CleanCache | Self::DebugAndroid | Self::ConfigureSigning | Self::Sha1 | Self::CleanProject | Self::Version => "MNT",
             Self::CreateGitignore | Self::InitGit | Self::ManageKeystore | Self::BuildWhatsApp | Self::ConfigureTerminal | Self::ContextMenu => "CFG",
         }
     }
@@ -138,6 +140,7 @@ impl MenuItem {
             Self::CleanCache => "Clean Cache",
             Self::DebugAndroid => "Debug Andr",
             Self::ConfigureSigning => "Configure",
+            Self::Sha1 => "SHA1",
             Self::CleanProject => "Clean Proj",
             Self::Version => "Version",
             Self::CreateGitignore => ".gitignore",
@@ -170,6 +173,7 @@ impl MenuItem {
                 Self::CleanCache => "Limpia target/ y cache",
                 Self::DebugAndroid => "",
                 Self::ConfigureSigning => "",
+                Self::Sha1 => "",
                 Self::CleanProject => "cargo clean",
                 Self::Version => "Actualiza Cargo.toml",
                 Self::CreateGitignore => "Crea .gitignore",
@@ -190,6 +194,7 @@ impl MenuItem {
                 Self::CleanCache => "Limpia cache y npm",
                 Self::DebugAndroid => "Chrome DevTools",
                 Self::ConfigureSigning => "Configura firma",
+                Self::Sha1 => "SHA1 debug/release",
                 Self::CleanProject => "Limpia proyecto",
                 Self::CreateGitignore => "Crea .gitignore",
                 Self::InitGit => "Git init + commit",
@@ -210,6 +215,7 @@ impl MenuItem {
                 Self::CleanCache => "Limpia cache Flutter",
                 Self::DebugAndroid => "Depurar Android",
                 Self::ConfigureSigning => "Configurar firma",
+                Self::Sha1 => "SHA1 debug/release",
                 Self::CleanProject => "Limpia proyecto",
                 Self::CreateGitignore => "Crea .gitignore",
                 Self::InitGit => "Git init + commit",
@@ -230,6 +236,7 @@ impl MenuItem {
                 Self::CleanCache => "Limpia Gradle/Kotlin",
                 Self::DebugAndroid => "Depurar Android",
                 Self::ConfigureSigning => "Configurar firma",
+                Self::Sha1 => "SHA1 debug/release",
                 Self::CleanProject => "Limpia proyecto",
                 Self::CreateGitignore => "Crea .gitignore",
                 Self::InitGit => "Git init + commit",
@@ -266,6 +273,7 @@ impl MenuState {
             MenuItem::CleanCache,
             MenuItem::DebugAndroid,
             MenuItem::ConfigureSigning,
+            MenuItem::Sha1,
             MenuItem::CleanProject,
             MenuItem::Version,
             MenuItem::CreateGitignore,
@@ -286,6 +294,7 @@ impl MenuState {
                     | MenuItem::LaunchEmulator
                     | MenuItem::DebugAndroid
                     | MenuItem::ConfigureSigning
+                    | MenuItem::Sha1
                     | MenuItem::ManageKeystore
                 ),
                 ProjectType::Tauri => true,
@@ -677,6 +686,8 @@ fn menu_item_to_task(item: MenuItem, ptype: ProjectType) -> &'static str {
         (MenuItem::DebugAndroid, _) => "debug-android",
 
         (MenuItem::ConfigureSigning, _) => "sign",
+
+        (MenuItem::Sha1, _) => "sha1",
 
         (MenuItem::CleanProject, _) => "clean-project",
 

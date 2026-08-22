@@ -119,6 +119,7 @@ fn run_task_direct(ctx: &crate::utils::context::ProjectContext, task: &str) -> R
             }
         },
         "sign" => tasks::android::configure_signing(ctx),
+        "sha1" => tasks::sha1::show(ctx),
         "clean-project" => match ctx.project_type {
             crate::utils::context::ProjectType::Tauri => tasks::cleanup::clean_project(ctx),
             crate::utils::context::ProjectType::Flutter => tasks::flutter::clean(ctx),

@@ -7,6 +7,7 @@ pub mod gitignore;
 pub mod keystore;
 pub mod kotlin;
 pub mod rust;
+pub mod sha1;
 pub mod signer;
 pub mod terminal;
 pub mod version;

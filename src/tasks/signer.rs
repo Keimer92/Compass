@@ -249,7 +249,7 @@ fn manual_configure(_ctx: &ProjectContext, android_app: &Path, props_name: &str)
     Ok(())
 }
 
-fn find_keytool() -> Result<String> {
+pub(crate) fn find_keytool() -> Result<String> {
     let mut paths: Vec<String> = Vec::new();
 
     paths.push("keytool".to_string());

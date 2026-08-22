@@ -42,7 +42,7 @@ main.rs
           └─ run_global_task() para context-menu y opencode
 
 menu.rs
-  ├─ MenuItem (17 variants: WindowsDev, AndroidDev, ..., Version, ContextMenu)
+  ├─ MenuItem (18 variants: WindowsDev, AndroidDev, ..., Sha1, Version, ContextMenu)
   ├─ ratatui TUI con cards en grilla 3-columnas, 3 secciones (DEV/MNT/CFG)
   ├─ Filtro por tipo de proyecto (Rust oculta Android/Signing/Keystore)
   ├─ handle_event(): devuelve MenuAction (Run | Quit); teclado + mouse (grid matemático)
@@ -66,6 +66,7 @@ tasks/
   ├─ gitignore.rs — create() [templates por tipo, incluye Rust]
   ├─ keystore.rs — manage() [Tauri: menú backup/restore]
   ├─ signer.rs  — create_or_import(), patch_build_gradle()
+  ├─ sha1.rs    — show() [huellas SHA-1/SHA-256 debug+release, lee keystore.properties/key.properties]
   ├─ terminal.rs — configure() [PSReadLine profile]
   ├─ context_menu.rs — install/uninstall/toggle para CodeRunner + OpenCode
   └─ whatsapp.rs — build()
@@ -87,6 +88,7 @@ tasks/
 | DebugAndroid | `android::debug` | mensaje info | mensaje info | oculto |
 | LaunchEmulator | `android::launch` | `android::launch` | `android::launch` | oculto |
 | ConfigureSigning | `android::configure_signing` | `android::configure_signing` | `android::configure_signing` | oculto |
+| Sha1 | `sha1::show` | `sha1::show` | `sha1::show` | oculto |
 | Version | `version::bump` (pkg/cargo/tauri) | mensaje info | mensaje info | `version::bump` (Cargo.toml) |
 | CleanProject | `cleanup::clean_project` | `flutter::clean` | `kotlin::clean` | `rust::clean` |
 | CreateGitignore | `gitignore::create` | `gitignore::create` | `gitignore::create` | `gitignore::create` |
