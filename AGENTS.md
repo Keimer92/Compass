@@ -105,10 +105,15 @@ tasks/
 
 | Task | Ruta |
 |------|------|
+| `context-menu` / `opencode` | `context_menu::toggle()` (menú interactivo) |
 | `context-menu-install` | `context_menu::install()` |
 | `context-menu-uninstall` | `context_menu::uninstall()` |
 | `opencode-install` | `context_menu::install_opencode()` |
 | `opencode-uninstall` | `context_menu::uninstall_opencode()` |
+| `cline-install` | `context_menu::install_cline()` |
+| `cline-uninstall` | `context_menu::uninstall_cline()` |
+| `kilo-install` | `context_menu::install_kilocode()` |
+| `kilo-uninstall` | `context_menu::uninstall_kilocode()` |
 
 ## Path Conventions
 
@@ -141,20 +146,25 @@ tasks/
 
 ## Context Menu (Windows Registry)
 
-Dos entradas en el menú contextual del Explorador de Windows:
+Cuatro entradas en el menú contextual del Explorador de Windows:
 
 | Entrada | Comando | Clave Registro |
 |---------|---------|----------------|
 | **Open with Code Runner** | `"<exe_path>" "%1"` | `HKCR\Directory\shell\zz_CodeRunner` |
 | **Open with OpenCode** | `cmd.exe /c start "OpenCode" /D "%1" cmd.exe /c "opencode"` | `HKCR\Directory\shell\zz_OpenCode` |
-| **Open with Cline** | `cmd.exe /c start "Cline" /D "%1" cmd.exe /c "cline"` | `HKCR\Directory\shell\zz_pCline` |
+| **Open with Cline** | `cmd.exe /c start "Cline" /D "%1" cmd.exe /c "cline -i"` | `HKCR\Directory\shell\zz_pCline` |
 | **Open with Kilo Code** | `cmd.exe /c start "Kilo Code" /D "%1" cmd.exe /c "kilo"` | `HKCR\Directory\shell\zz_pKilo` |
 
-- Ambas entradas usan prefijo `zz_` para aparecer al final del menú (orden alfabético).
-- Cline y Kilo Code usan claves `zz_pCline`/`zz_pKilo` (cuarto carácter minúscula `p`, que ordena después de `o` de OpenCode **insensible a mayúsculas** — el menú contextual NO distingue mayúsculas) para quedar justo después de OpenCode en el orden: OpenCode → Cline → Kilo Code.
+- Todas las entradas usan prefijo `zz_` para aparecer al final del menú (orden alfabético).
+- Cline y Kilo Code usan claves `zz_pCline`/`zz_pKilo` (cuarto carácter minúscula `p`, que ordena después de `o` de OpenCode **insensible a mayúsculas** — el menú contextual NO distingue mayúsculas) para quedar justo después de OpenCode en el orden: Code Runner → OpenCode → Cline → Kilo Code.
 - Cline y Kilo Code comparten el icono `opencode.ico`.
 - Se registran para **carpeta** (`Directory`) y **fondo** (`Directory\Background`).
-- Icono: busca `icon.ico` (CodeRunner) o `opencode.ico` (OpenCode) en `%USERPROFILE%\.config\code-runner\`, si no existe usa `Default.ico` del mismo directorio. Como último fallback, queda sin icono.
+- Icono: busca `icon.ico` (CodeRunner) o `opencode.ico` (Cline/Kilo Code) en el directorio del ejecutable, si no existe usa `Default.ico` del mismo directorio. Como último fallback, queda sin icono.
+- **Cline requiere el flag `-i`** (`cline -i`): sin argumentos, el CLI de Cline corre en modo headless (act mode, sin TUI) y la ventana se queda en negro. `kilo` por defecto ya abre su TUI.
+- Instalación de Cline/Kilo Code vía helper genérico `install_cli_tool(key, title, cli_cmd, icon)` + `uninstall_key(key, title)` en `context_menu.rs`.
+- **Gotcha de escaping**: las comillas dobles dentro del comando del registro deben escribirse como `\"` en el string de Rust (comilla literal), NO como `\\\"` — esto último produce `\"` literal en el registro (bytes `5C 22`) y rompe `start` con el error "Windows cannot find '\...\'". Dentro de las comillas simples de PowerShell las comillas dobles no necesitan escape.
+- El menú interactivo `toggle()` gestiona las 4 entradas individualmente + "Instalar todos" / "Desinstalar todos".
+- `install.bat` instala/actualiza las 4 entradas con detección de "ya instalado" (compara el valor actual del registro con `command_is_current()`).
 
 ## Key Patterns
 
@@ -277,7 +287,11 @@ Script de instalación para Windows:
 1. Compila el proyecto con `cargo install --path .`
 2. **Siempre** copia `assets/icon/Icon.ico` a `%USERPROFILE%\.config\code-runner\Default.ico`
 3. **Siempre** copia `assets/icon/opencode.ico` al mismo directorio
-4. **Siempre** ejecuta `code-runner --task context-menu-install` (instala ambos menús)
+4. Instala los 4 menús contextuales (Code Runner, OpenCode, Cline, Kilo Code) con detección de "ya instalado" para cada uno:
+   - `code-runner --task context-menu-install`
+   - `code-runner --task opencode-install`
+   - `code-runner --task cline-install`
+   - `code-runner --task kilo-install`
 5. Si `cargo install` falla, muestra advertencia pero no detiene la copia de iconos ni la instalación de menús
 
 ## Testing

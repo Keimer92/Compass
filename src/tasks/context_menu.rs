@@ -55,13 +55,13 @@ fn install_cli_tool(key: &str, title: &str, cli_cmd: &str, icon: &str) -> Result
          Set-ItemProperty -Path 'HKCU:\\\\Software\\\\Classes\\\\Directory\\\\shell\\\\{key}' -Name '(default)' -Value 'Open with {title}'; \
          Set-ItemProperty -Path 'HKCU:\\\\Software\\\\Classes\\\\Directory\\\\shell\\\\{key}' -Name 'Icon' -Type String -Value '{icon}'; \
          New-Item -Path 'HKCU:\\\\Software\\\\Classes\\\\Directory\\\\shell\\\\{key}\\\\command' -Force | Out-Null; \
-         Set-ItemProperty -Path 'HKCU:\\\\Software\\\\Classes\\\\Directory\\\\shell\\\\{key}\\\\command' -Name '(default)' -Value 'cmd.exe /c start \\\"{title}\\\" /D \\\"%1\\\" cmd.exe /c \\\"{cli_cmd}\\\"'; \
+         Set-ItemProperty -Path 'HKCU:\\\\Software\\\\Classes\\\\Directory\\\\shell\\\\{key}\\\\command' -Name '(default)' -Value 'cmd.exe /c start \"{title}\" /D \"%1\" cmd.exe /c \"{cli_cmd}\"'; \
          \
          New-Item -Path 'HKCU:\\\\Software\\\\Classes\\\\Directory\\\\Background\\\\shell\\\\{key}' -Force | Out-Null; \
          Set-ItemProperty -Path 'HKCU:\\\\Software\\\\Classes\\\\Directory\\\\Background\\\\shell\\\\{key}' -Name '(default)' -Value 'Open with {title}'; \
          Set-ItemProperty -Path 'HKCU:\\\\Software\\\\Classes\\\\Directory\\\\Background\\\\shell\\\\{key}' -Name 'Icon' -Type String -Value '{icon}'; \
          New-Item -Path 'HKCU:\\\\Software\\\\Classes\\\\Directory\\\\Background\\\\shell\\\\{key}\\\\command' -Force | Out-Null; \
-         Set-ItemProperty -Path 'HKCU:\\\\Software\\\\Classes\\\\Directory\\\\Background\\\\shell\\\\{key}\\\\command' -Name '(default)' -Value 'cmd.exe /c start \\\"{title}\\\" /D \\\"%W\\\" cmd.exe /c \\\"{cli_cmd}\\\"'"
+         Set-ItemProperty -Path 'HKCU:\\\\Software\\\\Classes\\\\Directory\\\\Background\\\\shell\\\\{key}\\\\command' -Name '(default)' -Value 'cmd.exe /c start \"{title}\" /D \"%W\" cmd.exe /c \"{cli_cmd}\"'"
     );
 
     let output = cmd::run("powershell", &["-NoProfile", "-Command", &ps])?;
@@ -203,7 +203,7 @@ pub fn uninstall_opencode() -> Result<()> {
 
 pub fn install_cline() -> Result<()> {
     let icon = cline_icon();
-    install_cli_tool("zz_pCline", "Cline", "cline", &icon)
+    install_cli_tool("zz_pCline", "Cline", "cline -i", &icon)
 }
 
 pub fn uninstall_cline() -> Result<()> {
