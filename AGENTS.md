@@ -147,11 +147,12 @@ Dos entradas en el menú contextual del Explorador de Windows:
 |---------|---------|----------------|
 | **Open with Code Runner** | `"<exe_path>" "%1"` | `HKCR\Directory\shell\zz_CodeRunner` |
 | **Open with OpenCode** | `cmd.exe /c start "OpenCode" /D "%1" cmd.exe /c "opencode"` | `HKCR\Directory\shell\zz_OpenCode` |
-| **Open with Cline** | `cmd.exe /c start "Cline" /D "%1" cmd.exe /c "cline"` | `HKCR\Directory\shell\zz_aCline` |
-| **Open with Kilo Code** | `cmd.exe /c start "Kilo Code" /D "%1" cmd.exe /c "kilo"` | `HKCR\Directory\shell\zz_aKilo` |
+| **Open with Cline** | `cmd.exe /c start "Cline" /D "%1" cmd.exe /c "cline"` | `HKCR\Directory\shell\zz_pCline` |
+| **Open with Kilo Code** | `cmd.exe /c start "Kilo Code" /D "%1" cmd.exe /c "kilo"` | `HKCR\Directory\shell\zz_pKilo` |
 
 - Ambas entradas usan prefijo `zz_` para aparecer al final del menú (orden alfabético).
-- Cline y Kilo Code usan claves `zz_aCline`/`zz_aKilo` (tercer carácter minúscula `a`, que ordena después de `O` mayúscula) para quedar justo después de OpenCode en el orden: OpenCode → Cline → Kilo Code.
+- Cline y Kilo Code usan claves `zz_pCline`/`zz_pKilo` (cuarto carácter minúscula `p`, que ordena después de `o` de OpenCode **insensible a mayúsculas** — el menú contextual NO distingue mayúsculas) para quedar justo después de OpenCode en el orden: OpenCode → Cline → Kilo Code.
+- Cline y Kilo Code comparten el icono `opencode.ico`.
 - Se registran para **carpeta** (`Directory`) y **fondo** (`Directory\Background`).
 - Icono: busca `icon.ico` (CodeRunner) o `opencode.ico` (OpenCode) en `%USERPROFILE%\.config\code-runner\`, si no existe usa `Default.ico` del mismo directorio. Como último fallback, queda sin icono.
 
