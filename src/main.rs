@@ -26,7 +26,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     if let Some(task) = &cli.task {
-        if task.starts_with("context-menu") || task.starts_with("opencode") {
+        if task.starts_with("context-menu") || task.starts_with("opencode") || task.starts_with("cline") || task.starts_with("kilo") {
             return run_global_task(task);
         }
     }
@@ -60,6 +60,10 @@ fn run_global_task(task: &str) -> Result<()> {
         "opencode" => tasks::context_menu::toggle(),
         "opencode-install" => tasks::context_menu::install_opencode(),
         "opencode-uninstall" => tasks::context_menu::uninstall_opencode(),
+        "cline-install" => tasks::context_menu::install_cline(),
+        "cline-uninstall" => tasks::context_menu::uninstall_cline(),
+        "kilo-install" => tasks::context_menu::install_kilocode(),
+        "kilo-uninstall" => tasks::context_menu::uninstall_kilocode(),
         _ => anyhow::bail!("Tarea desconocida: {}", task),
     }
 }
@@ -101,6 +105,10 @@ fn run_task_direct(ctx: &crate::utils::context::ProjectContext, task: &str) -> R
             crate::utils::context::ProjectType::Flutter => tasks::flutter::build_aab(ctx),
             crate::utils::context::ProjectType::Kotlin => tasks::kotlin::build_aab(ctx),
             crate::utils::context::ProjectType::Rust => anyhow::bail!("No aplicable a proyectos Rust"),
+        },
+        "android-install-debug" => match ctx.project_type {
+            crate::utils::context::ProjectType::Kotlin => tasks::kotlin::install_debug(ctx),
+            _ => anyhow::bail!("No aplicable a proyectos Kotlin (solo Gradle)"),
         },
         "clean-cache" => tasks::cleanup::clean_cache(ctx),
         "debug-android" => match ctx.project_type {

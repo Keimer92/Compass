@@ -5,7 +5,7 @@ use std::process::Command;
 use anyhow::{Context, Result};
 
 use crate::tasks::signer;
-use crate::utils::{cmd, context::{ProjectContext, ProjectType}, ui};
+use crate::utils::{cmd, context::{kotlin_android_dir, ProjectContext, ProjectType}, ui};
 
 struct KeystoreInfo {
     path: PathBuf,
@@ -80,7 +80,7 @@ fn release_keystore(ctx: &ProjectContext) -> Option<Result<KeystoreInfo>> {
     let android_dir = match ctx.project_type {
         ProjectType::Tauri => ctx.script_dir.join("src-tauri\\gen\\android\\app"),
         ProjectType::Flutter => ctx.script_dir.join("android\\app"),
-        ProjectType::Kotlin => ctx.script_dir.join("composeApp"),
+        ProjectType::Kotlin => kotlin_android_dir(ctx),
         ProjectType::Rust => return None,
     };
     let props_path = android_dir.join(props_name(ctx.project_type));

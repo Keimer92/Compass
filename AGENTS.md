@@ -42,7 +42,7 @@ main.rs
           └─ run_global_task() para context-menu y opencode
 
 menu.rs
-  ├─ MenuItem (18 variants: WindowsDev, AndroidDev, ..., Sha1, Version, ContextMenu)
+  ├─ MenuItem (19 variants: WindowsDev, AndroidDev, ..., InstallDebug, Sha1, Version, ContextMenu)
   ├─ ratatui TUI con cards en grilla 3-columnas, 3 secciones (DEV/MNT/CFG)
   ├─ Filtro por tipo de proyecto (Rust oculta Android/Signing/Keystore)
   ├─ handle_event(): devuelve MenuAction (Run | Quit); teclado + mouse (grid matemático)
@@ -59,7 +59,7 @@ tasks/
   ├─ windows.rs — dev(), build()                         [Tauri only]
   ├─ android.rs — dev(), build_arm64(), build_all(), debug(), configure_signing()
   ├─ flutter.rs — run_windows(), run_android(), build_*(), clean()
-  ├─ kotlin.rs  — run_windows() [con hot reload], run_android(), build_*(), clean()
+  ├─ kotlin.rs  — run_windows() [con hot reload], run_android(), install_debug() (`:<modulo>:installDebug` + lanza con `am start`), build_*(), clean(); deteccion de modulo Gradle `:app`/`:composeApp` via `gradle_module()`
   ├─ rust.rs    — run(), build(), clean()                [Rust only]
   ├─ cleanup.rs — clean_cache() [multi-type], clean_project() [Tauri only]
   ├─ git.rs     — init()
@@ -84,6 +84,7 @@ tasks/
 | WindowsBuild | `windows::build` | `flutter::build_windows` | `kotlin::build_windows` | `rust::build` |
 | AndroidBuildArm64 | `android::build_arm64` | `flutter::build_apk` | `kotlin::build_apk` | oculto |
 | AndroidBuildAll | `android::build_all` | `flutter::build_aab` | `kotlin::build_aab` | oculto |
+| InstallDebug | oculto | oculto | `kotlin::install_debug` (`:<modulo>:installDebug` + lanza) | oculto |
 | CleanCache | `cleanup::clean_cache` | `cleanup::clean_cache` | `cleanup::clean_cache` | `cleanup::clean_cache` |
 | DebugAndroid | `android::debug` | mensaje info | mensaje info | oculto |
 | LaunchEmulator | `android::launch` | `android::launch` | `android::launch` | oculto |
@@ -117,7 +118,7 @@ tasks/
 |------|------------|------------|
 | Tauri | `src-tauri/gen/android/app/` | `keystore.properties` |
 | Flutter | `android/app/` | `key.properties` |
-| Kotlin | `composeApp/` | `keystore.properties` |
+| Kotlin | `app/` o `composeApp/` (detección automática) | `keystore.properties` |
 | Rust | N/A | N/A |
 
 ### WhatsApp engine
@@ -146,8 +147,11 @@ Dos entradas en el menú contextual del Explorador de Windows:
 |---------|---------|----------------|
 | **Open with Code Runner** | `"<exe_path>" "%1"` | `HKCR\Directory\shell\zz_CodeRunner` |
 | **Open with OpenCode** | `cmd.exe /c start "OpenCode" /D "%1" cmd.exe /c "opencode"` | `HKCR\Directory\shell\zz_OpenCode` |
+| **Open with Cline** | `cmd.exe /c start "Cline" /D "%1" cmd.exe /c "cline"` | `HKCR\Directory\shell\zz_aCline` |
+| **Open with Kilo Code** | `cmd.exe /c start "Kilo Code" /D "%1" cmd.exe /c "kilo"` | `HKCR\Directory\shell\zz_aKilo` |
 
 - Ambas entradas usan prefijo `zz_` para aparecer al final del menú (orden alfabético).
+- Cline y Kilo Code usan claves `zz_aCline`/`zz_aKilo` (tercer carácter minúscula `a`, que ordena después de `O` mayúscula) para quedar justo después de OpenCode en el orden: OpenCode → Cline → Kilo Code.
 - Se registran para **carpeta** (`Directory`) y **fondo** (`Directory\Background`).
 - Icono: busca `icon.ico` (CodeRunner) o `opencode.ico` (OpenCode) en `%USERPROFILE%\.config\code-runner\`, si no existe usa `Default.ico` del mismo directorio. Como último fallback, queda sin icono.
 

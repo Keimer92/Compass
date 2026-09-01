@@ -57,6 +57,7 @@ pub enum MenuItem {
     AndroidBuildArm64,
     AndroidBuildArmv7,
     AndroidBuildAll,
+    InstallDebug,
     LaunchEmulator,
     // MNT section
     CleanCache,
@@ -83,6 +84,7 @@ impl MenuItem {
             Self::AndroidBuildArm64 => "\u{1f680}",
             Self::AndroidBuildArmv7 => "\u{1f680}",
             Self::AndroidBuildAll => "\u{1f680}",
+            Self::InstallDebug => "\u{1f4e6}",
             Self::LaunchEmulator => "\u{1f4f1}",
             Self::CleanCache => "\u{1f9f9}",
             Self::DebugAndroid => "\u{1f50d}",
@@ -101,7 +103,7 @@ impl MenuItem {
 
     fn section(&self) -> &str {
         match self {
-            Self::WindowsDev | Self::AndroidDev | Self::WindowsBuild | Self::AndroidBuildArm64 | Self::AndroidBuildArmv7 | Self::AndroidBuildAll | Self::LaunchEmulator => "DEV",
+            Self::WindowsDev | Self::AndroidDev | Self::WindowsBuild | Self::AndroidBuildArm64 | Self::AndroidBuildArmv7 | Self::AndroidBuildAll | Self::InstallDebug | Self::LaunchEmulator => "DEV",
             Self::CleanCache | Self::DebugAndroid | Self::ConfigureSigning | Self::Sha1 | Self::CleanProject | Self::Version => "MNT",
             Self::CreateGitignore | Self::InitGit | Self::ManageKeystore | Self::BuildWhatsApp | Self::ConfigureTerminal | Self::ContextMenu => "CFG",
         }
@@ -136,6 +138,7 @@ impl MenuItem {
                 ProjectType::Kotlin => "AAB",
                 ProjectType::Rust => "",
             },
+            Self::InstallDebug => "Install",
             Self::LaunchEmulator => "Emulator",
             Self::CleanCache => "Clean Cache",
             Self::DebugAndroid => "Debug Andr",
@@ -170,6 +173,7 @@ impl MenuItem {
                 Self::AndroidBuildArm64 => "",
                 Self::AndroidBuildArmv7 => "",
                 Self::AndroidBuildAll => "",
+                Self::InstallDebug => "",
                 Self::CleanCache => "Limpia target/ y cache",
                 Self::DebugAndroid => "",
                 Self::ConfigureSigning => "",
@@ -191,6 +195,7 @@ impl MenuItem {
                 Self::AndroidBuildArm64 => "Compila APK arm64",
                 Self::AndroidBuildArmv7 => "Compila APK armv7",
                 Self::AndroidBuildAll => "Compila todas las APK",
+                Self::InstallDebug => "",
                 Self::CleanCache => "Limpia cache y npm",
                 Self::DebugAndroid => "Chrome DevTools",
                 Self::ConfigureSigning => "Configura firma",
@@ -212,6 +217,7 @@ impl MenuItem {
                 Self::AndroidBuildArm64 => "flutter build apk",
                 Self::AndroidBuildArmv7 => "",
                 Self::AndroidBuildAll => "flutter build appbundle",
+                Self::InstallDebug => "",
                 Self::CleanCache => "Limpia cache Flutter",
                 Self::DebugAndroid => "Depurar Android",
                 Self::ConfigureSigning => "Configurar firma",
@@ -230,9 +236,10 @@ impl MenuItem {
                 Self::WindowsDev => "gradlew :composeApp:run",
                 Self::AndroidDev => "gradlew :installDebug",
                 Self::WindowsBuild => "gradlew :packageDist",
-                Self::AndroidBuildArm64 => "gradlew :assembleDebug",
+                Self::AndroidBuildArm64 => "gradlew :assembleRelease",
                 Self::AndroidBuildArmv7 => "",
                 Self::AndroidBuildAll => "gradlew :bundleRelease",
+                Self::InstallDebug => "gradlew :installDebug",
                 Self::CleanCache => "Limpia Gradle/Kotlin",
                 Self::DebugAndroid => "Depurar Android",
                 Self::ConfigureSigning => "Configurar firma",
@@ -269,6 +276,7 @@ impl MenuState {
             MenuItem::AndroidBuildArm64,
             MenuItem::AndroidBuildArmv7,
             MenuItem::AndroidBuildAll,
+            MenuItem::InstallDebug,
             MenuItem::LaunchEmulator,
             MenuItem::CleanCache,
             MenuItem::DebugAndroid,
@@ -291,14 +299,16 @@ impl MenuState {
                     | MenuItem::AndroidBuildArm64
                     | MenuItem::AndroidBuildArmv7
                     | MenuItem::AndroidBuildAll
+                    | MenuItem::InstallDebug
                     | MenuItem::LaunchEmulator
                     | MenuItem::DebugAndroid
                     | MenuItem::ConfigureSigning
                     | MenuItem::Sha1
                     | MenuItem::ManageKeystore
                 ),
-                ProjectType::Tauri => true,
-                _ => !matches!(item, MenuItem::AndroidBuildArmv7 | MenuItem::Version),
+                ProjectType::Tauri => !matches!(item, MenuItem::InstallDebug),
+                ProjectType::Flutter => !matches!(item, MenuItem::AndroidBuildArmv7 | MenuItem::Version | MenuItem::InstallDebug),
+                ProjectType::Kotlin => !matches!(item, MenuItem::AndroidBuildArmv7 | MenuItem::Version),
             })
             .collect();
 
@@ -678,6 +688,8 @@ fn menu_item_to_task(item: MenuItem, ptype: ProjectType) -> &'static str {
         (MenuItem::AndroidBuildAll, ProjectType::Tauri) => "android-all",
         (MenuItem::AndroidBuildAll, ProjectType::Flutter) => "android-all",
         (MenuItem::AndroidBuildAll, ProjectType::Kotlin) => "android-all",
+
+        (MenuItem::InstallDebug, _) => "android-install-debug",
 
         (MenuItem::LaunchEmulator, _) => "launch-emulator",
 

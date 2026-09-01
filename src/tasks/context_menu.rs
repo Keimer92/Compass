@@ -28,6 +28,71 @@ fn icon_path() -> String {
 fn opencode_icon() -> String {
     resolve_icon("opencode.ico")
 }
+fn cline_icon() -> String {
+    // Cline y Kilo Code comparten el icono de OpenCode
+    resolve_icon("opencode.ico")
+}
+
+fn kilocode_icon() -> String {
+    // Cline y Kilo Code comparten el icono de OpenCode
+    resolve_icon("opencode.ico")
+}
+
+/// Instala un menu contextual generico para una herramienta CLI de IA.
+/// `key` debe empezar por 'p' minuscula para que Windows (orden alfabetico
+/// insensible a mayusculas) la coloque justo despues de zz_OpenCode.
+fn install_cli_tool(key: &str, title: &str, cli_cmd: &str, icon: &str) -> Result<()> {
+    if command_is_current(key, cli_cmd) {
+        println!("[SKIP] Menú contextual 'Open with {title}' ya está instalado.");
+        return Ok(());
+    }
+
+    println!("[INFO] {title} icon path: {icon}");
+    println!("[INFO] Icon exists: {}", std::path::Path::new(icon).exists());
+
+    let ps = format!(
+        "New-Item -Path 'HKCU:\\\\Software\\\\Classes\\\\Directory\\\\shell\\\\{key}' -Force | Out-Null; \
+         Set-ItemProperty -Path 'HKCU:\\\\Software\\\\Classes\\\\Directory\\\\shell\\\\{key}' -Name '(default)' -Value 'Open with {title}'; \
+         Set-ItemProperty -Path 'HKCU:\\\\Software\\\\Classes\\\\Directory\\\\shell\\\\{key}' -Name 'Icon' -Type String -Value '{icon}'; \
+         New-Item -Path 'HKCU:\\\\Software\\\\Classes\\\\Directory\\\\shell\\\\{key}\\\\command' -Force | Out-Null; \
+         Set-ItemProperty -Path 'HKCU:\\\\Software\\\\Classes\\\\Directory\\\\shell\\\\{key}\\\\command' -Name '(default)' -Value 'cmd.exe /c start \\\"{title}\\\" /D \\\"%1\\\" cmd.exe /c \\\"{cli_cmd}\\\"'; \
+         \
+         New-Item -Path 'HKCU:\\\\Software\\\\Classes\\\\Directory\\\\Background\\\\shell\\\\{key}' -Force | Out-Null; \
+         Set-ItemProperty -Path 'HKCU:\\\\Software\\\\Classes\\\\Directory\\\\Background\\\\shell\\\\{key}' -Name '(default)' -Value 'Open with {title}'; \
+         Set-ItemProperty -Path 'HKCU:\\\\Software\\\\Classes\\\\Directory\\\\Background\\\\shell\\\\{key}' -Name 'Icon' -Type String -Value '{icon}'; \
+         New-Item -Path 'HKCU:\\\\Software\\\\Classes\\\\Directory\\\\Background\\\\shell\\\\{key}\\\\command' -Force | Out-Null; \
+         Set-ItemProperty -Path 'HKCU:\\\\Software\\\\Classes\\\\Directory\\\\Background\\\\shell\\\\{key}\\\\command' -Name '(default)' -Value 'cmd.exe /c start \\\"{title}\\\" /D \\\"%W\\\" cmd.exe /c \\\"{cli_cmd}\\\"'"
+    );
+
+    let output = cmd::run("powershell", &["-NoProfile", "-Command", &ps])?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("Error al instalar menú {title}:\n{}", stderr);
+    }
+
+    println!("[OK] Menú contextual 'Open with {title}' instalado.");
+    println!("  Icono: {icon}");
+    println!("  Haz clic derecho en una carpeta → 'Open with {title}'");
+    println!();
+    println!("[INFO] Si el icono no aparece, intenta:");
+    println!("  1. Cerrar sesion y volver a iniciar");
+    println!("  2. O ejecutar en PowerShell: ie4uinit.exe -show");
+    Ok(())
+}
+
+fn uninstall_key(key: &str, title: &str) -> Result<()> {
+    let ps = format!(
+        "Remove-Item -Path 'HKCU:\\\\Software\\\\Classes\\\\Directory\\\\shell\\\\{key}' -Recurse -Force -ErrorAction SilentlyContinue; \
+         Remove-Item -Path 'HKCU:\\\\Software\\\\Classes\\\\Directory\\\\Background\\\\shell\\\\{key}' -Recurse -Force -ErrorAction SilentlyContinue"
+    );
+
+    let _ = cmd::run("powershell", &["-NoProfile", "-Command", &ps]);
+
+    println!("[OK] Menú contextual 'Open with {title}' eliminado.");
+    Ok(())
+}
+
+
 
 fn exe_path() -> String {
     exe_dir()
@@ -133,14 +198,25 @@ pub fn install_opencode() -> Result<()> {
 }
 
 pub fn uninstall_opencode() -> Result<()> {
-    let ps = "\
-Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_OpenCode' -Recurse -Force -ErrorAction SilentlyContinue; \
-Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_OpenCode' -Recurse -Force -ErrorAction SilentlyContinue";
+    uninstall_key("zz_OpenCode", "OpenCode")
+}
 
-    let _ = cmd::run("powershell", &["-NoProfile", "-Command", ps]);
+pub fn install_cline() -> Result<()> {
+    let icon = cline_icon();
+    install_cli_tool("zz_pCline", "Cline", "cline", &icon)
+}
 
-    println!("[OK] Menú contextual 'Open with OpenCode' eliminado.");
-    Ok(())
+pub fn uninstall_cline() -> Result<()> {
+    uninstall_key("zz_pCline", "Cline")
+}
+
+pub fn install_kilocode() -> Result<()> {
+    let icon = kilocode_icon();
+    install_cli_tool("zz_pKilo", "Kilo Code", "kilo", &icon)
+}
+
+pub fn uninstall_kilocode() -> Result<()> {
+    uninstall_key("zz_pKilo", "Kilo Code")
 }
 
 pub fn toggle() -> Result<()> {
@@ -153,16 +229,22 @@ pub fn toggle() -> Result<()> {
 
         let cr_installed = is_installed("zz_CodeRunner");
         let oc_installed = is_installed("zz_OpenCode");
+        let cl_installed = is_installed("zz_pCline");
+        let kl_installed = is_installed("zz_pKilo");
 
         let cr_label = if cr_installed { "✔ Code Runner" } else { "  Code Runner" };
         let oc_label = if oc_installed { "✔ OpenCode" } else { "  OpenCode" };
+        let cl_label = if cl_installed { "✔ Cline" } else { "  Cline" };
+        let kl_label = if kl_installed { "✔ Kilo Code" } else { "  Kilo Code" };
 
         let options = vec![
             format!("1. {cr_label}  [{}]", if cr_installed { "Desinstalar" } else { "Instalar" }),
             format!("2. {oc_label}  [{}]", if oc_installed { "Desinstalar" } else { "Instalar" }),
-            "3. Instalar ambos".to_string(),
-            "4. Desinstalar ambos".to_string(),
-            "5. Volver".to_string(),
+            format!("3. {cl_label}  [{}]", if cl_installed { "Desinstalar" } else { "Instalar" }),
+            format!("4. {kl_label}  [{}]", if kl_installed { "Desinstalar" } else { "Instalar" }),
+            "5. Instalar todos".to_string(),
+            "6. Desinstalar todos".to_string(),
+            "7. Volver".to_string(),
         ];
 
         let choice = inquire::Select::new("Selecciona una opción:", options)
@@ -179,13 +261,25 @@ pub fn toggle() -> Result<()> {
                 pause();
             }
             s if s.starts_with("3.") => {
-                install()?;
-                install_opencode()?;
+                if cl_installed { uninstall_cline()?; } else { install_cline()?; }
                 pause();
             }
             s if s.starts_with("4.") => {
+                if kl_installed { uninstall_kilocode()?; } else { install_kilocode()?; }
+                pause();
+            }
+            s if s.starts_with("5.") => {
+                install()?;
+                install_opencode()?;
+                install_cline()?;
+                install_kilocode()?;
+                pause();
+            }
+            s if s.starts_with("6.") => {
                 uninstall()?;
                 uninstall_opencode()?;
+                uninstall_cline()?;
+                uninstall_kilocode()?;
                 pause();
             }
             _ => break,

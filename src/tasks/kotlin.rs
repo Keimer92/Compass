@@ -1,14 +1,63 @@
 use std::io::{self, Write};
+use std::path::PathBuf;
 use anyhow::Result;
 use indicatif::{ProgressBar, ProgressStyle};
 
-use crate::utils::{android as android_utils, cmd, context::ProjectContext};
+use crate::utils::{android as android_utils, cmd, context::{kotlin_android_dir, ProjectContext}};
+
+fn release_signing_env(ctx: &ProjectContext) -> Option<String> {
+    let android_dir = kotlin_android_dir(ctx);
+    let props_path = android_dir.join("keystore.properties");
+    let content = std::fs::read_to_string(&props_path).ok()?;
+    let mut store_file: Option<String> = None;
+    let mut store_pass: Option<String> = None;
+    let mut key_pass: Option<String> = None;
+    let mut key_alias: Option<String> = None;
+    for line in content.lines() {
+        if let Some((k, v)) = line.split_once('=') {
+            let v = v.trim().trim_matches('"');
+            match k.trim() {
+                "storeFile" => store_file = Some(v.to_string()),
+                "storePassword" | "storepass" => store_pass = Some(v.to_string()),
+                "keyPassword" | "keypass" => key_pass = Some(v.to_string()),
+                "keyAlias" | "alias" => key_alias = Some(v.to_string()),
+                _ => {}
+            }
+        }
+    }
+    let store_file = store_file?;
+    let store_path = if PathBuf::from(&store_file).is_absolute() {
+        PathBuf::from(&store_file)
+    } else {
+        android_dir.join(&store_file)
+    };
+    if !store_path.exists() {
+        return None;
+    }
+    let store_pass = store_pass.unwrap_or_default();
+    let key_pass = key_pass.unwrap_or_else(|| store_pass.clone());
+    let key_alias = key_alias?;
+    Some(format!(
+        "$env:RELEASE_STORE_FILE='{}'; $env:RELEASE_STORE_PASSWORD='{}'; $env:RELEASE_KEY_ALIAS='{}'; $env:RELEASE_KEY_PASSWORD='{}'",
+        store_path.display(), store_pass, key_alias, key_pass
+    ))
+}
 
 fn gradlew_cmd(args: &str) -> String {
     if cfg!(windows) {
         format!("cmd /c gradlew.bat {}", args)
     } else {
         format!("./gradlew {}", args)
+    }
+}
+
+/// Detecta si el modulo Gradle de un proyecto Kotlin es `:app` o `:composeApp`
+/// (la plantilla por defecto usa `:composeApp`, pero algunos proyectos usan `:app`).
+fn gradle_module(ctx: &ProjectContext) -> String {
+    if kotlin_android_dir(ctx).file_name().map(|n| n == "app").unwrap_or(false) {
+        ":app".to_string()
+    } else {
+        ":composeApp".to_string()
     }
 }
 
@@ -32,7 +81,7 @@ pub fn run_windows(ctx: &ProjectContext) -> Result<()> {
     cmd::spawn_new_window_interactive(
         "KMP Desktop (Run)",
         &ctx.script_dir,
-        "gradlew.bat :composeApp:run",
+        &format!("gradlew.bat {}:run", gradle_module(ctx)),
     )?;
 
     Ok(())
@@ -56,8 +105,8 @@ fn extract_namespace(project_dir: &std::path::Path) -> Option<String> {
     None
 }
 
-fn extract_main_activity_package(project_dir: &std::path::Path) -> Option<String> {
-    let kotlin_dir = project_dir.join("composeApp").join("src");
+fn extract_main_activity_package(ctx: &ProjectContext) -> Option<String> {
+    let kotlin_dir = kotlin_android_dir(ctx).join("src");
     let mut stack = vec![kotlin_dir];
     while let Some(dir) = stack.pop() {
         let entries = std::fs::read_dir(&dir).ok()?;
@@ -83,12 +132,9 @@ fn extract_main_activity_package(project_dir: &std::path::Path) -> Option<String
     None
 }
 
-pub fn run_android(ctx: &ProjectContext) -> Result<()> {
-    ensure_gradle(ctx)?;
-
-    let device = android_utils::select_device(ctx)?;
-    let serial = &device.serial;
-
+/// Construye el comando PowerShell que instala la app de debug y la lanza
+/// (compila + instala + abre en el dispositivo).
+fn install_and_launch_cmd(ctx: &ProjectContext, serial: &str) -> String {
     let adb_path = ctx
         .adb_path
         .as_ref()
@@ -98,11 +144,11 @@ pub fn run_android(ctx: &ProjectContext) -> Result<()> {
     let namespace = extract_namespace(&ctx.script_dir)
         .unwrap_or_else(|| "com.example.app".to_string());
 
-    let activity = extract_main_activity_package(&ctx.script_dir)
+    let activity = extract_main_activity_package(ctx)
         .map(|p| format!("{}.MainActivity", p))
         .unwrap_or_else(|| format!("{}.MainActivity", namespace));
 
-    let cmd = format!(
+    format!(
         "$env:ANDROID_SERIAL='{}'; \
          {}; \
          if ($LASTEXITCODE -eq 0) {{ \
@@ -110,14 +156,40 @@ pub fn run_android(ctx: &ProjectContext) -> Result<()> {
              & '{}' shell am start -n '{}/{}' \
          }}",
         serial,
-        gradlew_cmd(":composeApp:installDebug"),
+        gradlew_cmd(&format!("{}:installDebug", gradle_module(ctx))),
         adb_path,
         namespace,
         activity,
-    );
+    )
+}
+
+pub fn run_android(ctx: &ProjectContext) -> Result<()> {
+    ensure_gradle(ctx)?;
+
+    let device = android_utils::select_device(ctx)?;
+    let serial = &device.serial;
+
+    let cmd = install_and_launch_cmd(ctx, &serial);
 
     cmd::spawn_new_window(
         "KMP Android (Run)",
+        &ctx.script_dir,
+        &cmd,
+    )?;
+
+    Ok(())
+}
+
+pub fn install_debug(ctx: &ProjectContext) -> Result<()> {
+    ensure_gradle(ctx)?;
+
+    let device = android_utils::select_device(ctx)?;
+    let serial = &device.serial;
+
+    let cmd = install_and_launch_cmd(ctx, &serial);
+
+    cmd::spawn_new_window(
+        "KMP Android Install (Debug)",
         &ctx.script_dir,
         &cmd,
     )?;
@@ -130,9 +202,9 @@ pub fn build_windows(ctx: &ProjectContext) -> Result<()> {
     ensure_gradle(ctx)?;
     ensure_whatsapp_npm(ctx)?;
 
-    let dist_dir = ctx.script_dir.join("composeApp\\build\\compose\\binaries\\main");
+    let dist_dir = kotlin_android_dir(ctx).join("build\\compose\\binaries\\main");
     let cmd_line = cmd::reveal_on_success(
-        &gradlew_cmd(":composeApp:packageDistributionForCurrentOS"),
+        &gradlew_cmd(&format!("{}:packageDistributionForCurrentOS", gradle_module(ctx))),
         &dist_dir,
         &["exe"],
     );
@@ -147,12 +219,19 @@ pub fn build_windows(ctx: &ProjectContext) -> Result<()> {
 }
 
 pub fn build_apk(ctx: &ProjectContext) -> Result<()> {
-    println!("\n[INFO] Compilando Android APK (Debug)...\n");
+    println!("\n[INFO] Compilando Android APK (Release)...\n");
     ensure_gradle(ctx)?;
 
-    let apk_dir = ctx.script_dir.join("composeApp\\build\\outputs\\apk");
+    let android_dir = kotlin_android_dir(ctx);
+    let mut gradle = gradlew_cmd(&format!("{}:assembleRelease", gradle_module(ctx)));
+    if let Some(env) = release_signing_env(ctx) {
+        gradle = format!("{}; {}", env, gradle);
+    } else {
+        println!("[WARN] No se encontro keystore.properties de release; el build release podria fallar. Usa la tarjeta Keystore para configurar la firma.");
+    }
+    let apk_dir = android_dir.join("build").join("outputs").join("apk").join("release");
     let cmd_line = cmd::reveal_on_success(
-        &gradlew_cmd(":composeApp:assembleDebug"),
+        &gradle,
         &apk_dir,
         &["apk"],
     );
@@ -170,9 +249,16 @@ pub fn build_aab(ctx: &ProjectContext) -> Result<()> {
     println!("\n[INFO] Compilando Android AAB (Release)...\n");
     ensure_gradle(ctx)?;
 
-    let aab_dir = ctx.script_dir.join("composeApp\\build\\outputs\\bundle\\release");
+    let android_dir = kotlin_android_dir(ctx);
+    let mut gradle = gradlew_cmd(&format!("{}:bundleRelease", gradle_module(ctx)));
+    if let Some(env) = release_signing_env(ctx) {
+        gradle = format!("{}; {}", env, gradle);
+    } else {
+        println!("[WARN] No se encontro keystore.properties de release; el build release podria fallar. Usa la tarjeta Keystore para configurar la firma.");
+    }
+    let aab_dir = android_dir.join("build").join("outputs").join("bundle").join("release");
     let cmd_line = cmd::reveal_on_success(
-        &gradlew_cmd(":composeApp:bundleRelease"),
+        &gradle,
         &aab_dir,
         &["aab"],
     );
@@ -192,9 +278,15 @@ pub fn clean(ctx: &ProjectContext) -> Result<()> {
     println!("║      LIMPIAR PROYECTO KMP                       ║");
     println!("╚══════════════════════════════════════════════════╝");
     println!();
+    let module_dir = kotlin_android_dir(ctx);
+    let module_name = module_dir
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "composeApp".to_string());
+
     println!("Se eliminará:");
     println!("  - build/");
-    println!("  - composeApp/build/");
+    println!("  - {}/build/", module_name);
     println!("  - .gradle/");
     println!("  - local.properties");
     println!("  - node_modules/");
@@ -202,13 +294,13 @@ pub fn clean(ctx: &ProjectContext) -> Result<()> {
     println!("  - .kotlin/ (caché Kotlin)");
     println!();
     println!("Se conservará:");
-    println!("  - composeApp/src/ (código fuente Kotlin)");
-    println!("  - composeApp/build.gradle.kts");
+    println!("  - {}/src/ (código fuente Kotlin)", module_name);
+    println!("  - {}/build.gradle.kts", module_name);
     println!("  - settings.gradle.kts, gradle.properties");
     println!("  - gradle/wrapper/ (wrapper no se borra)");
     println!("  - gradlew + gradlew.bat");
     println!("  - whatsapp_engine/ (motor WhatsApp)");
-    println!("  - composeApp/resources/whatsapp-engine-bundle/ (bundle WhatsApp compilado)");
+    println!("  - {}/resources/whatsapp-engine-bundle/ (bundle WhatsApp compilado)", module_name);
     println!("  - Firmas: keystore.properties, *.keystore, *.jks");
     println!();
 
@@ -245,12 +337,12 @@ pub fn clean(ctx: &ProjectContext) -> Result<()> {
     }
     pb.inc(1);
 
-    // 3. composeApp/build/
-    pb.set_message("Eliminando composeApp/build/");
-    let compose_build = ctx.script_dir.join("composeApp\\build");
-    if compose_build.exists() {
-        cmd::remove_dir(&compose_build).ok();
-        println!("  [OK] composeApp/build/ eliminado");
+    // 3. <modulo>/build/
+    pb.set_message(format!("Eliminando {}/build/", module_name));
+    let module_build = module_dir.join("build");
+    if module_build.exists() {
+        cmd::remove_dir(&module_build).ok();
+        println!("  [OK] {}/build/ eliminado", module_name);
     }
     pb.inc(1);
 

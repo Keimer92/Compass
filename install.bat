@@ -111,5 +111,32 @@ if "%OC_CURRENT%"=="1" (
     )
 )
 
+echo [INFO] Configurando menu contextual de Cline...
+for /f %%i in ('powershell -NoProfile -Command "$v=(Get-ItemProperty -Path 'HKCU:\Software\Classes\Directory\shell\zz_pCline\command' -ErrorAction SilentlyContinue).'(default)'; if($v -like '*cline*'){'1'}else{'0'}"') do set "CL_CURRENT=%%i"
+if "%CL_CURRENT%"=="1" (
+    echo [SKIP] Menu contextual de Cline ya instalado.
+) else (
+    call "%USERPROFILE%\.cargo\bin\code-runner.exe" --task cline-install
+    if errorlevel 1 (
+        echo [WARN] No se pudo instalar el menu contextual de Cline.
+    ) else (
+        echo [OK] Menu contextual de Cline instalado.
+    )
+)
+echo.
+
+echo [INFO] Configurando menu contextual de Kilo Code...
+for /f %%i in ('powershell -NoProfile -Command "$v=(Get-ItemProperty -Path 'HKCU:\Software\Classes\Directory\shell\zz_pKilo\command' -ErrorAction SilentlyContinue).'(default)'; if($v -like '*kilo*'){'1'}else{'0'}"') do set "KL_CURRENT=%%i"
+if "%KL_CURRENT%"=="1" (
+    echo [SKIP] Menu contextual de Kilo Code ya instalado.
+) else (
+    call "%USERPROFILE%\.cargo\bin\code-runner.exe" --task kilo-install
+    if errorlevel 1 (
+        echo [WARN] No se pudo instalar el menu contextual de Kilo Code.
+    ) else (
+        echo [OK] Menu contextual de Kilo Code instalado.
+    )
+)
+
 timeout /t 3 /nobreak >nul
 exit /b %EXIT_CODE%

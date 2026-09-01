@@ -41,6 +41,19 @@ impl ProjectContext {
     }
 }
 
+/// Devuelve el directorio del módulo Android de un proyecto Kotlin Multiplatform.
+/// La plantilla por defecto usa `composeApp`, pero algunos proyectos usan `app`
+/// (p.ej. SongSync). Se usa para ubicar el `keystore.properties` / gradle / `MainActivity.kt`.
+pub(crate) fn kotlin_android_dir(ctx: &ProjectContext) -> PathBuf {
+    let app = ctx.script_dir.join("app");
+    let compose = ctx.script_dir.join("composeApp");
+    if app.is_dir() && !compose.is_dir() {
+        app
+    } else {
+        compose
+    }
+}
+
 pub fn detect() -> Result<ProjectContext> {
     let (script_dir, project_type) = detect_project_root()?;
     let android_home = detect_android_home();

@@ -5,13 +5,13 @@ use std::process::Command;
 use anyhow::{Context, Result};
 use inquire::Select;
 
-use crate::utils::{cmd, context::{ProjectContext, ProjectType}, ui};
+use crate::utils::{cmd, context::{kotlin_android_dir, ProjectContext, ProjectType}, ui};
 
 pub fn create_or_import(ctx: &ProjectContext) -> Result<()> {
     let (android_dir, props_name) = match ctx.project_type {
         ProjectType::Tauri => (ctx.script_dir.join("src-tauri\\gen\\android\\app"), "keystore.properties"),
         ProjectType::Flutter => (ctx.script_dir.join("android\\app"), "key.properties"),
-        ProjectType::Kotlin => (ctx.script_dir.join("composeApp"), "keystore.properties"),
+        ProjectType::Kotlin => (kotlin_android_dir(ctx), "keystore.properties"),
         ProjectType::Rust => {
             eprintln!("[ERROR] No aplicable a proyectos Rust.");
             ui::pause();
@@ -328,9 +328,20 @@ fn patch_build_gradle(android_app: &Path, props_name: &str) -> Result<()> {
     let mut content = fs::read_to_string(&gradle_path).context(format!("Error al leer {}", gradle_path.display()))?;
     let mut modified = false;
 
+    let module_name = android_app
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("app");
+
     if use_kts {
         // Kotlin Script (.kts)
-        let properties_ref = format!("app/{}", props_name);
+        // Asegura el import de java.util.Properties (requerido por el loader inyectado).
+        if !content.contains("import java.util.Properties") && !content.contains("import java.util.*") {
+            content = format!("import java.util.Properties\n\n{}", content);
+            modified = true;
+        }
+
+        let properties_ref = format!("{}/{}", module_name, props_name);
 
         // 1. Inject properties loader
         let load_marker = "val keystorePropertiesFile";
@@ -355,7 +366,7 @@ fn patch_build_gradle(android_app: &Path, props_name: &str) -> Result<()> {
         }
     } else {
         // Groovy (.gradle)
-        let properties_ref = format!("app/{}", props_name);
+        let properties_ref = format!("{}/{}", module_name, props_name);
 
         // 1. Inject properties loader
         if !content.contains("def keystorePropertiesFile") {
