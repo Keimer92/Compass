@@ -267,6 +267,15 @@ fn clear_arch_env() {
     env::remove_var("ORG_GRADLE_PROJECT_targetList");
 }
 
+fn detect_lan_ip() -> Option<String> {
+    let output = cmd::run("powershell", &[
+        "-NoProfile", "-Command",
+        "(Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' -and $_.PrefixOrigin -ne 'WellKnown' } | Select-Object -First 1).IPAddress"
+    ]).ok()?;
+    let ip = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if ip.is_empty() || ip.contains("Error") { None } else { Some(ip) }
+}
+
 pub fn dev(ctx: &ProjectContext) -> Result<()> {
     ensure_node_modules(ctx)?;
     ctx.assert_android_sdk()?;
@@ -285,10 +294,22 @@ pub fn dev(ctx: &ProjectContext) -> Result<()> {
     println!("  Tauri se conectará automáticamente al dispositivo disponible.");
     println!();
 
+    let dev_cmd = match detect_lan_ip() {
+        Some(ip) => {
+            println!("[INFO] IP LAN detectada: {}", ip);
+            env::set_var("TAURI_DEV_HOST", &ip);
+            format!("set TAURI_DEV_HOST={} & npx tauri android dev", ip)
+        }
+        None => {
+            println!("[WARN] No se detectó IP LAN. Tauri pedirá seleccionar manualmente.");
+            "npx tauri android dev".to_string()
+        }
+    };
+
     cmd::spawn_new_window_interactive(
         "Tauri Android Dev",
         &ctx.script_dir,
-        "npx tauri android dev",
+        &dev_cmd,
     )?;
 
     Ok(())
