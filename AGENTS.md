@@ -57,9 +57,9 @@ utils/
 
 tasks/
   ├─ windows.rs — dev(), build()                         [Tauri only]
-  ├─ android.rs — dev(), build_arm64(), build_all(), debug(), configure_signing()
+  ├─ android.rs — dev(), build_arm64(), build_all(), debug(), configure_signing(), ensure_package_consistent() [verifica identifier vs directorio paquete Android]
   ├─ flutter.rs — run_windows(), run_android(), build_*(), clean()
-  ├─ kotlin.rs  — run_windows() [con hot reload], run_android(), install_debug() (`:<modulo>:installDebug` + lanza con `am start`), build_*(), clean(); deteccion de modulo Gradle `:app`/`:composeApp` via `gradle_module()`
+  ├─ kotlin.rs  — run_windows() [con hot reload], run_android(), install_debug() (`:<modulo>:installDebug` + lanza con `am start`), build_*(), clean(); deteccion de modulo Gradle `:app`/`:composeApp` via `gradle_module()`; release_signing_env() [exporta RELEASE_* vars para Gradle]
   ├─ rust.rs    — run(), build(), clean()                [Rust only]
   ├─ cleanup.rs — clean_cache() [multi-type], clean_project() [Tauri only]
   ├─ git.rs     — init()
@@ -82,8 +82,8 @@ tasks/
 | WindowsDev | `windows::dev` | `flutter::run_windows` | `kotlin::run_windows` | `rust::run` |
 | AndroidDev | `android::dev` | `flutter::run_android` | `kotlin::run_android` | oculto |
 | WindowsBuild | `windows::build` | `flutter::build_windows` | `kotlin::build_windows` | `rust::build` |
-| AndroidBuildArm64 | `android::build_arm64` | `flutter::build_apk` | `kotlin::build_apk` | oculto |
-| AndroidBuildAll | `android::build_all` | `flutter::build_aab` | `kotlin::build_aab` | oculto |
+| AndroidBuildArm64 | `android::build_arm64` | `flutter::build_apk` | `kotlin::build_apk` (assembleRelease) | oculto |
+| AndroidBuildAll | `android::build_all` | `flutter::build_aab` | `kotlin::build_aab` (bundleRelease) | oculto |
 | InstallDebug | oculto | oculto | `kotlin::install_debug` (`:<modulo>:installDebug` + lanza) | oculto |
 | CleanCache | `cleanup::clean_cache` | `cleanup::clean_cache` | `cleanup::clean_cache` | `cleanup::clean_cache` |
 | DebugAndroid | `android::debug` | mensaje info | mensaje info | oculto |
@@ -195,8 +195,8 @@ Las tareas de build ya no llaman a `pause()`/`ui::pause()`, por lo que la ventan
 | `flutter::{build_apk}` | `build/app/outputs/flutter-apk` | apk |
 | `flutter::{build_aab}` | `build/app/outputs/bundle/release` | aab |
 | `kotlin::{build_windows}` | `composeApp/build/compose/binaries/main` | exe |
-| `kotlin::{build_apk}` | `composeApp/build/outputs/apk` | apk |
-| `kotlin::{build_aab}` | `composeApp/build/outputs/bundle/release` | aab |
+| `kotlin::{build_apk}` | `<modulo>/build/outputs/apk/release` | apk |
+| `kotlin::{build_aab}` | `<modulo>/build/outputs/bundle/release` | aab |
 | `rust::build` | `target/release` | exe |
 
 El filtrado usa `Get-ChildItem -LiteralPath ... -Recurse -File | Where-Object { $_.Extension -in ... }`
@@ -222,6 +222,8 @@ Los comandos de Gradle se ejecutan como `cmd /c gradlew.bat <args>` porque Power
 2. `signingConfigs { release { ... } }`
 3. `signingConfig` en build type release
 
+Para Kotlin release builds (`build_apk`/`build_aab`), el tool también exporta las variables de entorno `RELEASE_*` que many `build.gradle.kts` usan en su `signingConfigs`, permitiendo que la firma funcione sin modificar el archivo del proyecto.
+
 ### PowerShell registry (PS v5.1)
 - Usar `-Type` en lugar de `-PropertyType` (este último solo funciona en PowerShell Core).
 - `Test-Path -PathType Leaf` no funciona en claves de registro; se omite.
@@ -236,8 +238,24 @@ Todas las tareas del menú TUI se lanzan en una **nueva ventana PowerShell** eje
 `android::dev()` corre `npx tauri android dev` directamente. Antes ejecuta:
 1. `ensure_node_modules()` — npm install si falta `node_modules/`
 2. `ensure_android_project()` — `npx tauri android init` si falta `src-tauri/gen/android/`
-3. `select_device()` — elige dispositivo (ver sección Device Selection)
-4. NDK / Rust targets según sea necesario
+3. `ensure_package_consistent()` — verifica que el directorio del paquete Android (`app/src/main/java/<identifier>`) coincida con el `identifier` de `tauri.conf.json`. Si falta, ofrece eliminar `src-tauri/gen/android` y recrear con `tauri android init`.
+4. `select_device()` — elige dispositivo (ver sección Device Selection)
+5. NDK / Rust targets según sea necesario
+
+### Kotlin release builds (APK/AAB)
+`kotlin::build_apk()` ejecuta `:assembleRelease` (antes `:assembleDebug`) y `kotlin::build_aab()` ejecuta `:bundleRelease`. Ambos leen `app/keystore.properties` (o `composeApp/keystore.properties`) y exportan variables de entorno para Gradle:
+- `RELEASE_STORE_FILE` (ruta absoluta al keystore)
+- `RELEASE_STORE_PASSWORD`
+- `RELEASE_KEY_ALIAS`
+- `RELEASE_KEY_PASSWORD`
+
+Esto permite que el `signingConfigs` existente en `build.gradle.kts` (que usa variables de entorno `RELEASE_*`) firme automáticamente sin modificar el archivo del proyecto. Si el archivo de propiedades no existe, avisa con `[WARN]` y continúa (el build puede fallar si no hay firma configurada).
+
+### Tauri Android package consistency (`ensure_package_consistent`)
+Detecta el error típico "Project directory ... does not exist" que ocurre cuando se cambia el `identifier` en `tauri.conf.json` sin regenerar el proyecto Android. Lee el identifier, calcula la ruta esperada del paquete Java (`app/src/main/java/<pkg_path>`) y si no existe:
+1. Muestra el identifier esperado y la ruta faltante.
+2. Pregunta si desea eliminar `src-tauri/gen/android` y ejecutar `tauri android init`.
+3. Si responde `s`: elimina y recrea. Si responde `n`: continúa (el build fallará).
 
 ### Device Selection (`android::select_device()`)
 `android::select_device()` elige automáticamente el dispositivo Android:

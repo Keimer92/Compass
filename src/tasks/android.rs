@@ -1,4 +1,5 @@
 use std::env;
+use std::io::{self, Write};
 use anyhow::{Context, Result};
 use inquire::Select;
 
@@ -21,10 +22,150 @@ fn ensure_android_project(ctx: &ProjectContext) -> Result<()> {
     }
     println!("[WARNING] No se encontró el proyecto Android.");
     println!("[INFO] Inicializando proyecto Android con Tauri...");
-    cmd::run_in_dir_status("npx", &["tauri", "android", "init"], &ctx.script_dir)?;
+    run_tauri_android_init(ctx)?;
     if !ctx.script_dir.join("src-tauri\\gen\\android\\gradlew.bat").exists() {
         anyhow::bail!("[ERROR] No se pudo inicializar Gradle en el proyecto Android.");
     }
+    Ok(())
+}
+
+fn run_tauri_android_init(ctx: &ProjectContext) -> Result<()> {
+    let status = if cfg!(windows) {
+        std::process::Command::new("cmd")
+            .args(["/c", "npx", "tauri", "android", "init"])
+            .current_dir(&ctx.script_dir)
+            .status()
+    } else {
+        std::process::Command::new("npx")
+            .args(["tauri", "android", "init"])
+            .current_dir(&ctx.script_dir)
+            .status()
+    };
+    match status {
+        Ok(s) if s.success() => Ok(()),
+        Ok(s) => anyhow::bail!("tauri android init fallo con codigo: {:?}", s.code()),
+        Err(e) => anyhow::bail!("No se pudo ejecutar npx: {}", e),
+    }
+}
+
+fn ensure_package_consistent(ctx: &ProjectContext) -> Result<()> {
+    let conf_path = ctx.script_dir.join("src-tauri/tauri.conf.json");
+    let conf_str = std::fs::read_to_string(&conf_path)
+        .context("No se pudo leer tauri.conf.json")?;
+    let conf: serde_json::Value = serde_json::from_str(&conf_str)
+        .context("tauri.conf.json no es JSON valido")?;
+    let identifier = conf["identifier"].as_str().unwrap_or("");
+    if identifier.is_empty() {
+        return Ok(());
+    }
+    let pkg_path = identifier.replace('.', std::path::MAIN_SEPARATOR_STR);
+    let expected_dir = ctx.script_dir
+        .join("src-tauri/gen/android/app/src/main/java")
+        .join(&pkg_path);
+    if expected_dir.exists() {
+        return Ok(());
+    }
+    println!("\n[WARN] El directorio del paquete Android no coincide con el identifier de tauri.conf.json.");
+    println!("       Paquete esperado: {}", identifier);
+    println!("       Directorio faltante: {}", expected_dir.display());
+
+    let java_base = ctx.script_dir.join("src-tauri/gen/android/app/src/main/java/com/keimer");
+    let old_dirs: Vec<_> = if java_base.exists() {
+        std::fs::read_dir(&java_base)
+            .into_iter()
+            .flatten()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().is_dir())
+            .filter(|e| {
+                let name = e.file_name().to_string_lossy().to_string();
+                name != "schooltracker" && !name.starts_with('.')
+            })
+            .collect()
+    } else {
+        vec![]
+    };
+
+    if let Some(old_dir) = old_dirs.first() {
+        let old_name = old_dir.file_name().to_string_lossy().to_string();
+        println!("\nSe detecto directorio antiguo: com.keimer.{}", old_name);
+        println!("Opciones:");
+        println!("  1) Mover archivos de '{}' a '{}' (preserva todo)", old_name, pkg_path.rsplit('\\').next().unwrap_or(&pkg_path));
+        println!("  2) Ejecutar 'tauri android init' (sobreescribe archivos default)");
+        println!("  3) Saltar (el build puede fallar)");
+        print!("Elige [1/2/3]: ");
+        io::stdout().flush()?;
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)?;
+        let input = input.trim();
+        match input {
+            "1" => {
+                let new_dir = ctx.script_dir
+                    .join("src-tauri/gen/android/app/src/main/java")
+                    .join(&pkg_path);
+                std::fs::create_dir_all(&new_dir)
+                    .context("No se pudo crear el directorio del paquete")?;
+                let old_java = ctx.script_dir
+                    .join("src-tauri/gen/android/app/src/main/java/com/keimer")
+                    .join(&old_name);
+                if let Ok(entries) = std::fs::read_dir(&old_java) {
+                    for entry in entries.flatten() {
+                        let file_name = entry.file_name();
+                        let dest = new_dir.join(&file_name);
+                        if file_name.to_string_lossy().ends_with(".kt") {
+                            let content = std::fs::read_to_string(entry.path())
+                                .unwrap_or_default();
+                            let new_content = content.replace(
+                                &format!("package com.keimer.{}", old_name),
+                                &format!("package com.{}", pkg_path.replace('\\', ".")),
+                            ).replace(
+                                &format!("com.keimer.{}", old_name),
+                                &format!("com.{}", pkg_path.replace('\\', ".")),
+                            );
+                            std::fs::write(&dest, new_content)?;
+                        } else {
+                            std::fs::copy(entry.path(), &dest)?;
+                        }
+                    }
+                }
+                println!("[OK] Archivos movidos de 'com.keimer.{}' a 'com.{}'", old_name, pkg_path.replace('\\', "."));
+                println!("[INFO] Puedes eliminar el directorio viejo manualmente si lo deseas.");
+            }
+            "2" => {
+                println!("[INFO] Ejecutando tauri android init...");
+                if let Err(e) = run_tauri_android_init(ctx) {
+                    println!("[ERROR] {}", e);
+                } else {
+                    println!("[OK] Proyecto Android regenerado.");
+                }
+            }
+            _ => {
+                println!("[INFO] Continuando sin regenerar; el build puede fallar.");
+            }
+        }
+    } else {
+        println!("\nOpciones:");
+        println!("  1) Ejecutar 'tauri android init' (genera proyecto default)");
+        println!("  2) Saltar (el build puede fallar)");
+        print!("Elige [1/2]: ");
+        io::stdout().flush()?;
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)?;
+        let input = input.trim();
+        match input {
+            "1" => {
+                println!("[INFO] Ejecutando tauri android init...");
+                if let Err(e) = run_tauri_android_init(ctx) {
+                    println!("[ERROR] {}", e);
+                } else {
+                    println!("[OK] Proyecto Android regenerado.");
+                }
+            }
+            _ => {
+                println!("[INFO] Continuando sin regenerar; el build puede fallar.");
+            }
+        }
+    }
+    ui::pause();
     Ok(())
 }
 
@@ -105,6 +246,7 @@ pub fn dev(ctx: &ProjectContext) -> Result<()> {
     ensure_node_modules(ctx)?;
     ctx.assert_android_sdk()?;
     ensure_android_project(ctx)?;
+    ensure_package_consistent(ctx)?;
 
     set_arch_arm64();
     cleanup_build_locks(ctx);
@@ -131,6 +273,7 @@ pub fn build_arm64(ctx: &ProjectContext) -> Result<()> {
     ensure_node_modules(ctx)?;
     ctx.assert_android_sdk()?;
     ensure_android_project(ctx)?;
+    ensure_package_consistent(ctx)?;
 
     set_arch_arm64();
 
@@ -185,6 +328,7 @@ pub fn build_all(ctx: &ProjectContext) -> Result<()> {
     ensure_node_modules(ctx)?;
     ctx.assert_android_sdk()?;
     ensure_android_project(ctx)?;
+    ensure_package_consistent(ctx)?;
 
     clear_arch_env();
 
