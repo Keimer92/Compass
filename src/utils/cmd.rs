@@ -163,20 +163,44 @@ pub fn spawn_new_window_interactive(title: &str, dir: &std::path::Path, command:
     Ok(())
 }
 
-/// Envuelve un comando de build para que, al terminar con éxito, abra el
-/// Explorador de Windows resaltando el artefacto más reciente (setup.exe, APK,
-/// AAB) dentro de `folder` y cierre la ventana. Si el build falla, muestra un
-/// mensaje y espera una tecla (la ventana no se cierra sola para poder leer el error).
-pub fn reveal_on_success(command: &str, folder: &std::path::Path, exts: &[&str]) -> String {
+/// Genera un snippet PowerShell que renombra el artefacto más reciente
+/// en `folder` (con las extensiones dadas) a `new_name` (sin extensión).
+/// Actualiza la variable `$f` para que apunte al archivo renombrado.
+fn rename_artifact_snippet(folder: &std::path::Path, exts: &[&str], new_name: &str) -> String {
     let folder_ps = folder.display().to_string().replace('\'', "''");
     let ext_list = exts
         .iter()
         .map(|e| format!("'.{}'", e))
         .collect::<Vec<_>>()
         .join(",");
+    let safe_name = new_name.replace('\'', "''");
     format!(
-        "{}; if ($?) {{ $f = Get-ChildItem -LiteralPath '{}' -Recurse -File | Where-Object {{ $_.Extension -in {} }} | Sort-Object LastWriteTime -Descending | Select-Object -First 1; if ($f) {{ explorer.exe (\"/select,`\"\" + $f.FullName + \"`\"\") }} else {{ explorer.exe '{}' }}; exit }} else {{ Write-Host ''; Write-Host '[ERROR] El build fallo. Presiona Enter para cerrar...' -ForegroundColor Red; Read-Host; exit }}",
-        command, folder_ps, ext_list, folder_ps
+        "$f = Get-ChildItem -LiteralPath '{}' -Recurse -File | Where-Object {{ $_.Extension -in {} }} | Sort-Object LastWriteTime -Descending | Select-Object -First 1; if ($f) {{ $newName = '{}' + $f.Extension; Rename-Item -LiteralPath $f.FullName -NewName $newName; $f = Get-Item -LiteralPath (Join-Path $f.DirectoryName $newName) }}",
+        folder_ps, ext_list, safe_name
+    )
+}
+
+/// Envuelve un comando de build para que, al terminar con éxito, abra el
+/// Explorador de Windows resaltando el artefacto más reciente (setup.exe, APK,
+/// AAB) dentro de `folder` y cierre la ventana. Si el build falla, muestra un
+/// mensaje y espera una tecla (la ventana no se cierra sola para poder leer el error).
+/// Si `rename_to` se provee, renombra el artefacto antes de abrir el Explorador.
+pub fn reveal_on_success(command: &str, folder: &std::path::Path, exts: &[&str], rename_to: Option<&str>) -> String {
+    let folder_ps = folder.display().to_string().replace('\'', "''");
+    let ext_list = exts
+        .iter()
+        .map(|e| format!("'.{}'", e))
+        .collect::<Vec<_>>()
+        .join(",");
+
+    let rename_snippet = match rename_to {
+        Some(name) => format!("{}; ", rename_artifact_snippet(folder, exts, name)),
+        None => String::new(),
+    };
+
+    format!(
+        "{}; if ($?) {{ {}$f = Get-ChildItem -LiteralPath '{}' -Recurse -File | Where-Object {{ $_.Extension -in {} }} | Sort-Object LastWriteTime -Descending | Select-Object -First 1; if ($f) {{ explorer.exe (\"/select,`\"\" + $f.FullName + \"`\"\") }} else {{ explorer.exe '{}' }}; exit }} else {{ Write-Host ''; Write-Host '[ERROR] El build fallo. Presiona Enter para cerrar...' -ForegroundColor Red; Read-Host; exit }}",
+        command, rename_snippet, folder_ps, ext_list, folder_ps
     )
 }
 

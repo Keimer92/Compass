@@ -4,6 +4,46 @@ use indicatif::{ProgressBar, ProgressStyle};
 
 use crate::utils::{android as android_utils, cmd, context::ProjectContext};
 
+fn sanitize_app_name(name: &str) -> String {
+    name.chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else if c == ' ' {
+                '_'
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>()
+        .trim_matches('_')
+        .to_string()
+}
+
+fn read_flutter_app_meta(ctx: &ProjectContext) -> Option<(String, String)> {
+    let pubspec_path = ctx.script_dir.join("pubspec.yaml");
+    let content = std::fs::read_to_string(&pubspec_path).ok()?;
+    let mut name = None;
+    let mut version = None;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("name:") && name.is_none() {
+            name = trimmed.strip_prefix("name:").map(|v| v.trim().trim_matches('\'').trim_matches('"').to_string());
+        }
+        if trimmed.starts_with("version:") && version.is_none() {
+            if let Some(v) = trimmed.strip_prefix("version:") {
+                let v = v.trim().trim_matches('\'').trim_matches('"');
+                // Flutter version format: "1.0.0+1" — take only the part before '+'
+                version = Some(v.split('+').next().unwrap_or(v).to_string());
+            }
+        }
+        if name.is_some() && version.is_some() {
+            break;
+        }
+    }
+    Some((sanitize_app_name(&name?), version?))
+}
+
 pub fn run_windows(ctx: &ProjectContext) -> Result<()> {
     ensure_pubget(ctx)?;
     ensure_whatsapp_npm(ctx)?;
@@ -38,7 +78,7 @@ pub fn build_windows(ctx: &ProjectContext) -> Result<()> {
     ensure_whatsapp_npm(ctx)?;
 
     let release_dir = ctx.script_dir.join("build\\windows\\x64\\runner\\Release");
-    let cmd_line = cmd::reveal_on_success("flutter build windows --release", &release_dir, &["exe"]);
+    let cmd_line = cmd::reveal_on_success("flutter build windows --release", &release_dir, &["exe"], None);
 
     cmd::spawn_new_window(
         "Flutter Windows Build (Release)",
@@ -53,8 +93,9 @@ pub fn build_apk(ctx: &ProjectContext) -> Result<()> {
     println!("\n[INFO] Compilando Android APK (Release)...\n");
     ensure_pubget(ctx)?;
 
+    let rename = read_flutter_app_meta(ctx).map(|(name, ver)| format!("{}-v{}", name, ver));
     let apk_dir = ctx.script_dir.join("build\\app\\outputs\\flutter-apk");
-    let cmd_line = cmd::reveal_on_success("flutter build apk --release", &apk_dir, &["apk"]);
+    let cmd_line = cmd::reveal_on_success("flutter build apk --release", &apk_dir, &["apk"], rename.as_deref());
 
     cmd::spawn_new_window(
         "Flutter APK Build",
@@ -69,8 +110,9 @@ pub fn build_aab(ctx: &ProjectContext) -> Result<()> {
     println!("\n[INFO] Compilando Android AAB (Release)...\n");
     ensure_pubget(ctx)?;
 
+    let rename = read_flutter_app_meta(ctx).map(|(name, ver)| format!("{}-v{}", name, ver));
     let aab_dir = ctx.script_dir.join("build\\app\\outputs\\bundle\\release");
-    let cmd_line = cmd::reveal_on_success("flutter build appbundle --release", &aab_dir, &["aab"]);
+    let cmd_line = cmd::reveal_on_success("flutter build appbundle --release", &aab_dir, &["aab"], rename.as_deref());
 
     cmd::spawn_new_window(
         "Flutter AAB Build",

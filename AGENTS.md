@@ -203,6 +203,17 @@ El filtrado usa `Get-ChildItem -LiteralPath ... -Recurse -File | Where-Object { 
 + `Sort-Object LastWriteTime -Descending` (robusto a nombres de producto desconocidos y a `[` en rutas).
 Si no encuentra artefacto, abre la carpeta `folder` directamente (en vez de nada).
 
+### Rename build artifact (nombre + versión)
+Todos los builds **release** de Android (APK/AAB) renombran el artefacto resultante a `<AppName>-v<version>.<ext>` usando `reveal_on_success(..., Some("AppName-v1.0.0"))`.
+
+| Fuente | Nombre | Versión | Ejemplo |
+|--------|--------|---------|---------|
+| Tauri | `tauri.conf.json` → `productName` | `version` | `School_Tracker_Pro-v1.1.0.apk` |
+| Flutter | `pubspec.yaml` → `name` | `version` (sin `+build`) | `my_app-v2.0.0.aab` |
+| Kotlin | `build.gradle.kts` → `versionName` | `res/values/strings.xml` → `app_name` | `SongSync-v1.0.0.apk` |
+
+El sanitizado reemplaza espacios y caracteres especiales por `_`. Los builds de **Windows** (exe/msi) y **Rust** NO renombran (el nombre del producto ya viene del build).
+
 **Importante**: la llamada a Explorer es `explorer.exe ("/select,`"" + $f.FullName + "`"")` — el path debe ir
 **entre comillas dobles embebidas** (`/select,"ruta con espacios"`). `explorer.exe /select,<path>` sin esas comillas
 falla el parser de Explorer cuando la ruta tiene espacios y abre **Documentos** en su lugar.

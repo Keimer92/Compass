@@ -5,6 +5,81 @@ use indicatif::{ProgressBar, ProgressStyle};
 
 use crate::utils::{android as android_utils, cmd, context::{kotlin_android_dir, ProjectContext}};
 
+fn sanitize_app_name(name: &str) -> String {
+    name.chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else if c == ' ' {
+                '_'
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>()
+        .trim_matches('_')
+        .to_string()
+}
+
+fn read_kotlin_app_meta(ctx: &ProjectContext) -> Option<(String, String)> {
+    let android_dir = kotlin_android_dir(ctx);
+
+    // Try to read versionName from build.gradle.kts or build.gradle
+    let gradle_files = [
+        android_dir.join("build.gradle.kts"),
+        android_dir.join("build.gradle"),
+    ];
+    let mut version = None;
+    for gf in &gradle_files {
+        if let Ok(content) = std::fs::read_to_string(gf) {
+            for line in content.lines() {
+                let t = line.trim();
+                if t.contains("versionName") {
+                    if let Some(v) = t.split("versionName").nth(1) {
+                        let v = v.trim().trim_matches('"').trim_matches('\'');
+                        // Strip the closing paren if present
+                        let v = v.trim_end_matches(')').trim();
+                        if !v.is_empty() && v != "null" {
+                            version = Some(v.to_string());
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        if version.is_some() { break; }
+    }
+
+    // Try to read app name from res/values/strings.xml
+    let strings_paths = [
+        android_dir.join("src/main/res/values/strings.xml"),
+    ];
+    let mut name = None;
+    for sp in &strings_paths {
+        if let Ok(content) = std::fs::read_to_string(sp) {
+            for line in content.lines() {
+                let t = line.trim();
+                if t.contains("app_name") {
+                    if let Some(start) = t.find('>') {
+                        if let Some(end) = t[start..].find("</") {
+                            let val = &t[start+1..start+end].trim();
+                            if !val.is_empty() {
+                                name = Some(val.to_string());
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if name.is_some() { break; }
+    }
+
+    let name = name.unwrap_or_else(|| "App".to_string());
+    let version = version.unwrap_or_else(|| "0.0.0".to_string());
+    Some((sanitize_app_name(&name), version))
+}
+
 fn release_signing_env(ctx: &ProjectContext) -> Option<String> {
     let android_dir = kotlin_android_dir(ctx);
     let props_path = android_dir.join("keystore.properties");
@@ -207,6 +282,7 @@ pub fn build_windows(ctx: &ProjectContext) -> Result<()> {
         &gradlew_cmd(&format!("{}:packageDistributionForCurrentOS", gradle_module(ctx))),
         &dist_dir,
         &["exe"],
+        None,
     );
 
     cmd::spawn_new_window(
@@ -229,11 +305,13 @@ pub fn build_apk(ctx: &ProjectContext) -> Result<()> {
     } else {
         println!("[WARN] No se encontro keystore.properties de release; el build release podria fallar. Usa la tarjeta Keystore para configurar la firma.");
     }
+    let rename = read_kotlin_app_meta(ctx).map(|(name, ver)| format!("{}-v{}", name, ver));
     let apk_dir = android_dir.join("build").join("outputs").join("apk").join("release");
     let cmd_line = cmd::reveal_on_success(
         &gradle,
         &apk_dir,
         &["apk"],
+        rename.as_deref(),
     );
 
     cmd::spawn_new_window(
@@ -256,11 +334,13 @@ pub fn build_aab(ctx: &ProjectContext) -> Result<()> {
     } else {
         println!("[WARN] No se encontro keystore.properties de release; el build release podria fallar. Usa la tarjeta Keystore para configurar la firma.");
     }
+    let rename = read_kotlin_app_meta(ctx).map(|(name, ver)| format!("{}-v{}", name, ver));
     let aab_dir = android_dir.join("build").join("outputs").join("bundle").join("release");
     let cmd_line = cmd::reveal_on_success(
         &gradle,
         &aab_dir,
         &["aab"],
+        rename.as_deref(),
     );
 
     cmd::spawn_new_window(

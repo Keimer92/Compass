@@ -169,6 +169,31 @@ fn ensure_package_consistent(ctx: &ProjectContext) -> Result<()> {
     Ok(())
 }
 
+fn sanitize_app_name(name: &str) -> String {
+    name.chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else if c == ' ' {
+                '_'
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>()
+        .trim_matches('_')
+        .to_string()
+}
+
+fn read_tauri_app_meta(ctx: &ProjectContext) -> Option<(String, String)> {
+    let conf_path = ctx.script_dir.join("src-tauri/tauri.conf.json");
+    let conf_str = std::fs::read_to_string(&conf_path).ok()?;
+    let conf: serde_json::Value = serde_json::from_str(&conf_str).ok()?;
+    let name = conf["productName"].as_str()?;
+    let version = conf["version"].as_str()?;
+    Some((sanitize_app_name(name), version.to_string()))
+}
+
 fn ensure_rust_targets() -> Result<()> {
     let output = cmd::run("rustup", &["target", "list", "--installed"])?;
     let installed = String::from_utf8_lossy(&output.stdout);
@@ -282,8 +307,9 @@ pub fn build_arm64(ctx: &ProjectContext) -> Result<()> {
     println!("[INFO] Usando: npx tauri android build --target aarch64");
     println!();
 
+    let rename = read_tauri_app_meta(ctx).map(|(name, ver)| format!("{}-v{}", name, ver));
     let apk_dir = ctx.script_dir.join("src-tauri\\gen\\android\\app\\build\\outputs\\apk");
-    let cmd_line = cmd::reveal_on_success("npx tauri android build --target aarch64", &apk_dir, &["apk"]);
+    let cmd_line = cmd::reveal_on_success("npx tauri android build --target aarch64", &apk_dir, &["apk"], rename.as_deref());
 
     cmd::spawn_new_window(
         "Android Build arm64",
@@ -313,7 +339,7 @@ pub fn build_armv7(ctx: &ProjectContext) -> Result<()> {
     println!();
 
     let apk_dir = ctx.script_dir.join("src-tauri\\gen\\android\\app\\build\\outputs\\apk");
-    let cmd_line = cmd::reveal_on_success("npx tauri android build --target armv7", &apk_dir, &["apk"]);
+    let cmd_line = cmd::reveal_on_success("npx tauri android build --target armv7", &apk_dir, &["apk"], None);
 
     cmd::spawn_new_window(
         "Android Build armv7",
@@ -336,8 +362,9 @@ pub fn build_all(ctx: &ProjectContext) -> Result<()> {
     println!("[INFO] Compilando Android (Todas las arquitecturas)...");
     println!();
 
+    let rename = read_tauri_app_meta(ctx).map(|(name, ver)| format!("{}-v{}", name, ver));
     let apk_dir = ctx.script_dir.join("src-tauri\\gen\\android\\app\\build\\outputs\\apk");
-    let cmd_line = cmd::reveal_on_success("npx tauri android build", &apk_dir, &["apk"]);
+    let cmd_line = cmd::reveal_on_success("npx tauri android build", &apk_dir, &["apk"], rename.as_deref());
 
     cmd::spawn_new_window(
         "Android Build (All)",
