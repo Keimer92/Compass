@@ -72,6 +72,34 @@ pub fn run_android(ctx: &ProjectContext) -> Result<()> {
     Ok(())
 }
 
+pub fn profile_windows(ctx: &ProjectContext) -> Result<()> {
+    ensure_pubget(ctx)?;
+    ensure_whatsapp_npm(ctx)?;
+
+    cmd::spawn_new_window_interactive(
+        "Flutter Windows (Profile)",
+        &ctx.script_dir,
+        "flutter run --profile -d windows",
+    )?;
+
+    Ok(())
+}
+
+pub fn profile_android(ctx: &ProjectContext) -> Result<()> {
+    ensure_pubget(ctx)?;
+
+    let device = android_utils::select_device(ctx)?;
+    let serial = &device.serial;
+
+    cmd::spawn_new_window_interactive(
+        "Flutter Android (Profile)",
+        &ctx.script_dir,
+        &format!("flutter run --profile -d {}", serial),
+    )?;
+
+    Ok(())
+}
+
 pub fn build_windows(ctx: &ProjectContext) -> Result<()> {
     println!("\n[INFO] Compilando Windows (Release)...\n");
     ensure_pubget(ctx)?;

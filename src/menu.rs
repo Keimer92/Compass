@@ -59,6 +59,7 @@ pub enum MenuItem {
     AndroidBuildAll,
     InstallDebug,
     LaunchEmulator,
+    FlutterProfile,
     // MNT section
     CleanCache,
     DebugAndroid,
@@ -86,6 +87,7 @@ impl MenuItem {
             Self::AndroidBuildAll => "\u{1f680}",
             Self::InstallDebug => "\u{1f4e6}",
             Self::LaunchEmulator => "\u{1f4f1}",
+            Self::FlutterProfile => "\u{1f3af}",
             Self::CleanCache => "\u{1f9f9}",
             Self::DebugAndroid => "\u{1f50d}",
             Self::ConfigureSigning => "\u{1f511}",
@@ -103,7 +105,7 @@ impl MenuItem {
 
     fn section(&self) -> &str {
         match self {
-            Self::WindowsDev | Self::AndroidDev | Self::WindowsBuild | Self::AndroidBuildArm64 | Self::AndroidBuildArmv7 | Self::AndroidBuildAll | Self::InstallDebug | Self::LaunchEmulator => "DEV",
+            Self::WindowsDev | Self::AndroidDev | Self::WindowsBuild | Self::AndroidBuildArm64 | Self::AndroidBuildArmv7 | Self::AndroidBuildAll | Self::InstallDebug | Self::LaunchEmulator | Self::FlutterProfile => "DEV",
             Self::CleanCache | Self::DebugAndroid | Self::ConfigureSigning | Self::Sha1 | Self::CleanProject | Self::Version => "MNT",
             Self::CreateGitignore | Self::InitGit | Self::ManageKeystore | Self::BuildWhatsApp | Self::ConfigureTerminal | Self::ContextMenu => "CFG",
         }
@@ -140,6 +142,7 @@ impl MenuItem {
             },
             Self::InstallDebug => "Install",
             Self::LaunchEmulator => "Emulator",
+            Self::FlutterProfile => "Profile",
             Self::CleanCache => "Clean Cache",
             Self::DebugAndroid => "Debug Andr",
             Self::ConfigureSigning => "Configure",
@@ -187,6 +190,7 @@ impl MenuItem {
                 Self::BuildWhatsApp => "Compila WhatsApp",
                 Self::ConfigureTerminal => "Autocompletado",
                 Self::ContextMenu => "Menu contextual",
+                Self::FlutterProfile => "",
             },
             ProjectType::Tauri => match self {
                 Self::WindowsDev => "Inicia el dev server",
@@ -209,6 +213,7 @@ impl MenuItem {
                 Self::Version => "Bump pkg/cargo/tauri",
                 Self::ConfigureTerminal => "Autocompletado",
                 Self::ContextMenu => "Menu contextual",
+                Self::FlutterProfile => "",
             },
             ProjectType::Flutter => match self {
                 Self::WindowsDev => "flutter run windows",
@@ -231,6 +236,7 @@ impl MenuItem {
                 Self::Version => "",
                 Self::ConfigureTerminal => "Autocompletado",
                 Self::ContextMenu => "Menu contextual",
+                Self::FlutterProfile => "flutter run --profile",
             },
             ProjectType::Kotlin => match self {
                 Self::WindowsDev => "gradlew :composeApp:run",
@@ -253,6 +259,7 @@ impl MenuItem {
                 Self::Version => "",
                 Self::ConfigureTerminal => "Autocompletado",
                 Self::ContextMenu => "Menu contextual",
+                Self::FlutterProfile => "",
             },
         }
     }
@@ -278,6 +285,7 @@ impl MenuState {
             MenuItem::AndroidBuildAll,
             MenuItem::InstallDebug,
             MenuItem::LaunchEmulator,
+            MenuItem::FlutterProfile,
             MenuItem::CleanCache,
             MenuItem::DebugAndroid,
             MenuItem::ConfigureSigning,
@@ -305,10 +313,11 @@ impl MenuState {
                     | MenuItem::ConfigureSigning
                     | MenuItem::Sha1
                     | MenuItem::ManageKeystore
+                    | MenuItem::FlutterProfile
                 ),
-                ProjectType::Tauri => !matches!(item, MenuItem::InstallDebug),
+                ProjectType::Tauri => !matches!(item, MenuItem::InstallDebug | MenuItem::FlutterProfile),
                 ProjectType::Flutter => !matches!(item, MenuItem::AndroidBuildArmv7 | MenuItem::Version | MenuItem::InstallDebug),
-                ProjectType::Kotlin => !matches!(item, MenuItem::AndroidBuildArmv7 | MenuItem::Version),
+                ProjectType::Kotlin => !matches!(item, MenuItem::AndroidBuildArmv7 | MenuItem::Version | MenuItem::FlutterProfile),
             })
             .collect();
 
@@ -692,6 +701,8 @@ fn menu_item_to_task(item: MenuItem, ptype: ProjectType) -> &'static str {
         (MenuItem::InstallDebug, _) => "android-install-debug",
 
         (MenuItem::LaunchEmulator, _) => "launch-emulator",
+
+        (MenuItem::FlutterProfile, ProjectType::Flutter) => "flutter-profile",
 
         (MenuItem::CleanCache, _) => "clean-cache",
 

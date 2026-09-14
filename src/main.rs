@@ -2,6 +2,7 @@ mod menu;
 mod tasks;
 mod utils;
 
+use std::io::{self, Write};
 use clap::Parser;
 use anyhow::Result;
 
@@ -146,6 +147,23 @@ fn run_task_direct(ctx: &crate::utils::context::ProjectContext, task: &str) -> R
         "launch-emulator" => tasks::android::launch(ctx),
         "whatsapp" => tasks::whatsapp::build(ctx),
         "terminal" => tasks::terminal::configure(ctx),
+        "flutter-profile" => {
+            println!("\n[INFO] Selecciona la plataforma para Profile:\n");
+            println!("  1. Windows");
+            println!("  2. Android");
+            print!("\nOpcion: ");
+            io::stdout().flush()?;
+            let mut input = String::new();
+            io::stdin().read_line(&mut input)?;
+            match input.trim() {
+                "1" => tasks::flutter::profile_windows(ctx),
+                "2" => tasks::flutter::profile_android(ctx),
+                _ => {
+                    println!("[ERROR] Opcion no valida.");
+                    Ok(())
+                }
+            }
+        }
         _ => anyhow::bail!("Tarea desconocida: '{}'. Usa --help para ver las opciones.", task),
     }
 }

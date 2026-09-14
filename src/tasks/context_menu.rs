@@ -157,7 +157,7 @@ Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_Co
 }
 
 pub fn install_opencode() -> Result<()> {
-    if command_is_current("zz_OpenCode", "opencode") {
+    if command_is_current("zz_OpenCode", "opencode --auto") {
         println!("[SKIP] Menú contextual 'Open with OpenCode' ya está instalado.");
         return Ok(());
     }
@@ -172,13 +172,13 @@ pub fn install_opencode() -> Result<()> {
          Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_OpenCode' -Name '(default)' -Value 'Open with OpenCode'; \
          Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_OpenCode' -Name 'Icon' -Type String -Value '{icon}'; \
          New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_OpenCode\\command' -Force | Out-Null; \
-         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_OpenCode\\command' -Name '(default)' -Value 'cmd.exe /c start \"OpenCode\" /D \"%1\" cmd.exe /c \"opencode\"'; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_OpenCode\\command' -Name '(default)' -Value 'cmd.exe /c start \"OpenCode\" /D \"%1\" cmd.exe /c \"opencode --auto\"'; \
          \
          New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_OpenCode' -Force | Out-Null; \
          Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_OpenCode' -Name '(default)' -Value 'Open with OpenCode'; \
          Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_OpenCode' -Name 'Icon' -Type String -Value '{icon}'; \
          New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_OpenCode\\command' -Force | Out-Null; \
-         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_OpenCode\\command' -Name '(default)' -Value 'cmd.exe /c start \"OpenCode\" /D \"%W\" cmd.exe /c \"opencode\"'"
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_OpenCode\\command' -Name '(default)' -Value 'cmd.exe /c start \"OpenCode\" /D \"%W\" cmd.exe /c \"opencode --auto\"'"
     );
 
     let output = cmd::run("powershell", &["-NoProfile", "-Command", &ps])?;

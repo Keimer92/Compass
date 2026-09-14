@@ -182,8 +182,8 @@ fn rename_artifact_snippet(folder: &std::path::Path, exts: &[&str], new_name: &s
 
 /// Envuelve un comando de build para que, al terminar con éxito, abra el
 /// Explorador de Windows resaltando el artefacto más reciente (setup.exe, APK,
-/// AAB) dentro de `folder` y cierre la ventana. Si el build falla, muestra un
-/// mensaje y espera una tecla (la ventana no se cierra sola para poder leer el error).
+/// AAB) dentro de `folder`. Si el build falla, muestra un error.
+/// La ventana NUNCA se cierra sola para que el usuario pueda ver toda la salida.
 /// Si `rename_to` se provee, renombra el artefacto antes de abrir el Explorador.
 pub fn reveal_on_success(command: &str, folder: &std::path::Path, exts: &[&str], rename_to: Option<&str>) -> String {
     let folder_ps = folder.display().to_string().replace('\'', "''");
@@ -199,7 +199,7 @@ pub fn reveal_on_success(command: &str, folder: &std::path::Path, exts: &[&str],
     };
 
     format!(
-        "{}; if ($?) {{ {}$f = Get-ChildItem -LiteralPath '{}' -Recurse -File | Where-Object {{ $_.Extension -in {} }} | Sort-Object LastWriteTime -Descending | Select-Object -First 1; if ($f) {{ explorer.exe (\"/select,`\"\" + $f.FullName + \"`\"\") }} else {{ explorer.exe '{}' }}; exit }} else {{ Write-Host ''; Write-Host '[ERROR] El build fallo. Presiona Enter para cerrar...' -ForegroundColor Red; Read-Host; exit }}",
+        "{}; if ($?) {{ {}$f = Get-ChildItem -LiteralPath '{}' -Recurse -File | Where-Object {{ $_.Extension -in {} }} | Sort-Object LastWriteTime -Descending | Select-Object -First 1; if ($f) {{ Write-Host ''; Write-Host ('[OK] Build exitoso: ' + $f.Name) -ForegroundColor Green; Write-Host ('[INFO] Artefacto: ' + $f.FullName) -ForegroundColor Cyan; explorer.exe (\"/select,`\"\" + $f.FullName + \"`\"\") }} else {{ Write-Host ''; Write-Host '[OK] Build exitoso (artefacto no encontrado en la carpeta)' -ForegroundColor Green; explorer.exe '{}' }} }} else {{ Write-Host ''; Write-Host '[ERROR] El build fallo.' -ForegroundColor Red }}; Write-Host ''; Write-Host 'Presiona Enter para cerrar...' -ForegroundColor Yellow; Read-Host",
         command, rename_snippet, folder_ps, ext_list, folder_ps
     )
 }

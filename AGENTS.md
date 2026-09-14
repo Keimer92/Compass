@@ -58,7 +58,7 @@ utils/
 tasks/
   ├─ windows.rs — dev(), build()                         [Tauri only]
   ├─ android.rs — dev(), build_arm64(), build_all(), debug(), configure_signing(), ensure_package_consistent() [verifica identifier vs directorio paquete Android]
-  ├─ flutter.rs — run_windows(), run_android(), build_*(), clean()
+  ├─ flutter.rs — run_windows(), run_android(), profile_windows(), profile_android(), build_*(), clean()
   ├─ kotlin.rs  — run_windows() [con hot reload], run_android(), install_debug() (`:<modulo>:installDebug` + lanza con `am start`), build_*(), clean(); deteccion de modulo Gradle `:app`/`:composeApp` via `gradle_module()`; release_signing_env() [exporta RELEASE_* vars para Gradle]
   ├─ rust.rs    — run(), build(), clean()                [Rust only]
   ├─ cleanup.rs — clean_cache() [multi-type], clean_project() [Tauri only]
@@ -81,6 +81,7 @@ tasks/
 |-----------|-------|---------|--------|------|
 | WindowsDev | `windows::dev` | `flutter::run_windows` | `kotlin::run_windows` | `rust::run` |
 | AndroidDev | `android::dev` | `flutter::run_android` | `kotlin::run_android` | oculto |
+| FlutterProfile | oculto | `flutter::profile_windows` / `flutter::profile_android` (pregunta) | oculto | oculto |
 | WindowsBuild | `windows::build` | `flutter::build_windows` | `kotlin::build_windows` | `rust::build` |
 | AndroidBuildArm64 | `android::build_arm64` | `flutter::build_apk` | `kotlin::build_apk` (assembleRelease) | oculto |
 | AndroidBuildAll | `android::build_all` | `flutter::build_aab` | `kotlin::build_aab` (bundleRelease) | oculto |
@@ -151,7 +152,7 @@ Cuatro entradas en el menú contextual del Explorador de Windows:
 | Entrada | Comando | Clave Registro |
 |---------|---------|----------------|
 | **Open with Code Runner** | `"<exe_path>" "%1"` | `HKCR\Directory\shell\zz_CodeRunner` |
-| **Open with OpenCode** | `cmd.exe /c start "OpenCode" /D "%1" cmd.exe /c "opencode"` | `HKCR\Directory\shell\zz_OpenCode` |
+| **Open with OpenCode** | `cmd.exe /c start "OpenCode" /D "%1" cmd.exe /c "opencode --auto"` | `HKCR\Directory\shell\zz_OpenCode` |
 | **Open with Cline** | `cmd.exe /c start "Cline" /D "%1" cmd.exe /c "cline -i"` | `HKCR\Directory\shell\zz_pCline` |
 | **Open with Kilo Code** | `cmd.exe /c start "Kilo Code" /D "%1" cmd.exe /c "kilo"` | `HKCR\Directory\shell\zz_pKilo` |
 

@@ -99,7 +99,7 @@ if "%CR_CURRENT%"=="1" (
 echo.
 
 echo [INFO] Configurando menu contextual de OpenCode...
-for /f %%i in ('powershell -NoProfile -Command "$v=(Get-ItemProperty -Path 'HKCU:\Software\Classes\Directory\shell\zz_OpenCode\command' -ErrorAction SilentlyContinue).'(default)'; if($v -like '*opencode*'){'1'}else{'0'}"') do set "OC_CURRENT=%%i"
+for /f %%i in ('powershell -NoProfile -Command "$v=(Get-ItemProperty -Path 'HKCU:\Software\Classes\Directory\shell\zz_OpenCode\command' -ErrorAction SilentlyContinue).'(default)'; if($v -like '*opencode --auto*'){'1'}else{'0'}"') do set "OC_CURRENT=%%i"
 if "%OC_CURRENT%"=="1" (
     echo [SKIP] Menu contextual de OpenCode ya instalado.
 ) else (
