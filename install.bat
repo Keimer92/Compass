@@ -74,13 +74,13 @@ if exist "assets\icon\icon.ico" (
     echo [OK] Default.ico copiado
 )
 
-:: opencode.ico (OpenCode personalizado) -> Default.ico
+:: opencode.ico (Vibe Coding: OpenCode/Cline/Kilo) -> Default.ico
 if exist "assets\icon\opencode.ico" (
     copy /Y "assets\icon\opencode.ico" "%USERPROFILE%\.cargo\bin\" >nul 2>nul
     echo [OK] opencode.ico copiado
 ) else if exist "assets\icon\Default.ico" (
     copy /Y "assets\icon\Default.ico" "%USERPROFILE%\.cargo\bin\" >nul 2>nul
-    echo [OK] Default.ico copiado (para OpenCode)
+    echo [OK] Default.ico copiado (para Vibe Coding)
 )
 echo.
 
@@ -98,43 +98,16 @@ if "%CR_CURRENT%"=="1" (
 )
 echo.
 
-echo [INFO] Configurando menu contextual de OpenCode...
-for /f %%i in ('powershell -NoProfile -Command "$v=(Get-ItemProperty -Path 'HKCU:\Software\Classes\Directory\shell\zz_OpenCode\command' -ErrorAction SilentlyContinue).'(default)'; if($v -like '*opencode --auto*'){'1'}else{'0'}"') do set "OC_CURRENT=%%i"
-if "%OC_CURRENT%"=="1" (
-    echo [SKIP] Menu contextual de OpenCode ya instalado.
+echo [INFO] Configurando menu contextual de Vibe Coding...
+for /f %%i in ('powershell -NoProfile -Command "Test-Path 'HKCU:\Software\Classes\Directory\shell\zz_VibeCoding\shell\OpenCode\command'"') do set "VC_CURRENT=%%i"
+if "%VC_CURRENT%"=="True" (
+    echo [SKIP] Menu contextual de Vibe Coding ya instalado.
 ) else (
     call "%USERPROFILE%\.cargo\bin\code-runner.exe" --task opencode-install
     if errorlevel 1 (
-        echo [WARN] No se pudo instalar el menu contextual de OpenCode.
+        echo [WARN] No se pudo instalar el menu contextual de Vibe Coding.
     ) else (
-        echo [OK] Menu contextual de OpenCode instalado.
-    )
-)
-
-echo [INFO] Configurando menu contextual de Cline...
-for /f %%i in ('powershell -NoProfile -Command "$v=(Get-ItemProperty -Path 'HKCU:\Software\Classes\Directory\shell\zz_pCline\command' -ErrorAction SilentlyContinue).'(default)'; if($v -like '*cline*'){'1'}else{'0'}"') do set "CL_CURRENT=%%i"
-if "%CL_CURRENT%"=="1" (
-    echo [SKIP] Menu contextual de Cline ya instalado.
-) else (
-    call "%USERPROFILE%\.cargo\bin\code-runner.exe" --task cline-install
-    if errorlevel 1 (
-        echo [WARN] No se pudo instalar el menu contextual de Cline.
-    ) else (
-        echo [OK] Menu contextual de Cline instalado.
-    )
-)
-echo.
-
-echo [INFO] Configurando menu contextual de Kilo Code...
-for /f %%i in ('powershell -NoProfile -Command "$v=(Get-ItemProperty -Path 'HKCU:\Software\Classes\Directory\shell\zz_pKilo\command' -ErrorAction SilentlyContinue).'(default)'; if($v -like '*kilo*'){'1'}else{'0'}"') do set "KL_CURRENT=%%i"
-if "%KL_CURRENT%"=="1" (
-    echo [SKIP] Menu contextual de Kilo Code ya instalado.
-) else (
-    call "%USERPROFILE%\.cargo\bin\code-runner.exe" --task kilo-install
-    if errorlevel 1 (
-        echo [WARN] No se pudo instalar el menu contextual de Kilo Code.
-    ) else (
-        echo [OK] Menu contextual de Kilo Code instalado.
+        echo [OK] Menu contextual de Vibe Coding instalado.
     )
 )
 

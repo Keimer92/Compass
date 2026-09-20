@@ -28,77 +28,14 @@ fn icon_path() -> String {
 fn opencode_icon() -> String {
     resolve_icon("opencode.ico")
 }
-fn cline_icon() -> String {
-    // Cline y Kilo Code comparten el icono de OpenCode
-    resolve_icon("opencode.ico")
-}
-
-fn kilocode_icon() -> String {
-    // Cline y Kilo Code comparten el icono de OpenCode
-    resolve_icon("opencode.ico")
-}
-
-/// Instala un menu contextual generico para una herramienta CLI de IA.
-/// `key` debe empezar por 'p' minuscula para que Windows (orden alfabetico
-/// insensible a mayusculas) la coloque justo despues de zz_OpenCode.
-fn install_cli_tool(key: &str, title: &str, cli_cmd: &str, icon: &str) -> Result<()> {
-    if command_is_current(key, cli_cmd) {
-        println!("[SKIP] Menú contextual 'Open with {title}' ya está instalado.");
-        return Ok(());
-    }
-
-    println!("[INFO] {title} icon path: {icon}");
-    println!("[INFO] Icon exists: {}", std::path::Path::new(icon).exists());
-
-    let ps = format!(
-        "New-Item -Path 'HKCU:\\\\Software\\\\Classes\\\\Directory\\\\shell\\\\{key}' -Force | Out-Null; \
-         Set-ItemProperty -Path 'HKCU:\\\\Software\\\\Classes\\\\Directory\\\\shell\\\\{key}' -Name '(default)' -Value 'Open with {title}'; \
-         Set-ItemProperty -Path 'HKCU:\\\\Software\\\\Classes\\\\Directory\\\\shell\\\\{key}' -Name 'Icon' -Type String -Value '{icon}'; \
-         New-Item -Path 'HKCU:\\\\Software\\\\Classes\\\\Directory\\\\shell\\\\{key}\\\\command' -Force | Out-Null; \
-         Set-ItemProperty -Path 'HKCU:\\\\Software\\\\Classes\\\\Directory\\\\shell\\\\{key}\\\\command' -Name '(default)' -Value 'cmd.exe /c start \"{title}\" /D \"%1\" cmd.exe /c \"{cli_cmd}\"'; \
-         \
-         New-Item -Path 'HKCU:\\\\Software\\\\Classes\\\\Directory\\\\Background\\\\shell\\\\{key}' -Force | Out-Null; \
-         Set-ItemProperty -Path 'HKCU:\\\\Software\\\\Classes\\\\Directory\\\\Background\\\\shell\\\\{key}' -Name '(default)' -Value 'Open with {title}'; \
-         Set-ItemProperty -Path 'HKCU:\\\\Software\\\\Classes\\\\Directory\\\\Background\\\\shell\\\\{key}' -Name 'Icon' -Type String -Value '{icon}'; \
-         New-Item -Path 'HKCU:\\\\Software\\\\Classes\\\\Directory\\\\Background\\\\shell\\\\{key}\\\\command' -Force | Out-Null; \
-         Set-ItemProperty -Path 'HKCU:\\\\Software\\\\Classes\\\\Directory\\\\Background\\\\shell\\\\{key}\\\\command' -Name '(default)' -Value 'cmd.exe /c start \"{title}\" /D \"%W\" cmd.exe /c \"{cli_cmd}\"'"
-    );
-
-    let output = cmd::run("powershell", &["-NoProfile", "-Command", &ps])?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("Error al instalar menú {title}:\n{}", stderr);
-    }
-
-    println!("[OK] Menú contextual 'Open with {title}' instalado.");
-    println!("  Icono: {icon}");
-    println!("  Haz clic derecho en una carpeta → 'Open with {title}'");
-    println!();
-    println!("[INFO] Si el icono no aparece, intenta:");
-    println!("  1. Cerrar sesion y volver a iniciar");
-    println!("  2. O ejecutar en PowerShell: ie4uinit.exe -show");
-    Ok(())
-}
-
-fn uninstall_key(key: &str, title: &str) -> Result<()> {
-    let ps = format!(
-        "Remove-Item -Path 'HKCU:\\\\Software\\\\Classes\\\\Directory\\\\shell\\\\{key}' -Recurse -Force -ErrorAction SilentlyContinue; \
-         Remove-Item -Path 'HKCU:\\\\Software\\\\Classes\\\\Directory\\\\Background\\\\shell\\\\{key}' -Recurse -Force -ErrorAction SilentlyContinue"
-    );
-
-    let _ = cmd::run("powershell", &["-NoProfile", "-Command", &ps]);
-
-    println!("[OK] Menú contextual 'Open with {title}' eliminado.");
-    Ok(())
-}
-
-
 
 fn exe_path() -> String {
     exe_dir()
         .and_then(|d| d.join("code-runner.exe").to_str().map(|s| s.to_string()))
         .unwrap_or_else(|| "code-runner.exe".to_string())
 }
+
+// ── Code Runner (entry principal) ──────────────────────────────────────
 
 pub fn install() -> Result<()> {
     let exe = exe_path();
@@ -156,40 +93,114 @@ Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_Co
     Ok(())
 }
 
-pub fn install_opencode() -> Result<()> {
-    if command_is_current("zz_OpenCode", "opencode --auto") {
-        println!("[SKIP] Menú contextual 'Open with OpenCode' ya está instalado.");
+// ── Vibe Coding (menú cascada: OpenCode + Cline + Kilo Code) ───────────
+
+const VIBE_KEY: &str = "zz_VibeCoding";
+
+/// Instala el menú cascada "Vibe Coding" con las sub-entradas que estén disponibles.
+pub fn install_vibe_coding() -> Result<()> {
+    let icon = opencode_icon();
+
+    // Limpiar entradas viejas individuales
+    remove_vibe_old_keys();
+
+    // Verificar si ya está instalado
+    let oc_ok = is_installed_sub(VIBE_KEY, "OpenCode");
+    let cl_ok = is_installed_sub(VIBE_KEY, "Cline");
+    let kl_ok = is_installed_sub(VIBE_KEY, "Kilo");
+
+    if oc_ok && cl_ok && kl_ok {
+        println!("[SKIP] Menú 'Vibe Coding' ya está instalado con todas las herramientas.");
         return Ok(());
     }
 
-    let icon = opencode_icon();
+    // Detectar qué herramientas están disponibles en PATH
+    let has_opencode = command_exists("opencode");
+    let has_cline = command_exists("cline");
+    let has_kilo = command_exists("kilo");
 
-    println!("[INFO] OpenCode icon path: {icon}");
-    println!("[INFO] Icon exists: {}", std::path::Path::new(&icon).exists());
+    if !has_opencode && !has_cline && !has_kilo {
+        println!("[WARN] No se encontró opencode, cline ni kilo en PATH.");
+        println!("[WARN] Se instalará el menú vacío. Puedes re-instalarlo después.");
+    }
 
-    let ps = format!(
-        "New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_OpenCode' -Force | Out-Null; \
-         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_OpenCode' -Name '(default)' -Value 'Open with OpenCode'; \
-         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_OpenCode' -Name 'Icon' -Type String -Value '{icon}'; \
-         New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_OpenCode\\command' -Force | Out-Null; \
-         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_OpenCode\\command' -Name '(default)' -Value 'cmd.exe /c start \"OpenCode\" /D \"%1\" cmd.exe /c \"opencode --auto\"'; \
+    println!("[INFO] Detectando herramientas Vibe Coding...");
+    if has_opencode { println!("  ✔ OpenCode encontrado"); } else { println!("  ✘ OpenCode no encontrado"); }
+    if has_cline   { println!("  ✔ Cline encontrado"); }      else { println!("  ✘ Cline no encontrado"); }
+    if has_kilo    { println!("  ✔ Kilo Code encontrado"); }   else { println!("  ✘ Kilo Code no encontrado"); }
+
+    // Crear entrada padre
+    let mut ps = format!(
+        "New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{VIBE_KEY}' -Force | Out-Null; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{VIBE_KEY}' -Name '(default)' -Value 'Vibe Coding'; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{VIBE_KEY}' -Name 'Icon' -Type String -Value '{icon}'; \
          \
-         New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_OpenCode' -Force | Out-Null; \
-         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_OpenCode' -Name '(default)' -Value 'Open with OpenCode'; \
-         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_OpenCode' -Name 'Icon' -Type String -Value '{icon}'; \
-         New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_OpenCode\\command' -Force | Out-Null; \
-         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_OpenCode\\command' -Name '(default)' -Value 'cmd.exe /c start \"OpenCode\" /D \"%W\" cmd.exe /c \"opencode --auto\"'"
+         New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\{VIBE_KEY}' -Force | Out-Null; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\{VIBE_KEY}' -Name '(default)' -Value 'Vibe Coding'; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\{VIBE_KEY}' -Name 'Icon' -Type String -Value '{icon}';"
     );
+
+    // Sub-entrada: OpenCode
+    if has_opencode && !oc_ok {
+        ps.push_str(&format!(
+            "New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{VIBE_KEY}\\shell\\OpenCode' -Force | Out-Null; \
+             Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{VIBE_KEY}\\shell\\OpenCode' -Name '(default)' -Value 'OpenCode'; \
+             Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{VIBE_KEY}\\shell\\OpenCode' -Name 'Icon' -Type String -Value '{icon}'; \
+             New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{VIBE_KEY}\\shell\\OpenCode\\command' -Force | Out-Null; \
+             Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{VIBE_KEY}\\shell\\OpenCode\\command' -Name '(default)' -Value 'cmd.exe /c start \"OpenCode\" /D \"%1\" cmd.exe /c \"opencode --auto\"'; \
+             \
+             New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\{VIBE_KEY}\\shell\\OpenCode' -Force | Out-Null; \
+             Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\{VIBE_KEY}\\shell\\OpenCode' -Name '(default)' -Value 'OpenCode'; \
+             Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\{VIBE_KEY}\\shell\\OpenCode' -Name 'Icon' -Type String -Value '{icon}'; \
+             New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\{VIBE_KEY}\\shell\\OpenCode\\command' -Force | Out-Null; \
+             Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\{VIBE_KEY}\\shell\\OpenCode\\command' -Name '(default)' -Value 'cmd.exe /c start \"OpenCode\" /D \"%W\" cmd.exe /c \"opencode --auto\"';"
+        ));
+    }
+
+    // Sub-entrada: Cline
+    if has_cline && !cl_ok {
+        ps.push_str(&format!(
+            "New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{VIBE_KEY}\\shell\\Cline' -Force | Out-Null; \
+             Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{VIBE_KEY}\\shell\\Cline' -Name '(default)' -Value 'Cline'; \
+             Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{VIBE_KEY}\\shell\\Cline' -Name 'Icon' -Type String -Value '{icon}'; \
+             New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{VIBE_KEY}\\shell\\Cline\\command' -Force | Out-Null; \
+             Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{VIBE_KEY}\\shell\\Cline\\command' -Name '(default)' -Value 'cmd.exe /c start \"Cline\" /D \"%1\" cmd.exe /c \"cline -i\"'; \
+             \
+             New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\{VIBE_KEY}\\shell\\Cline' -Force | Out-Null; \
+             Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\{VIBE_KEY}\\shell\\Cline' -Name '(default)' -Value 'Cline'; \
+             Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\{VIBE_KEY}\\shell\\Cline' -Name 'Icon' -Type String -Value '{icon}'; \
+             New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\{VIBE_KEY}\\shell\\Cline\\command' -Force | Out-Null; \
+             Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\{VIBE_KEY}\\shell\\Cline\\command' -Name '(default)' -Value 'cmd.exe /c start \"Cline\" /D \"%W\" cmd.exe /c \"cline -i\"';"
+        ));
+    }
+
+    // Sub-entrada: Kilo Code
+    if has_kilo && !kl_ok {
+        ps.push_str(&format!(
+            "New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{VIBE_KEY}\\shell\\Kilo' -Force | Out-Null; \
+             Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{VIBE_KEY}\\shell\\Kilo' -Name '(default)' -Value 'Kilo Code'; \
+             Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{VIBE_KEY}\\shell\\Kilo' -Name 'Icon' -Type String -Value '{icon}'; \
+             New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{VIBE_KEY}\\shell\\Kilo\\command' -Force | Out-Null; \
+             Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{VIBE_KEY}\\shell\\Kilo\\command' -Name '(default)' -Value 'cmd.exe /c start \"Kilo Code\" /D \"%1\" cmd.exe /c \"kilo\"'; \
+             \
+             New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\{VIBE_KEY}\\shell\\Kilo' -Force | Out-Null; \
+             Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\{VIBE_KEY}\\shell\\Kilo' -Name '(default)' -Value 'Kilo Code'; \
+             Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\{VIBE_KEY}\\shell\\Kilo' -Name 'Icon' -Type String -Value '{icon}'; \
+             New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\{VIBE_KEY}\\shell\\Kilo\\command' -Force | Out-Null; \
+             Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\{VIBE_KEY}\\shell\\Kilo\\command' -Name '(default)' -Value 'cmd.exe /c start \"Kilo Code\" /D \"%W\" cmd.exe /c \"kilo\"';"
+        ));
+    }
 
     let output = cmd::run("powershell", &["-NoProfile", "-Command", &ps])?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("Error al instalar menú OpenCode:\n{}", stderr);
+        anyhow::bail!("Error al instalar menú Vibe Coding:\n{}", stderr);
     }
 
-    println!("[OK] Menú contextual 'Open with OpenCode' instalado.");
+    println!();
+    println!("[OK] Menú contextual 'Vibe Coding' instalado.");
     println!("  Icono: {icon}");
-    println!("  Haz clic derecho en una carpeta → 'Open with OpenCode'");
+    println!("  Haz clic derecho en una carpeta → 'Vibe Coding'");
     println!();
     println!("[INFO] Si el icono no aparece, intenta:");
     println!("  1. Cerrar sesion y volver a iniciar");
@@ -197,27 +208,43 @@ pub fn install_opencode() -> Result<()> {
     Ok(())
 }
 
+pub fn uninstall_vibe_coding() -> Result<()> {
+    let ps = format!(
+        "Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{VIBE_KEY}' -Recurse -Force -ErrorAction SilentlyContinue; \
+         Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\{VIBE_KEY}' -Recurse -Force -ErrorAction SilentlyContinue"
+    );
+
+    let _ = cmd::run("powershell", &["-NoProfile", "-Command", &ps]);
+
+    println!("[OK] Menú contextual 'Vibe Coding' eliminado.");
+    Ok(())
+}
+
+pub fn install_opencode() -> Result<()> {
+    install_vibe_coding()
+}
+
 pub fn uninstall_opencode() -> Result<()> {
-    uninstall_key("zz_OpenCode", "OpenCode")
+    uninstall_vibe_coding()
 }
 
 pub fn install_cline() -> Result<()> {
-    let icon = cline_icon();
-    install_cli_tool("zz_pCline", "Cline", "cline -i", &icon)
+    install_vibe_coding()
 }
 
 pub fn uninstall_cline() -> Result<()> {
-    uninstall_key("zz_pCline", "Cline")
+    uninstall_vibe_coding()
 }
 
 pub fn install_kilocode() -> Result<()> {
-    let icon = kilocode_icon();
-    install_cli_tool("zz_pKilo", "Kilo Code", "kilo", &icon)
+    install_vibe_coding()
 }
 
 pub fn uninstall_kilocode() -> Result<()> {
-    uninstall_key("zz_pKilo", "Kilo Code")
+    uninstall_vibe_coding()
 }
+
+// ── Toggle interactivo ─────────────────────────────────────────────────
 
 pub fn toggle() -> Result<()> {
     loop {
@@ -228,23 +255,17 @@ pub fn toggle() -> Result<()> {
         println!();
 
         let cr_installed = is_installed("zz_CodeRunner");
-        let oc_installed = is_installed("zz_OpenCode");
-        let cl_installed = is_installed("zz_pCline");
-        let kl_installed = is_installed("zz_pKilo");
+        let vc_installed = is_installed(VIBE_KEY);
 
         let cr_label = if cr_installed { "✔ Code Runner" } else { "  Code Runner" };
-        let oc_label = if oc_installed { "✔ OpenCode" } else { "  OpenCode" };
-        let cl_label = if cl_installed { "✔ Cline" } else { "  Cline" };
-        let kl_label = if kl_installed { "✔ Kilo Code" } else { "  Kilo Code" };
+        let vc_label = if vc_installed { "✔ Vibe Coding" } else { "  Vibe Coding" };
 
         let options = vec![
             format!("1. {cr_label}  [{}]", if cr_installed { "Desinstalar" } else { "Instalar" }),
-            format!("2. {oc_label}  [{}]", if oc_installed { "Desinstalar" } else { "Instalar" }),
-            format!("3. {cl_label}  [{}]", if cl_installed { "Desinstalar" } else { "Instalar" }),
-            format!("4. {kl_label}  [{}]", if kl_installed { "Desinstalar" } else { "Instalar" }),
-            "5. Instalar todos".to_string(),
-            "6. Desinstalar todos".to_string(),
-            "7. Volver".to_string(),
+            format!("2. {vc_label}  [{}]", if vc_installed { "Desinstalar" } else { "Instalar" }),
+            "3. Instalar todos".to_string(),
+            "4. Desinstalar todos".to_string(),
+            "5. Volver".to_string(),
         ];
 
         let choice = inquire::Select::new("Selecciona una opción:", options)
@@ -257,29 +278,17 @@ pub fn toggle() -> Result<()> {
                 pause();
             }
             s if s.starts_with("2.") => {
-                if oc_installed { uninstall_opencode()?; } else { install_opencode()?; }
+                if vc_installed { uninstall_vibe_coding()?; } else { install_vibe_coding()?; }
                 pause();
             }
             s if s.starts_with("3.") => {
-                if cl_installed { uninstall_cline()?; } else { install_cline()?; }
+                install()?;
+                install_vibe_coding()?;
                 pause();
             }
             s if s.starts_with("4.") => {
-                if kl_installed { uninstall_kilocode()?; } else { install_kilocode()?; }
-                pause();
-            }
-            s if s.starts_with("5.") => {
-                install()?;
-                install_opencode()?;
-                install_cline()?;
-                install_kilocode()?;
-                pause();
-            }
-            s if s.starts_with("6.") => {
                 uninstall()?;
-                uninstall_opencode()?;
-                uninstall_cline()?;
-                uninstall_kilocode()?;
+                uninstall_vibe_coding()?;
                 pause();
             }
             _ => break,
@@ -288,9 +297,19 @@ pub fn toggle() -> Result<()> {
     Ok(())
 }
 
+// ── Helpers ────────────────────────────────────────────────────────────
+
 fn is_installed(name: &str) -> bool {
     let ps = format!(
         "Test-Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{name}\\command'"
+    );
+    let output = cmd::run("powershell", &["-NoProfile", "-Command", &ps]);
+    output.map(|o| String::from_utf8_lossy(&o.stdout).trim() == "True").unwrap_or(false)
+}
+
+fn is_installed_sub(parent: &str, sub: &str) -> bool {
+    let ps = format!(
+        "Test-Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{parent}\\shell\\{sub}\\command'"
     );
     let output = cmd::run("powershell", &["-NoProfile", "-Command", &ps]);
     output.map(|o| String::from_utf8_lossy(&o.stdout).trim() == "True").unwrap_or(false)
@@ -303,6 +322,29 @@ fn command_is_current(name: &str, needle: &str) -> bool {
     );
     let output = cmd::run("powershell", &["-NoProfile", "-Command", &ps]);
     output.map(|o| String::from_utf8_lossy(&o.stdout).trim() == "True").unwrap_or(false)
+}
+
+fn command_exists(name: &str) -> bool {
+    let ps = format!(
+        "$null -ne (Get-Command -Name '{name}' -ErrorAction SilentlyContinue)"
+    );
+    let output = cmd::run("powershell", &["-NoProfile", "-Command", &ps]);
+    output.map(|o| String::from_utf8_lossy(&o.stdout).trim() == "True").unwrap_or(false)
+}
+
+/// Elimina entradas viejas individuales de OpenCode, Cline y Kilo Code.
+fn remove_vibe_old_keys() {
+    let old_keys = ["zz_OpenCode", "zz_pCline", "zz_pKilo"];
+    let mut ps = String::new();
+    for key in &old_keys {
+        ps.push_str(&format!(
+            "Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{key}' -Recurse -Force -ErrorAction SilentlyContinue; \
+             Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\{key}' -Recurse -Force -ErrorAction SilentlyContinue; "
+        ));
+    }
+    if !ps.is_empty() {
+        let _ = cmd::run("powershell", &["-NoProfile", "-Command", &ps]);
+    }
 }
 
 fn pause() {
