@@ -40,7 +40,7 @@ fn exe_path() -> String {
 pub fn install() -> Result<()> {
     let exe = exe_path();
 
-    if command_is_current("zz_CodeRunner", &exe) {
+    if command_is_current("zz_CodeRunner", &exe) && label_is("zz_CodeRunner", "Code Runner") {
         println!("[SKIP] Menú contextual Code Runner ya está instalado.");
         println!("  Ruta: {exe}");
         return Ok(());
@@ -151,6 +151,11 @@ pub fn install_vibe_coding() -> Result<()> {
 
     // Limpiar entradas viejas individuales (OpenCode/Cline/Kilo sueltos)
     remove_vibe_old_keys();
+
+    // Recrear el árbol de sub-entradas desde cero. Necesario para eliminar
+    // claves huérfanas de versiones previas (p.ej. `OpenCode` sin el prefijo
+    // numérico, que se acumulaban y alteraban el orden del submenú).
+    remove_vibe_ctx_tree();
 
     // Resolver cada herramienta: comando real a ejecutar + nota de ruta
     let resolved: Vec<(&VibeTool, String, Option<String>)> = VIBE_TOOLS
@@ -361,6 +366,21 @@ fn command_exists(name: &str) -> bool {
     output.map(|o| String::from_utf8_lossy(&o.stdout).trim() == "True").unwrap_or(false)
 }
 
+/// Verifica que el texto visible (`(default)` o `MUIVerb`) de la entrada
+/// coincida con el esperado. Permite forzar el reinstall cuando solo cambia
+/// el nombre del menú, aunque el comando ya sea el correcto.
+fn label_is(name: &str, expected: &str) -> bool {
+    let ps = format!(
+        "$v = (Get-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{name}' -ErrorAction SilentlyContinue); \
+         if ($null -eq $v) {{ 'false' }} else {{ if ($v.MUIVerb) {{ $v.MUIVerb }} else {{ $v.'(default)' }} }}"
+    );
+    let output = cmd::run("powershell", &["-NoProfile", "-Command", &ps]);
+    match output {
+        Ok(o) => String::from_utf8_lossy(&o.stdout).trim() == expected,
+        Err(_) => false,
+    }
+}
+
 /// Elimina entradas viejas individuales de OpenCode, Cline y Kilo Code.
 fn remove_vibe_old_keys() {
     let old_keys = ["zz_OpenCode", "zz_pCline", "zz_pKilo"];
@@ -374,6 +394,15 @@ fn remove_vibe_old_keys() {
     if !ps.is_empty() {
         let _ = cmd::run("powershell", &["-NoProfile", "-Command", &ps]);
     }
+}
+
+/// Elimina el árbol completo de sub-entradas de Vibe Coding para reconstruirlo
+/// limpio en cada instalación (evita claves huérfanas que alteran el orden).
+fn remove_vibe_ctx_tree() {
+    let ps = format!(
+        "Remove-Item -Path 'HKCU:\\Software\\Classes\\{CTX_PATH}' -Recurse -Force -ErrorAction SilentlyContinue"
+    );
+    let _ = cmd::run("powershell", &["-NoProfile", "-Command", &ps]);
 }
 
 fn pause() {

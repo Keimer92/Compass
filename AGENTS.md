@@ -68,7 +68,7 @@ tasks/
   ├─ signer.rs  — create_or_import(), patch_build_gradle()
   ├─ sha1.rs    — show() [huellas SHA-1/SHA-256 debug+release, lee keystore.properties/key.properties]
   ├─ terminal.rs — configure() [PSReadLine profile]
-  ├─ context_menu.rs — install/uninstall/toggle para CodeRunner + Vibe Coding (menú cascada con ExtendedSubCommandsKey)
+  ├─ context_menu.rs — install/uninstall/toggle para CodeRunner + Vibe Coding (menú cascada con ExtendedSubCommandsKey: OpenCode, Kilo Code, Cline, Antigravity)
   └─ whatsapp.rs — build()
   └─ version.rs — bump() [port de versionar.bat: Tauri/Rust, todo-o-nada]
 ```
@@ -115,6 +115,8 @@ tasks/
 | `cline-uninstall` | `context_menu::uninstall_cline()` → `uninstall_vibe_coding()` |
 | `kilo-install` | `context_menu::install_kilocode()` → `install_vibe_coding()` |
 | `kilo-uninstall` | `context_menu::uninstall_kilocode()` → `uninstall_vibe_coding()` |
+| `antigravity-install` | `context_menu::install_antigravity()` → `install_vibe_coding()` |
+| `antigravity-uninstall` | `context_menu::uninstall_antigravity()` → `uninstall_vibe_coding()` |
 
 ## Path Conventions
 
@@ -151,9 +153,9 @@ tasks/
 
 | Entrada | Comando | Clave Registro |
 |---------|---------|----------------|
-| **Open with Code Runner** | `"<exe_path>" "%1"` | `HKCR\Directory\shell\zz_CodeRunner` |
+| **Code Runner** | `"<exe_path>" "%1"` | `HKCR\Directory\shell\zz_CodeRunner` |
 
-### Vibe Coding (menú cascada: OpenCode + Cline + Kilo Code)
+### Vibe Coding (menú cascada: OpenCode + Kilo Code + Cline + Antigravity)
 
 Usa el método **`ExtendedSubCommandsKey`** (el oficial de Windows para menús cascada, mismo que usa Command Prompt y PowerShell).
 
@@ -165,27 +167,34 @@ HKCU\Software\Classes\Directory\shell\zz_VibeCoding
   ExtendedSubCommandsKey = "Directory\ContextMenus\VibeCoding"
 
 HKCU\Software\Classes\Directory\ContextMenus\VibeCoding\shell
-  OpenCode → command
-  Cline    → command
-  Kilo     → command
+  01OpenCode     → command
+  02KiloCode     → command
+  03Cline        → command
+  04Antigravity  → command
 ```
 
-**Sub-entradas:**
+**Sub-entradas (en este orden):**
 
-| Sub-entrada | Comando | Descripción |
-|-------------|---------|-------------|
-| **OpenCode** | `cmd.exe /c start "OpenCode" /D "%V" cmd.exe /c "opencode --auto"` | Abre OpenCode en la carpeta |
-| **Cline** | `cmd.exe /c start "Cline" /D "%V" cmd.exe /c "cline -i"` | Abre Cline en la carpeta (`-i` evita modo headless) |
-| **Kilo Code** | `cmd.exe /c start "Kilo Code" /D "%V" cmd.exe /c "kilo"` | Abre Kilo Code en la carpeta |
+| # | Sub-entrada | Comando | Descripción |
+|---|-------------|---------|-------------|
+| 01 | **OpenCode** | `cmd.exe /c start "OpenCode" /D "%V" cmd.exe /c "opencode --auto"` | Abre OpenCode en la carpeta |
+| 02 | **Kilo Code** | `cmd.exe /c start "Kilo Code" /D "%V" cmd.exe /c "kilo"` | Abre Kilo Code en la carpeta |
+| 03 | **Cline** | `cmd.exe /c start "Cline" /D "%V" cmd.exe /c "cline -i"` | Abre Cline (`-i` evita modo headless) |
+| 04 | **Antigravity** | `cmd.exe /c start "Antigravity" /D "%V" cmd.exe /c "agy"` | Abre Antigravity CLI (Google) |
 
 **Notas técnicas:**
+- **Orden del submenú**: Windows ordena las sub-claves de `shell` **alfabéticamente**. Por eso las claves llevan prefijo numérico (`01OpenCode`, `02KiloCode`, ...) para forzar el orden requerido en `VIBE_TOOLS` (src/tasks/context_menu.rs). Agregar una herramienta = agregar una entrada al final de `VIBE_TOOLS` con prefijo incremental.
 - `%V` = directorio de la carpeta seleccionada (funciona con `ExtendedSubCommandsKey`; `%1` NO funciona).
 - La entrada padre usa `MUIVerb` en vez de `(default)` para el texto visible.
 - Las sub-entradas están en `Directory\ContextMenus\VibeCoding\shell\` (ruta compartida para `Directory` y `Directory\Background`).
 - Se registran para **carpeta** (`Directory`) y **fondo** (`Directory\Background`).
+- `remove_vibe_ctx_tree()` borra el árbol `ContextMenus\VibeCoding` completo en cada instalación — evita claves huérfanas de versiones previas que alteraban el orden.
 - Se limpian entradas viejas individuales (`zz_OpenCode`, `zz_pCline`, `zz_pKilo`) al instalar.
+- **Antigravity CLI**: binario nativo (no npm) instalado por `irm https://antigravity.google/cli/install.ps1 | iex` → `%LOCALAPPDATA%\agy\bin\agy.exe`. No siempre está en PATH; `resolve_tool_command()` hace fallback a esa ruta si `Get-Command agy` falla.
 - `install.bat` instala/actualiza Vibe Coding con detección de "ya instalado".
 - El menú interactivo `toggle()` gestiona Code Runner + Vibe Coding + "Instalar todos" / "Desinstalar todos".
+- **Idempotencia**: `install()` compara tanto el comando (`command_is_current()`) como el texto visible (`label_is()`), así un cambio de nombre fuerza el reinstall aunque el comando ya sea correcto.
+- **Los cambios del registro requieren reiniciar Explorer**: `taskkill /f /im explorer.exe & start explorer.exe`.
 
 ## Key Patterns
 
