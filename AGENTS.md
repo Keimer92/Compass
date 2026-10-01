@@ -68,7 +68,7 @@ tasks/
   ├─ signer.rs  — create_or_import(), patch_build_gradle()
   ├─ sha1.rs    — show() [huellas SHA-1/SHA-256 debug+release, lee keystore.properties/key.properties]
   ├─ terminal.rs — configure() [PSReadLine profile]
-  ├─ context_menu.rs — install/uninstall/toggle para CodeRunner + OpenCode
+  ├─ context_menu.rs — install/uninstall/toggle para CodeRunner + Vibe Coding (menú cascada con ExtendedSubCommandsKey)
   └─ whatsapp.rs — build()
   └─ version.rs — bump() [port de versionar.bat: Tauri/Rust, todo-o-nada]
 ```
@@ -109,12 +109,12 @@ tasks/
 | `context-menu` / `opencode` | `context_menu::toggle()` (menú interactivo) |
 | `context-menu-install` | `context_menu::install()` |
 | `context-menu-uninstall` | `context_menu::uninstall()` |
-| `opencode-install` | `context_menu::install_opencode()` |
-| `opencode-uninstall` | `context_menu::uninstall_opencode()` |
-| `cline-install` | `context_menu::install_cline()` |
-| `cline-uninstall` | `context_menu::uninstall_cline()` |
-| `kilo-install` | `context_menu::install_kilocode()` |
-| `kilo-uninstall` | `context_menu::uninstall_kilocode()` |
+| `opencode-install` | `context_menu::install_opencode()` → `install_vibe_coding()` |
+| `opencode-uninstall` | `context_menu::uninstall_opencode()` → `uninstall_vibe_coding()` |
+| `cline-install` | `context_menu::install_cline()` → `install_vibe_coding()` |
+| `cline-uninstall` | `context_menu::uninstall_cline()` → `uninstall_vibe_coding()` |
+| `kilo-install` | `context_menu::install_kilocode()` → `install_vibe_coding()` |
+| `kilo-uninstall` | `context_menu::uninstall_kilocode()` → `uninstall_vibe_coding()` |
 
 ## Path Conventions
 
@@ -147,25 +147,45 @@ tasks/
 
 ## Context Menu (Windows Registry)
 
-Cuatro entradas en el menú contextual del Explorador de Windows:
+### Code Runner (entrada simple)
 
 | Entrada | Comando | Clave Registro |
 |---------|---------|----------------|
 | **Open with Code Runner** | `"<exe_path>" "%1"` | `HKCR\Directory\shell\zz_CodeRunner` |
-| **Open with OpenCode** | `cmd.exe /c start "OpenCode" /D "%1" cmd.exe /c "opencode --auto"` | `HKCR\Directory\shell\zz_OpenCode` |
-| **Open with Cline** | `cmd.exe /c start "Cline" /D "%1" cmd.exe /c "cline -i"` | `HKCR\Directory\shell\zz_pCline` |
-| **Open with Kilo Code** | `cmd.exe /c start "Kilo Code" /D "%1" cmd.exe /c "kilo"` | `HKCR\Directory\shell\zz_pKilo` |
 
-- Todas las entradas usan prefijo `zz_` para aparecer al final del menú (orden alfabético).
-- Cline y Kilo Code usan claves `zz_pCline`/`zz_pKilo` (cuarto carácter minúscula `p`, que ordena después de `o` de OpenCode **insensible a mayúsculas** — el menú contextual NO distingue mayúsculas) para quedar justo después de OpenCode en el orden: Code Runner → OpenCode → Cline → Kilo Code.
-- Cline y Kilo Code comparten el icono `opencode.ico`.
+### Vibe Coding (menú cascada: OpenCode + Cline + Kilo Code)
+
+Usa el método **`ExtendedSubCommandsKey`** (el oficial de Windows para menús cascada, mismo que usa Command Prompt y PowerShell).
+
+**Estructura de registro:**
+```
+HKCU\Software\Classes\Directory\shell\zz_VibeCoding
+  MUIVerb = "Vibe Coding"
+  Icon = "path\to\opencode.ico"
+  ExtendedSubCommandsKey = "Directory\ContextMenus\VibeCoding"
+
+HKCU\Software\Classes\Directory\ContextMenus\VibeCoding\shell
+  OpenCode → command
+  Cline    → command
+  Kilo     → command
+```
+
+**Sub-entradas:**
+
+| Sub-entrada | Comando | Descripción |
+|-------------|---------|-------------|
+| **OpenCode** | `cmd.exe /c start "OpenCode" /D "%V" cmd.exe /c "opencode --auto"` | Abre OpenCode en la carpeta |
+| **Cline** | `cmd.exe /c start "Cline" /D "%V" cmd.exe /c "cline -i"` | Abre Cline en la carpeta (`-i` evita modo headless) |
+| **Kilo Code** | `cmd.exe /c start "Kilo Code" /D "%V" cmd.exe /c "kilo"` | Abre Kilo Code en la carpeta |
+
+**Notas técnicas:**
+- `%V` = directorio de la carpeta seleccionada (funciona con `ExtendedSubCommandsKey`; `%1` NO funciona).
+- La entrada padre usa `MUIVerb` en vez de `(default)` para el texto visible.
+- Las sub-entradas están en `Directory\ContextMenus\VibeCoding\shell\` (ruta compartida para `Directory` y `Directory\Background`).
 - Se registran para **carpeta** (`Directory`) y **fondo** (`Directory\Background`).
-- Icono: busca `icon.ico` (CodeRunner) o `opencode.ico` (Cline/Kilo Code) en el directorio del ejecutable, si no existe usa `Default.ico` del mismo directorio. Como último fallback, queda sin icono.
-- **Cline requiere el flag `-i`** (`cline -i`): sin argumentos, el CLI de Cline corre en modo headless (act mode, sin TUI) y la ventana se queda en negro. `kilo` por defecto ya abre su TUI.
-- Instalación de Cline/Kilo Code vía helper genérico `install_cli_tool(key, title, cli_cmd, icon)` + `uninstall_key(key, title)` en `context_menu.rs`.
-- **Gotcha de escaping**: las comillas dobles dentro del comando del registro deben escribirse como `\"` en el string de Rust (comilla literal), NO como `\\\"` — esto último produce `\"` literal en el registro (bytes `5C 22`) y rompe `start` con el error "Windows cannot find '\...\'". Dentro de las comillas simples de PowerShell las comillas dobles no necesitan escape.
-- El menú interactivo `toggle()` gestiona las 4 entradas individualmente + "Instalar todos" / "Desinstalar todos".
-- `install.bat` instala/actualiza las 4 entradas con detección de "ya instalado" (compara el valor actual del registro con `command_is_current()`).
+- Se limpian entradas viejas individuales (`zz_OpenCode`, `zz_pCline`, `zz_pKilo`) al instalar.
+- `install.bat` instala/actualiza Vibe Coding con detección de "ya instalado".
+- El menú interactivo `toggle()` gestiona Code Runner + Vibe Coding + "Instalar todos" / "Desinstalar todos".
 
 ## Key Patterns
 

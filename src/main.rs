@@ -27,7 +27,12 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     if let Some(task) = &cli.task {
-        if task.starts_with("context-menu") || task.starts_with("opencode") || task.starts_with("cline") || task.starts_with("kilo") {
+        if task.starts_with("context-menu")
+            || task.starts_with("opencode")
+            || task.starts_with("cline")
+            || task.starts_with("kilo")
+            || task.starts_with("antigravity")
+        {
             return run_global_task(task);
         }
     }
@@ -65,6 +70,8 @@ fn run_global_task(task: &str) -> Result<()> {
         "cline-uninstall" => tasks::context_menu::uninstall_cline(),
         "kilo-install" => tasks::context_menu::install_kilocode(),
         "kilo-uninstall" => tasks::context_menu::uninstall_kilocode(),
+        "antigravity-install" => tasks::context_menu::install_antigravity(),
+        "antigravity-uninstall" => tasks::context_menu::uninstall_antigravity(),
         _ => anyhow::bail!("Tarea desconocida: {}", task),
     }
 }
