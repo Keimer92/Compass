@@ -5,7 +5,7 @@ use std::process::Command;
 use anyhow::{Context, Result};
 
 use crate::tasks::signer;
-use crate::utils::{cmd, context::{kotlin_android_dir, ProjectContext, ProjectType}, ui};
+use crate::utils::{cmd, context::{kotlin_android_dir, ProjectContext, ProjectType}, platform, ui};
 
 struct KeystoreInfo {
     path: PathBuf,
@@ -36,7 +36,13 @@ pub fn show(ctx: &ProjectContext) -> Result<()> {
     match debug_keystore() {
         Some(info) => print_fingerprints(&keytool, &info)?,
         None => {
-            println!("  [WARN] No se encontró debug.keystore en %USERPROFILE%\\.android\\");
+            let android_dir = platform::home_dir()
+                .map(|h| h.join(".android"))
+                .unwrap_or_default();
+            println!(
+                "  [WARN] No se encontró debug.keystore en {}",
+                android_dir.display()
+            );
             println!("  Compila una vez en debug o créalo con:");
             println!("    keytool -genkey -v -keystore debug.keystore -storepass android \\");
             println!("      -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000");
@@ -64,8 +70,8 @@ pub fn show(ctx: &ProjectContext) -> Result<()> {
 }
 
 fn debug_keystore() -> Option<KeystoreInfo> {
-    let home = std::env::var("USERPROFILE").ok()?;
-    let path = PathBuf::from(home).join(".android").join("debug.keystore");
+    let home = platform::home_dir()?;
+    let path = home.join(".android").join("debug.keystore");
     if !path.exists() {
         return None;
     }
@@ -78,8 +84,8 @@ fn debug_keystore() -> Option<KeystoreInfo> {
 
 fn release_keystore(ctx: &ProjectContext) -> Option<Result<KeystoreInfo>> {
     let android_dir = match ctx.project_type {
-        ProjectType::Tauri => ctx.script_dir.join("src-tauri\\gen\\android\\app"),
-        ProjectType::Flutter => ctx.script_dir.join("android\\app"),
+        ProjectType::Tauri => ctx.script_dir.join("src-tauri/gen/android/app"),
+        ProjectType::Flutter => ctx.script_dir.join("android/app"),
         ProjectType::Kotlin => kotlin_android_dir(ctx),
         ProjectType::Rust => return None,
     };

@@ -37,7 +37,27 @@ fn exe_path() -> String {
 
 // ── Code Runner (entry principal) ──────────────────────────────────────
 
+/// Todo este módulo manipula el registro de Windows (`ExtendedSubCommandsKey`
+/// para el menú cascada), que no existe en Linux. La tarjeta está oculta en el
+/// menú, pero las tasks siguen alcanzables por CLI: se informa en vez de
+/// invocar PowerShell y reportar un fallo genérico.
+fn unsupported_on_this_platform(action: &str) -> Result<()> {
+    println!();
+    println!("[INFO] El menú contextual sólo está disponible en Windows.");
+    println!("       {action} requiere el registro de Windows (`HKCU\\Software\\Classes`).");
+    println!();
+    println!("En Linux el equivalente sería una entrada .desktop con `Actions=`,");
+    println!("que no está implementada. Las tarjetas 'Code Runner' y 'Vibe Coding'");
+    println!("del menú contextual no están soportadas en esta plataforma.");
+    println!();
+    Ok(())
+}
+
 pub fn install() -> Result<()> {
+    if !crate::utils::platform::IS_WINDOWS {
+        return unsupported_on_this_platform("Instalar el menú contextual");
+    }
+
     let exe = exe_path();
 
     if command_is_current("zz_CodeRunner", &exe) && label_is("zz_CodeRunner", "Code Runner") {
@@ -83,6 +103,10 @@ pub fn install() -> Result<()> {
 }
 
 pub fn uninstall() -> Result<()> {
+    if !crate::utils::platform::IS_WINDOWS {
+        return unsupported_on_this_platform("Desinstalar el menú contextual");
+    }
+
     let ps = "\
 Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_CodeRunner' -Recurse -Force -ErrorAction SilentlyContinue; \
 Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_CodeRunner' -Recurse -Force -ErrorAction SilentlyContinue";
@@ -147,6 +171,10 @@ fn resolve_tool_command(tool: &VibeTool) -> Option<(String, String)> {
 
 /// Instala el menú cascada "Vibe Coding" con las sub-entradas que estén disponibles.
 pub fn install_vibe_coding() -> Result<()> {
+    if !crate::utils::platform::IS_WINDOWS {
+        return unsupported_on_this_platform("Instalar el menú 'Vibe Coding'");
+    }
+
     let icon = opencode_icon();
 
     // Limpiar entradas viejas individuales (OpenCode/Cline/Kilo sueltos)
@@ -235,6 +263,10 @@ pub fn install_vibe_coding() -> Result<()> {
 }
 
 pub fn uninstall_vibe_coding() -> Result<()> {
+    if !crate::utils::platform::IS_WINDOWS {
+        return unsupported_on_this_platform("Desinstalar el menú 'Vibe Coding'");
+    }
+
     let ps = format!(
         "Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{VIBE_KEY}' -Recurse -Force -ErrorAction SilentlyContinue; \
          Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\{VIBE_KEY}' -Recurse -Force -ErrorAction SilentlyContinue; \

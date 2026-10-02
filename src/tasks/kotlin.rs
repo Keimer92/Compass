@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use anyhow::Result;
 use indicatif::{ProgressBar, ProgressStyle};
 
-use crate::utils::{android as android_utils, cmd, context::{kotlin_android_dir, ProjectContext}};
+use crate::utils::{android as android_utils, cmd, context::{kotlin_android_dir, ProjectContext}, platform};
 
 fn sanitize_app_name(name: &str) -> String {
     name.chars()
@@ -112,14 +112,25 @@ fn release_signing_env(ctx: &ProjectContext) -> Option<String> {
     let store_pass = store_pass.unwrap_or_default();
     let key_pass = key_pass.unwrap_or_else(|| store_pass.clone());
     let key_alias = key_alias?;
-    Some(format!(
-        "$env:RELEASE_STORE_FILE='{}'; $env:RELEASE_STORE_PASSWORD='{}'; $env:RELEASE_KEY_ALIAS='{}'; $env:RELEASE_KEY_PASSWORD='{}'",
-        store_path.display(), store_pass, key_alias, key_pass
-    ))
+    // Gradle lee estas variables del entorno. La sintaxis de assignación
+    // difiere: PowerShell usa `$env:X=`, `sh` usa `export X=`.
+    if platform::IS_WINDOWS {
+        Some(format!(
+            "$env:RELEASE_STORE_FILE='{}'; $env:RELEASE_STORE_PASSWORD='{}'; $env:RELEASE_KEY_ALIAS='{}'; $env:RELEASE_KEY_PASSWORD='{}'",
+            store_path.display(), store_pass, key_alias, key_pass
+        ))
+    } else {
+        Some(format!(
+            "export RELEASE_STORE_FILE='{}'; export RELEASE_STORE_PASSWORD='{}'; export RELEASE_KEY_ALIAS='{}'; export RELEASE_KEY_PASSWORD='{}'",
+            store_path.display(), store_pass, key_alias, key_pass
+        ))
+    }
 }
 
 fn gradlew_cmd(args: &str) -> String {
-    if cfg!(windows) {
+    // En Windows Gradle se invoca a través de `cmd` porque PowerShell no puede
+    // ejecutar un `.bat` directamente. En Linux, `./gradlew` (el wrapper POSIX).
+    if platform::IS_WINDOWS {
         format!("cmd /c gradlew.bat {}", args)
     } else {
         format!("./gradlew {}", args)
@@ -137,8 +148,14 @@ fn gradle_module(ctx: &ProjectContext) -> String {
 }
 
 fn ensure_gradle(ctx: &ProjectContext) -> Result<()> {
-    if !ctx.script_dir.join("gradlew.bat").exists() {
-        anyhow::bail!("No se encontró gradlew.bat en la raíz del proyecto.");
+    // Acepta `gradlew` o `gradlew.bat`: un proyecto clonado entre Windows y
+    // Linux conserva sólo uno de los dos wrappers.
+    if platform::find_gradlew(&ctx.script_dir).is_none() {
+        anyhow::bail!(
+            "No se encontró el wrapper de Gradle en la raíz del proyecto.\n\
+             Se esperaba `{}`.",
+            platform::gradlew_name()
+        );
     }
     Ok(())
 }
@@ -156,7 +173,7 @@ pub fn run_windows(ctx: &ProjectContext) -> Result<()> {
     cmd::spawn_new_window_interactive(
         "KMP Desktop (Run)",
         &ctx.script_dir,
-        &format!("gradlew.bat {}:run", gradle_module(ctx)),
+        &gradlew_cmd(&format!("{}:run", gradle_module(ctx))),
     )?;
 
     Ok(())
@@ -223,19 +240,37 @@ fn install_and_launch_cmd(ctx: &ProjectContext, serial: &str) -> String {
         .map(|p| format!("{}.MainActivity", p))
         .unwrap_or_else(|| format!("{}.MainActivity", namespace));
 
-    format!(
-        "$env:ANDROID_SERIAL='{}'; \
-         {}; \
-         if ($LASTEXITCODE -eq 0) {{ \
-             Write-Host '[OK] Abriendo aplicacion...'; \
-             & '{}' shell am start -n '{}/{}' \
-         }}",
-        serial,
-        gradlew_cmd(&format!("{}:installDebug", gradle_module(ctx))),
-        adb_path,
-        namespace,
-        activity,
-    )
+    if platform::IS_WINDOWS {
+        // PowerShell: `$env:X=`, `$LASTEXITCODE`, call-operator `&`.
+        format!(
+            "$env:ANDROID_SERIAL='{}'; \
+             {}; \
+             if ($LASTEXITCODE -eq 0) {{ \
+                 Write-Host '[OK] Abriendo aplicacion...'; \
+                 & '{}' shell am start -n '{}/{}' \
+             }}",
+            serial,
+            gradlew_cmd(&format!("{}:installDebug", gradle_module(ctx))),
+            adb_path,
+            namespace,
+            activity,
+        )
+    } else {
+        // `sh`: `export X=`, `$?`, y sin call-operator.
+        format!(
+            "export ANDROID_SERIAL='{}'; \
+             {}; \
+             if [ $? -eq 0 ]; then \
+                 echo '[OK] Abriendo aplicacion...'; \
+                 '{}' shell am start -n '{}/{}' \
+             fi",
+            serial,
+            gradlew_cmd(&format!("{}:installDebug", gradle_module(ctx))),
+            adb_path,
+            namespace,
+            activity,
+        )
+    }
 }
 
 pub fn run_android(ctx: &ProjectContext) -> Result<()> {
@@ -277,7 +312,7 @@ pub fn build_windows(ctx: &ProjectContext) -> Result<()> {
     ensure_gradle(ctx)?;
     ensure_whatsapp_npm(ctx)?;
 
-    let dist_dir = kotlin_android_dir(ctx).join("build\\compose\\binaries\\main");
+    let dist_dir = kotlin_android_dir(ctx).join("build").join("compose").join("binaries").join("main");
     let cmd_line = cmd::reveal_on_success(
         &gradlew_cmd(&format!("{}:packageDistributionForCurrentOS", gradle_module(ctx))),
         &dist_dir,

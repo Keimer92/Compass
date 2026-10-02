@@ -319,6 +319,11 @@ impl MenuState {
                 ProjectType::Flutter => !matches!(item, MenuItem::AndroidBuildArmv7 | MenuItem::Version | MenuItem::InstallDebug),
                 ProjectType::Kotlin => !matches!(item, MenuItem::AndroidBuildArmv7 | MenuItem::Version | MenuItem::FlutterProfile),
             })
+            // `ConfigureTerminal` escribe un perfil de PowerShell (PSReadLine) y
+            // `ContextMenu` manipula el registro de Windows (ExtendedSubCommandsKey).
+            // No existen equivalentes en Linux, así que se ocultan en vez de
+            // exponer tarjetas que fallarían silenciosamente.
+            .filter(|item| cfg!(windows) || !matches!(item, MenuItem::ConfigureTerminal | MenuItem::ContextMenu))
             .collect();
 
         Self {
@@ -757,12 +762,25 @@ pub fn run(ctx: &ProjectContext) -> anyhow::Result<()> {
             }
             MenuAction::Run(item) => {
                 let task = menu_item_to_task(item, ctx.project_type);
-                let command = format!(
-                    "& '{}' --task {} --path '{}'",
-                    exe_path.display(),
-                    task,
-                    project_path.display(),
-                );
+                // En Windows el comando se ejecuta en PowerShell, donde `&`
+                // es el call-operator necesario para rutas entrecomilladas.
+                // En Linux el script corre en `sh`, donde `&` sería un error
+                // de sintaxis (background job), así que se omite.
+                let command = if cfg!(windows) {
+                    format!(
+                        "& '{}' --task {} --path '{}'",
+                        exe_path.display(),
+                        task,
+                        project_path.display(),
+                    )
+                } else {
+                    format!(
+                        "'{}' --task {} --path '{}'",
+                        exe_path.display(),
+                        task,
+                        project_path.display(),
+                    )
+                };
 
                 cmd::spawn_new_window_autoexit(
                     &format!("Code Runner - {}", task),

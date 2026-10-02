@@ -50,8 +50,8 @@ pub fn manage(ctx: &ProjectContext) -> Result<()> {
 
 fn android_app_dir(ctx: &ProjectContext) -> PathBuf {
     match ctx.project_type {
-        ProjectType::Tauri => ctx.script_dir.join("src-tauri\\gen\\android\\app"),
-        ProjectType::Flutter => ctx.script_dir.join("android\\app"),
+        ProjectType::Tauri => ctx.script_dir.join("src-tauri/gen/android/app"),
+        ProjectType::Flutter => ctx.script_dir.join("android/app"),
         ProjectType::Kotlin => ctx.script_dir.join("composeApp"),
         ProjectType::Rust => PathBuf::new(),
     }

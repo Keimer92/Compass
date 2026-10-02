@@ -9,8 +9,8 @@ use crate::utils::{cmd, context::{kotlin_android_dir, ProjectContext, ProjectTyp
 
 pub fn create_or_import(ctx: &ProjectContext) -> Result<()> {
     let (android_dir, props_name) = match ctx.project_type {
-        ProjectType::Tauri => (ctx.script_dir.join("src-tauri\\gen\\android\\app"), "keystore.properties"),
-        ProjectType::Flutter => (ctx.script_dir.join("android\\app"), "key.properties"),
+        ProjectType::Tauri => (ctx.script_dir.join("src-tauri").join("gen").join("android").join("app"), "keystore.properties"),
+        ProjectType::Flutter => (ctx.script_dir.join("android").join("app"), "key.properties"),
         ProjectType::Kotlin => (kotlin_android_dir(ctx), "keystore.properties"),
         ProjectType::Rust => {
             eprintln!("[ERROR] No aplicable a proyectos Rust.");
@@ -250,51 +250,69 @@ fn manual_configure(_ctx: &ProjectContext, android_app: &Path, props_name: &str)
 }
 
 pub(crate) fn find_keytool() -> Result<String> {
-    let mut paths: Vec<String> = Vec::new();
+    let mut paths: Vec<String> = vec!["keytool".to_string()];
+    let kt = crate::utils::platform::exe_name("keytool");
 
-    paths.push("keytool".to_string());
-
+    // JAVA_HOME es portable y es la vía más fiable en ambas plataformas.
     if let Ok(jh) = env::var("JAVA_HOME") {
-        paths.push(format!("{}\\bin\\keytool.exe", jh));
+        paths.push(
+            Path::new(&jh)
+                .join("bin")
+                .join(&kt)
+                .to_string_lossy()
+                .into_owned(),
+        );
     }
 
-    paths.push(r"C:\Program Files\Android\Android Studio\jbr\bin\keytool.exe".to_string());
-    paths.push(r"C:\Program Files\Android\Android Studio\jre\bin\keytool.exe".to_string());
+    if crate::utils::platform::IS_WINDOWS {
+        paths.push(format!(r"C:\Program Files\Android\Android Studio\jbr\bin\{kt}"));
+        paths.push(format!(r"C:\Program Files\Android\Android Studio\jre\bin\{kt}"));
 
-    for base in &["C:\\Program Files\\Java", "C:\\Program Files (x86)\\Java"] {
-        if let Ok(entries) = fs::read_dir(base) {
+        for base in &[r"C:\Program Files\Java", r"C:\Program Files (x86)\Java"] {
+            if let Ok(entries) = fs::read_dir(base) {
+                for entry in entries.flatten() {
+                    let k = entry.path().join("bin").join(&kt);
+                    if k.exists() {
+                        paths.push(k.to_string_lossy().into_owned());
+                    }
+                }
+            }
+        }
+
+        if let Ok(local) = env::var("LOCALAPPDATA") {
+            for jbr in ["jbr", "jre"] {
+                let c = format!("{}\\Programs\\Android Studio\\{}\\bin\\{}", local, jbr, kt);
+                if Path::new(&c).exists() {
+                    paths.push(c);
+                }
+            }
+        }
+    } else {
+        // Linux: el JDK suele estar en /usr/lib/jvm/<distro>-<version>/
+        if let Ok(entries) = fs::read_dir("/usr/lib/jvm") {
             for entry in entries.flatten() {
-                let kt = entry.path().join("bin").join("keytool.exe");
-                if kt.exists() {
-                    paths.push(kt.to_string_lossy().into_owned());
+                let k = entry.path().join("bin").join(&kt);
+                if k.exists() {
+                    paths.push(k.to_string_lossy().into_owned());
                 }
             }
         }
     }
 
-    if let Ok(local) = env::var("LOCALAPPDATA") {
-        let candidates = vec![
-            format!("{}\\Programs\\Android Studio\\jbr\\bin\\keytool.exe", local),
-            format!("{}\\Programs\\Android Studio\\jre\\bin\\keytool.exe", local),
-        ];
-        for c in &candidates {
-            if Path::new(c).exists() {
-                paths.push(c.clone());
-            }
-        }
-    }
-
     for p in &paths {
-        if p.is_empty() { continue; }
+        if p.is_empty() {
+            continue;
+        }
         if Command::new(p).arg("-help").output().is_ok() {
             return Ok(p.clone());
         }
     }
 
     anyhow::bail!(
-        "No se pudo encontrar 'keytool.exe'.\n\
-         Asegúrate de tener Android Studio o Java JDK instalado,\n\
-         o agrega Java a tus variables de entorno (PATH/JAVA_HOME)."
+        "No se pudo encontrar '{}'.\n\
+         Asegúrate de tener un JDK (o Android Studio) instalado,\n\
+         o agrega Java a tus variables de entorno (PATH/JAVA_HOME).",
+        kt
     );
 }
 

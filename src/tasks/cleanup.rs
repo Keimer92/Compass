@@ -40,15 +40,15 @@ fn dir_size(path: &Path) -> u64 {
 fn clean_cache_tauri(ctx: &ProjectContext, aggressive: bool) -> Result<()> {
     if aggressive {
         println!("[INFO] Limpieza agresiva...\n");
-        let vite_cache = ctx.script_dir.join("node_modules\\.vite");
+        let vite_cache = ctx.script_dir.join("node_modules/.vite");
         if vite_cache.exists() { cmd::remove_dir(&vite_cache).ok(); }
-        let target_dir = ctx.script_dir.join("src-tauri\\target");
+        let target_dir = ctx.script_dir.join("src-tauri/target");
         if target_dir.exists() {
             let size = dir_size(&target_dir);
             cmd::remove_dir(&target_dir).ok();
             println!("  [OK] target/ eliminado ({})", format_size(size));
         }
-        let android_build = ctx.script_dir.join("src-tauri\\gen\\android\\app\\build");
+        let android_build = ctx.script_dir.join("src-tauri/gen/android/app/build");
         if android_build.exists() {
             let size = dir_size(&android_build);
             cmd::remove_dir(&android_build).ok();
@@ -67,11 +67,11 @@ fn clean_cache_tauri(ctx: &ProjectContext, aggressive: bool) -> Result<()> {
     } else {
         println!("\n[INFO] Limpieza rápida (builds)...\n");
         let targets = [
-            ("Android build", ctx.script_dir.join("src-tauri\\gen\\android\\app\\build")),
-            ("Windows Release", ctx.script_dir.join("src-tauri\\target\\release")),
-            ("Windows Debug", ctx.script_dir.join("src-tauri\\target\\debug")),
+            ("Android build", ctx.script_dir.join("src-tauri/gen/android/app/build")),
+            ("Windows Release", ctx.script_dir.join("src-tauri/target/release")),
+            ("Windows Debug", ctx.script_dir.join("src-tauri/target/debug")),
             ("Dist", ctx.script_dir.join("dist")),
-            ("Vite cache", ctx.script_dir.join("node_modules\\.vite")),
+            ("Vite cache", ctx.script_dir.join("node_modules/.vite")),
         ];
         for (label, path) in &targets {
             if path.exists() {
@@ -108,7 +108,7 @@ fn clean_cache_android_common(ctx: &ProjectContext, aggressive: bool) -> Result<
         println!("\n[INFO] Limpieza rápida (builds)...\n");
         let targets = [
             ("build/ raíz", ctx.script_dir.join("build")),
-            ("composeApp/build/", ctx.script_dir.join("composeApp\\build")),
+            ("composeApp/build/", ctx.script_dir.join("composeApp/build")),
             (".gradle/", ctx.script_dir.join(".gradle")),
             (".kotlin/", ctx.script_dir.join(".kotlin")),
         ];
@@ -135,7 +135,7 @@ fn clean_cache_flutter(ctx: &ProjectContext, aggressive: bool) -> Result<()> {
             cmd::remove_dir(&build_dir).ok();
             println!("  [OK] build/ eliminado ({})", format_size(size));
         }
-        let android_build = ctx.script_dir.join("android\\app\\build");
+        let android_build = ctx.script_dir.join("android/app/build");
         if android_build.exists() {
             let size = dir_size(&android_build);
             cmd::remove_dir(&android_build).ok();
@@ -155,7 +155,7 @@ fn clean_cache_flutter(ctx: &ProjectContext, aggressive: bool) -> Result<()> {
         println!("\n[INFO] Limpieza rápida (builds)...\n");
         let targets = [
             ("build/", ctx.script_dir.join("build")),
-            ("Android build", ctx.script_dir.join("android\\app\\build")),
+            ("Android build", ctx.script_dir.join("android/app/build")),
             (".dart_tool/", ctx.script_dir.join(".dart_tool")),
         ];
         for (label, path) in &targets {
@@ -283,7 +283,7 @@ pub fn clean_project(ctx: &ProjectContext) -> Result<()> {
 
     // 1. Rust build artifacts
     pb.set_message("Limpiando target/");
-    let target_dir = ctx.script_dir.join("src-tauri\\target");
+    let target_dir = ctx.script_dir.join("src-tauri/target");
     if target_dir.exists() {
         let size = dir_size(&target_dir);
         cmd::remove_dir(&target_dir).ok();
@@ -294,20 +294,20 @@ pub fn clean_project(ctx: &ProjectContext) -> Result<()> {
 
     // 2. Android auto-generated
     pb.set_message("Limpiando gen/ (preservando config manual)");
-    let gen_dir = ctx.script_dir.join("src-tauri\\gen");
+    let gen_dir = ctx.script_dir.join("src-tauri/gen");
     if gen_dir.exists() {
         let size = dir_size(&gen_dir);
         let artifacts = [
-            "android\\app\\build",
-            "android\\.gradle",
-            "android\\build",
-            "android\\gradle",
-            "android\\buildSrc",
-            "android\\app\\proguard-rules.pro",
-            "android\\app\\proguard-tauri.pro",
-            "android\\app\\tauri.build.gradle.kts",
-            "android\\app\\tauri.properties",
-            "android\\app\\src\\main\\java\\com\\schooltracker\\proela\\generated",
+            "android/app/build",
+            "android/.gradle",
+            "android/build",
+            "android/gradle",
+            "android/buildSrc",
+            "android/app/proguard-rules.pro",
+            "android/app/proguard-tauri.pro",
+            "android/app/tauri.build.gradle.kts",
+            "android/app/tauri.properties",
+            "android/app/src/main/java/com/schooltracker/proela/generated",
             "schemas",
         ];
         for rel in &artifacts {
@@ -345,7 +345,7 @@ pub fn clean_project(ctx: &ProjectContext) -> Result<()> {
 
     // 5. Vite cache
     pb.set_message("Eliminando Vite cache");
-    let vite = ctx.script_dir.join("node_modules\\.vite");
+    let vite = ctx.script_dir.join("node_modules/.vite");
     if vite.exists() {
         let size = dir_size(&vite);
         cmd::remove_dir(&vite).ok();
@@ -355,7 +355,7 @@ pub fn clean_project(ctx: &ProjectContext) -> Result<()> {
 
     // 6. .cargo-lock
     pb.set_message("Eliminando .cargo-lock");
-    let cargo_lock = ctx.script_dir.join("src-tauri\\target\\.cargo-lock");
+    let cargo_lock = ctx.script_dir.join("src-tauri/target/.cargo-lock");
     if cargo_lock.exists() {
         let size = std::fs::metadata(&cargo_lock).map(|m| m.len()).unwrap_or(0);
         std::fs::remove_file(&cargo_lock).ok();
@@ -366,7 +366,7 @@ pub fn clean_project(ctx: &ProjectContext) -> Result<()> {
 
     // 7. Build logs
     pb.set_message("Eliminando logs");
-    let build_log = ctx.script_dir.join("src-tauri\\build_log.txt");
+    let build_log = ctx.script_dir.join("src-tauri/build_log.txt");
     if build_log.exists() {
         let size = std::fs::metadata(&build_log).map(|m| m.len()).unwrap_or(0);
         std::fs::remove_file(&build_log).ok();
@@ -377,7 +377,7 @@ pub fn clean_project(ctx: &ProjectContext) -> Result<()> {
 
     // 8. Gradle build (re-check)
     pb.set_message("Verificando Gradle build");
-    let gradle_build = ctx.script_dir.join("src-tauri\\gen\\android\\app\\build");
+    let gradle_build = ctx.script_dir.join("src-tauri/gen/android/app/build");
     if gradle_build.exists() {
         let size = dir_size(&gradle_build);
         cmd::remove_dir(&gradle_build).ok();

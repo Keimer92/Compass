@@ -3,7 +3,7 @@ use std::io::{self, Write};
 use anyhow::{Context, Result};
 use inquire::Select;
 
-use crate::utils::{android as android_utils, cmd, context::ProjectContext, ui};
+use crate::utils::{android as android_utils, cmd, context::ProjectContext, platform, ui};
 use crate::tasks::signer;
 
 fn ensure_node_modules(ctx: &ProjectContext) -> Result<()> {
@@ -23,7 +23,7 @@ fn ensure_android_project(ctx: &ProjectContext) -> Result<()> {
     println!("[WARNING] No se encontró el proyecto Android.");
     println!("[INFO] Inicializando proyecto Android con Tauri...");
     run_tauri_android_init(ctx)?;
-    if !ctx.script_dir.join("src-tauri\\gen\\android\\gradlew.bat").exists() {
+    if platform::find_gradlew(&ctx.script_dir.join("src-tauri").join("gen").join("android")).is_none() {
         anyhow::bail!("[ERROR] No se pudo inicializar Gradle en el proyecto Android.");
     }
     Ok(())
@@ -59,7 +59,12 @@ fn ensure_package_consistent(ctx: &ProjectContext) -> Result<()> {
         return Ok(());
     }
     let pkg_path = identifier.replace('.', std::path::MAIN_SEPARATOR_STR);
-    let expected_dir = ctx.script_dir
+    // Último segmento del identifier (p.ej. "com.keimer.app" -> "app").
+    // Se deriva del identifier y no de `pkg_path` porque éste usa
+    // MAIN_SEPARATOR_STR, que en Linux es '/' y no '\\'.
+    let pkg_name = identifier.rsplit('.').next().unwrap_or(identifier);
+    let expected_dir = ctx
+        .script_dir
         .join("src-tauri/gen/android/app/src/main/java")
         .join(&pkg_path);
     if expected_dir.exists() {
@@ -89,7 +94,7 @@ fn ensure_package_consistent(ctx: &ProjectContext) -> Result<()> {
         let old_name = old_dir.file_name().to_string_lossy().to_string();
         println!("\nSe detecto directorio antiguo: com.keimer.{}", old_name);
         println!("Opciones:");
-        println!("  1) Mover archivos de '{}' a '{}' (preserva todo)", old_name, pkg_path.rsplit('\\').next().unwrap_or(&pkg_path));
+        println!("  1) Mover archivos de '{}' a '{}' (preserva todo)", old_name, pkg_name);
         println!("  2) Ejecutar 'tauri android init' (sobreescribe archivos default)");
         println!("  3) Saltar (el build puede fallar)");
         print!("Elige [1/2/3]: ");
@@ -114,20 +119,25 @@ fn ensure_package_consistent(ctx: &ProjectContext) -> Result<()> {
                         if file_name.to_string_lossy().ends_with(".kt") {
                             let content = std::fs::read_to_string(entry.path())
                                 .unwrap_or_default();
-                            let new_content = content.replace(
-                                &format!("package com.keimer.{}", old_name),
-                                &format!("package com.{}", pkg_path.replace('\\', ".")),
-                            ).replace(
-                                &format!("com.keimer.{}", old_name),
-                                &format!("com.{}", pkg_path.replace('\\', ".")),
-                            );
+                            // `identifier` ya viene en notación de paquete
+                            // (`com.keimer.app`), que es lo que debe aparecer
+                            // en las declaraciones `package` de Kotlin.
+                            let new_content = content
+                                .replace(
+                                    &format!("package com.keimer.{}", old_name),
+                                    &format!("package {}", identifier),
+                                )
+                                .replace(
+                                    &format!("com.keimer.{}", old_name),
+                                    &format!("com.{}", identifier),
+                                );
                             std::fs::write(&dest, new_content)?;
                         } else {
                             std::fs::copy(entry.path(), &dest)?;
                         }
                     }
                 }
-                println!("[OK] Archivos movidos de 'com.keimer.{}' a 'com.{}'", old_name, pkg_path.replace('\\', "."));
+                println!("[OK] Archivos movidos de 'com.keimer.{}' a '{}'", old_name, identifier);
                 println!("[INFO] Puedes eliminar el directorio viejo manualmente si lo deseas.");
             }
             "2" => {
@@ -228,14 +238,14 @@ fn ensure_ndk(ctx: &ProjectContext) -> Result<()> {
     let sdk_manager = ctx.sdk_manager.as_ref()
         .context("[ERROR] No se encontró sdkmanager. Verifica ANDROID_HOME.")?;
 
-    let ndk_version = "27.0.12077973";
+    let ndk_version = platform::NDK_VERSION;
     println!("[INFO] Instalando NDK {}...", ndk_version);
 
     // Accept licenses
     cmd::run(sdk_manager.to_str().unwrap(), &["--licenses"])?;
-    cmd::run(sdk_manager.to_str().unwrap(), &["ndk;27.0.12077973"])?;
+    cmd::run(sdk_manager.to_str().unwrap(), &[&format!("ndk;{}", ndk_version)])?;
 
-    let ndk_path = ctx.android_home.as_ref().unwrap().join(format!("ndk\\{}", ndk_version));
+    let ndk_path = ctx.android_home.as_ref().unwrap().join("ndk").join(ndk_version);
     env::set_var("ANDROID_NDK_HOME", &ndk_path);
 
     println!("[OK] NDK instalado.\n");
@@ -243,16 +253,26 @@ fn ensure_ndk(ctx: &ProjectContext) -> Result<()> {
 }
 
 fn cleanup_build_locks(ctx: &ProjectContext) {
-    let cargo_lock = ctx.script_dir.join("src-tauri\\target\\.cargo-lock");
+    let cargo_lock = ctx.script_dir.join("src-tauri").join("target").join(".cargo-lock");
     if cargo_lock.exists() {
         let _ = std::fs::remove_file(&cargo_lock);
     }
-    let gradle_cache = ctx.script_dir.join("src-tauri\\gen\\android\\app\\.gradle");
+    let gradle_cache = ctx
+        .script_dir
+        .join("src-tauri")
+        .join("gen")
+        .join("android")
+        .join("app")
+        .join(".gradle");
     if gradle_cache.exists() {
         let _ = cmd::remove_dir(&gradle_cache);
     }
     // Stop java processes
-    let _ = cmd::run("taskkill", &["/F", "/IM", "java.exe", "/T"]);
+    if platform::IS_WINDOWS {
+        let _ = cmd::run("taskkill", &["/F", "/IM", "java.exe", "/T"]);
+    } else {
+        let _ = cmd::run("pkill", &["-f", "java"]);
+    }
 }
 
 fn set_arch_arm64() {
@@ -267,12 +287,29 @@ fn clear_arch_env() {
     env::remove_var("ORG_GRADLE_PROJECT_targetList");
 }
 
+/// Detecta la IP LAN real para `TAURI_DEV_HOST`.
+///
+/// Se excluyen loopback (`127.*`) y APIPA (`169.254.*`), que es lo que hacía
+/// que Tauri seleccionara una IP incorrecta. En Windows usa `Get-NetIPAddress`
+/// (solo Windows); en Linux, `hostname -I`.
 fn detect_lan_ip() -> Option<String> {
-    let output = cmd::run("powershell", &[
-        "-NoProfile", "-Command",
-        "(Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' -and $_.PrefixOrigin -ne 'WellKnown' } | Select-Object -First 1).IPAddress"
-    ]).ok()?;
-    let ip = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let raw = if platform::IS_WINDOWS {
+        let output = cmd::run("powershell", &[
+            "-NoProfile", "-Command",
+            "(Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' -and $_.PrefixOrigin -ne 'WellKnown' } | Select-Object -First 1).IPAddress"
+        ]).ok()?;
+        String::from_utf8_lossy(&output.stdout).trim().to_string()
+    } else {
+        // `hostname -I` lista todas las IPv4 asignadas; el filtro es el mismo.
+        let output = cmd::run("sh", &["-c", "hostname -I 2>/dev/null"]).ok()?;
+        String::from_utf8_lossy(&output.stdout)
+            .split_whitespace()
+            .find(|ip| !ip.starts_with("127.") && !ip.starts_with("169.254."))
+            .unwrap_or_default()
+            .to_string()
+    };
+
+    let ip = raw.trim().to_string();
     if ip.is_empty() || ip.contains("Error") { None } else { Some(ip) }
 }
 
@@ -298,7 +335,14 @@ pub fn dev(ctx: &ProjectContext) -> Result<()> {
         Some(ip) => {
             println!("[INFO] IP LAN detectada: {}", ip);
             env::set_var("TAURI_DEV_HOST", &ip);
-            format!("set TAURI_DEV_HOST={} & npx tauri android dev", ip)
+            // `spawn_new_window_interactive` ejecuta este fragmento en `cmd` en
+            // Windows y en `sh -lc` en Linux, así que la sintaxis de assignación
+            // del environment es distinta en cada shell.
+            if platform::IS_WINDOWS {
+                format!("set TAURI_DEV_HOST={} & npx tauri android dev", ip)
+            } else {
+                format!("TAURI_DEV_HOST={} npx tauri android dev", ip)
+            }
         }
         None => {
             println!("[WARN] No se detectó IP LAN. Tauri pedirá seleccionar manualmente.");
@@ -329,7 +373,7 @@ pub fn build_arm64(ctx: &ProjectContext) -> Result<()> {
     println!();
 
     let rename = read_tauri_app_meta(ctx).map(|(name, ver)| format!("{}-v{}", name, ver));
-    let apk_dir = ctx.script_dir.join("src-tauri\\gen\\android\\app\\build\\outputs\\apk");
+    let apk_dir = ctx.script_dir.join("src-tauri/gen/android/app/build/outputs/apk");
     let cmd_line = cmd::reveal_on_success("npx tauri android build --target aarch64", &apk_dir, &["apk"], rename.as_deref());
 
     cmd::spawn_new_window(
@@ -359,7 +403,7 @@ pub fn build_armv7(ctx: &ProjectContext) -> Result<()> {
     println!("[INFO] Usando: npx tauri android build --target armv7");
     println!();
 
-    let apk_dir = ctx.script_dir.join("src-tauri\\gen\\android\\app\\build\\outputs\\apk");
+    let apk_dir = ctx.script_dir.join("src-tauri/gen/android/app/build/outputs/apk");
     let cmd_line = cmd::reveal_on_success("npx tauri android build --target armv7", &apk_dir, &["apk"], None);
 
     cmd::spawn_new_window(
@@ -384,7 +428,7 @@ pub fn build_all(ctx: &ProjectContext) -> Result<()> {
     println!();
 
     let rename = read_tauri_app_meta(ctx).map(|(name, ver)| format!("{}-v{}", name, ver));
-    let apk_dir = ctx.script_dir.join("src-tauri\\gen\\android\\app\\build\\outputs\\apk");
+    let apk_dir = ctx.script_dir.join("src-tauri/gen/android/app/build/outputs/apk");
     let cmd_line = cmd::reveal_on_success("npx tauri android build", &apk_dir, &["apk"], rename.as_deref());
 
     cmd::spawn_new_window(
@@ -443,10 +487,28 @@ pub fn debug(ctx: &ProjectContext) -> Result<()> {
     println!();
     println!("[INFO] Abriendo edge://inspect/#devices ...");
 
-    let _ = cmd::run("powershell", &[
-        "-Command", "Set-Clipboard", "edge://inspect/#devices"
-    ]);
-    let _ = cmd::run("cmd", &["/c", "start", "msedge", "chrome://inspect/#devices"]);
+    if platform::IS_WINDOWS {
+        let _ = cmd::run("powershell", &[
+            "-Command", "Set-Clipboard", "edge://inspect/#devices"
+        ]);
+        let _ = cmd::run("cmd", &["/c", "start", "msedge", "chrome://inspect/#devices"]);
+    } else {
+        // Linux: copiar al portapapeles vía wl-copy/xclip/xsel y abrir con xdg-open.
+        let url = "chrome://inspect/#devices";
+        let copiers: &[&[&str]] = &[
+            &["wl-copy"],
+            &["xclip", "-selection", "clipboard"],
+            &["xsel", "--clipboard", "--input"],
+        ];
+        for args in copiers {
+            let mut argv: Vec<&str> = args.to_vec();
+            argv.push(url);
+            if cmd::run(args[0], &argv).is_ok() {
+                break;
+            }
+        }
+        let _ = cmd::run("xdg-open", &[url]);
+    }
 
     if has_device {
         #[cfg(windows)]
@@ -455,6 +517,13 @@ pub fn debug(ctx: &ProjectContext) -> Result<()> {
             println!("  1. En edge://inspect, haz clic en 'Discover USB devices'");
             println!("  2. O usa: adb forward tcp:9222 localabstract:chrome_devtools_remote");
             println!("  3. Abre http://localhost:9222/json en Edge");
+        }
+        #[cfg(not(windows))]
+        {
+            println!("[INFO] Si no ves el dispositivo en Chrome, verifica:");
+            println!("  1. En chrome://inspect, activa 'Discover USB devices'");
+            println!("  2. O usa: adb forward tcp:9222 localabstract:chrome_devtools_remote");
+            println!("  3. Abre http://localhost:9222/json en Chrome");
         }
     }
 
@@ -472,7 +541,7 @@ pub fn launch(ctx: &ProjectContext) -> Result<()> {
     ui::info_banner("Lanzar Emulador Android");
 
     let emu_path = ctx.emulator_path.as_ref()
-        .context("[ERROR] No se encontró emulator.exe en E:\\SDKs\\Android ni en ANDROID_HOME.")?;
+        .context("[ERROR] No se encontró el emulador de Android. Verifica ANDROID_HOME o instálalo con sdkmanager.")?;
 
     let avds = android_utils::list_avds(emu_path)?;
 

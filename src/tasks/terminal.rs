@@ -13,6 +13,22 @@ Set-PSReadLineKeyHandler -Key RightArrow -Function AcceptNextSuggestionWord
 "#;
 
 pub fn configure(_ctx: &ProjectContext) -> Result<()> {
+    // Esta tarea escribe un perfil de PowerShell (PSReadLine), que no existe en
+    // Linux. La tarjeta está oculta en el menú, pero la task sigue alcanzable
+    // por CLI, así que se informa en vez de escribir un archivo inútil.
+    if !crate::utils::platform::IS_WINDOWS {
+        println!();
+        println!("[INFO] 'Configurar Terminal' sólo está disponible en Windows.");
+        println!("       Escribe un perfil de PowerShell (PSReadLine), que no aplica en Linux.");
+        println!();
+        println!("Alternativa equivalente para bash/zsh:");
+        println!("  - Instala el autocompletado: sudo apt install bash-completion");
+        println!("  - O usa fzf: sudo apt install fzf && \"$(command -v fzf)\" --bash >> ~/.bashrc");
+        println!();
+        pause();
+        return Ok(());
+    }
+
     println!();
     cmd::clear_screen();
     println!("╔══════════════════════════════════════════════════╗");
@@ -26,7 +42,9 @@ pub fn configure(_ctx: &ProjectContext) -> Result<()> {
     println!();
 
     let profile_dir = dirs::document_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from(std::env::var("USERPROFILE").unwrap_or_default()))
+        .unwrap_or_else(|| {
+            crate::utils::platform::home_dir().unwrap_or_else(|| ".".into())
+        })
         .join("WindowsPowerShell");
 
     let profile_file = profile_dir.join("Microsoft.PowerShell_profile.ps1");

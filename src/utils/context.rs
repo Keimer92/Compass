@@ -2,6 +2,8 @@ use std::path::PathBuf;
 use std::env;
 use anyhow::{Context, Result};
 
+use super::platform;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProjectType {
     Tauri,
@@ -13,7 +15,7 @@ pub enum ProjectType {
 impl ProjectType {
     pub fn whatsapp_path(&self, root: &PathBuf) -> PathBuf {
         match self {
-            Self::Tauri => root.join("src-tauri\\whatsapp-engine"),
+            Self::Tauri => root.join("src-tauri").join("whatsapp-engine"),
             Self::Flutter | Self::Kotlin | Self::Rust => root.join("whatsapp_engine"),
         }
     }
@@ -35,7 +37,16 @@ pub struct ProjectContext {
 impl ProjectContext {
     pub fn assert_android_sdk(&self) -> Result<()> {
         if self.android_home.is_none() {
-            anyhow::bail!("[ERROR] ANDROID_HOME no está configurado.\nAsegúrate de tener instalado Android SDK en una de las rutas predeterminadas.");
+            #[cfg(windows)]
+            anyhow::bail!(
+                "[ERROR] ANDROID_HOME no está configurado.\n\
+                 Asegúrate de tener instalado Android SDK, o define ANDROID_HOME."
+            );
+            #[cfg(not(windows))]
+            anyhow::bail!(
+                "[ERROR] ANDROID_HOME no está configurado.\n\
+                 Define la variable con: export ANDROID_HOME=$HOME/Android/Sdk"
+            );
         }
         Ok(())
     }
@@ -58,14 +69,27 @@ pub fn detect() -> Result<ProjectContext> {
     let (script_dir, project_type) = detect_project_root()?;
     let android_home = detect_android_home();
     let emulator_path = detect_emulator_path(&android_home);
-    let ndk_home = android_home.as_ref().map(|a| a.join("ndk\\27.0.12077973"));
-    let adb_path = android_home.as_ref().map(|a| a.join("platform-tools\\adb.exe"));
-    let sdk_manager = android_home.as_ref().map(|a| a.join("cmdline-tools\\latest\\bin\\sdkmanager.bat"));
+    let ndk_home = android_home
+        .as_ref()
+        .map(|a| a.join("ndk").join(platform::NDK_VERSION));
+    let adb_path = android_home.as_ref().map(|a| {
+        a.join("platform-tools")
+            .join(platform::exe_name("adb"))
+    });
+    let sdk_manager = android_home.as_ref().map(|a| {
+        a.join("cmdline-tools")
+            .join("latest")
+            .join("bin")
+            .join(platform::exe_name("sdkmanager"))
+    });
     let has_node_modules = script_dir.join("node_modules").exists();
     let has_android_project = match project_type {
-        ProjectType::Tauri => script_dir.join("src-tauri\\gen\\android\\gradlew.bat").exists(),
-        ProjectType::Flutter => script_dir.join("android\\gradlew.bat").exists(),
-        ProjectType::Kotlin => script_dir.join("gradlew.bat").exists(),
+        ProjectType::Tauri => platform::find_gradlew(
+            &script_dir.join("src-tauri").join("gen").join("android"),
+        )
+        .is_some(),
+        ProjectType::Flutter => platform::find_gradlew(&script_dir.join("android")).is_some(),
+        ProjectType::Kotlin => platform::find_gradlew(&script_dir).is_some(),
         ProjectType::Rust => false,
     };
     let has_whatsapp_engine = project_type.whatsapp_path(&script_dir).exists();
@@ -95,7 +119,8 @@ fn detect_project_root() -> Result<(PathBuf, ProjectType)> {
         if d.join("tauri.conf.json").exists() {
             return Ok((d.to_path_buf(), ProjectType::Tauri));
         }
-        if d.join("gradlew.bat").exists() && d.join("settings.gradle.kts").exists() {
+        // Acepta `gradlew` o `gradlew.bat`: en Linux el wrapper no lleva extensión.
+        if platform::find_gradlew(d).is_some() && d.join("settings.gradle.kts").exists() {
             return Ok((d.to_path_buf(), ProjectType::Kotlin));
         }
         if d.join("package.json").exists() {
@@ -113,48 +138,68 @@ fn detect_project_root() -> Result<(PathBuf, ProjectType)> {
     );
 }
 
-/// Detecta la ruta del emulator.exe desde ANDROID_HOME o desde rutas fijas.
+/// Detecta la ruta del emulador de Android desde ANDROID_HOME o rutas comunes.
 fn detect_emulator_path(android_home: &Option<PathBuf>) -> Option<PathBuf> {
-    let candidates = [
-        android_home.as_ref().map(|h| h.join("emulator\\emulator.exe")),
-        Some(PathBuf::from("E:\\SDKs\\Android\\emulator\\emulator.exe")),
-    ];
-    for c in candidates.iter().flatten() {
-        if c.exists() {
-            return Some(c.clone());
-        }
+    let emu = platform::exe_name("emulator");
+    let mut candidates: Vec<PathBuf> = Vec::new();
+
+    if let Some(home) = android_home {
+        candidates.push(home.join("emulator").join(&emu));
     }
-    None
+
+    if platform::IS_WINDOWS {
+        candidates.push(PathBuf::from(r"E:\SDKs\Android\emulator").join(&emu));
+    } else {
+        if let Some(h) = platform::home_dir() {
+            candidates.push(h.join("Android").join("Sdk").join("emulator").join(&emu));
+        }
+        candidates.push(PathBuf::from("/usr/lib/android-sdk/emulator/emulator"));
+    }
+
+    candidates.into_iter().find(|c| c.exists())
 }
 
 fn detect_android_home() -> Option<PathBuf> {
-    // 1. Check environment variable
-    if let Ok(val) = env::var("ANDROID_HOME") {
-        let p = PathBuf::from(val);
-        if p.exists() { return Some(p); }
+    // 1. Variables de entorno (funcionan en ambas plataformas)
+    for key in ["ANDROID_HOME", "ANDROID_SDK_ROOT"] {
+        if let Ok(val) = env::var(key) {
+            if val.is_empty() {
+                continue;
+            }
+            let p = PathBuf::from(&val);
+            if p.exists() {
+                return Some(p);
+            }
+        }
     }
 
-    // 2. Check common locations
-    let candidates = [
-        "C:\\Users\\Admin\\Android",
-        "C:\\Users\\Admin\\AppData\\Local\\Android\\Sdk",
-    ];
-    for c in &candidates {
-        let p = PathBuf::from(c);
-        if p.exists() { return Some(p); }
+    let mut candidates: Vec<PathBuf> = Vec::new();
+
+    if platform::IS_WINDOWS {
+        candidates.push(PathBuf::from(r"C:\Users\Admin\Android"));
+        if let Some(local) = env::var_os("LOCALAPPDATA") {
+            candidates.push(PathBuf::from(local).join("Android").join("Sdk"));
+        }
+        if let Some(up) = env::var_os("USERPROFILE") {
+            candidates.push(
+                PathBuf::from(up)
+                    .join("AppData")
+                    .join("Local")
+                    .join("Android")
+                    .join("Sdk"),
+            );
+        }
+    } else {
+        if let Some(h) = platform::home_dir() {
+            candidates.push(h.join("Android").join("Sdk"));
+            candidates.push(h.join("android-sdk"));
+            candidates.push(h.join("Android").join("sdk"));
+        }
+        if let Some(d) = platform::data_dir() {
+            candidates.push(d.join("Android").join("Sdk"));
+        }
+        candidates.push(PathBuf::from("/usr/lib/android-sdk"));
     }
 
-    // 3. Check LOCALAPPDATA
-    if let Ok(local) = env::var("LOCALAPPDATA") {
-        let p = PathBuf::from(local).join("Android\\Sdk");
-        if p.exists() { return Some(p); }
-    }
-
-    // 4. Check USERPROFILE
-    if let Ok(up) = env::var("USERPROFILE") {
-        let p = PathBuf::from(up).join("AppData\\Local\\Android\\Sdk");
-        if p.exists() { return Some(p); }
-    }
-
-    None
+    candidates.into_iter().find(|c| c.exists())
 }

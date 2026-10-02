@@ -105,7 +105,7 @@ pub fn build_windows(ctx: &ProjectContext) -> Result<()> {
     ensure_pubget(ctx)?;
     ensure_whatsapp_npm(ctx)?;
 
-    let release_dir = ctx.script_dir.join("build\\windows\\x64\\runner\\Release");
+    let release_dir = ctx.script_dir.join("build/windows/x64/runner/Release");
     let cmd_line = cmd::reveal_on_success("flutter build windows --release", &release_dir, &["exe"], None);
 
     cmd::spawn_new_window(
@@ -122,7 +122,7 @@ pub fn build_apk(ctx: &ProjectContext) -> Result<()> {
     ensure_pubget(ctx)?;
 
     let rename = read_flutter_app_meta(ctx).map(|(name, ver)| format!("{}-v{}", name, ver));
-    let apk_dir = ctx.script_dir.join("build\\app\\outputs\\flutter-apk");
+    let apk_dir = ctx.script_dir.join("build/app/outputs/flutter-apk");
     let cmd_line = cmd::reveal_on_success("flutter build apk --release", &apk_dir, &["apk"], rename.as_deref());
 
     cmd::spawn_new_window(
@@ -139,7 +139,7 @@ pub fn build_aab(ctx: &ProjectContext) -> Result<()> {
     ensure_pubget(ctx)?;
 
     let rename = read_flutter_app_meta(ctx).map(|(name, ver)| format!("{}-v{}", name, ver));
-    let aab_dir = ctx.script_dir.join("build\\app\\outputs\\bundle\\release");
+    let aab_dir = ctx.script_dir.join("build/app/outputs/bundle/release");
     let cmd_line = cmd::reveal_on_success("flutter build appbundle --release", &aab_dir, &["aab"], rename.as_deref());
 
     cmd::spawn_new_window(
@@ -219,9 +219,9 @@ pub fn clean(ctx: &ProjectContext) -> Result<()> {
     // 4. Android build artifacts
     pb.set_message("Limpiando Android build");
     let android_builds = [
-        ctx.script_dir.join("android\\.gradle"),
-        ctx.script_dir.join("android\\build"),
-        ctx.script_dir.join("android\\app\\build"),
+        ctx.script_dir.join("android/.gradle"),
+        ctx.script_dir.join("android/build"),
+        ctx.script_dir.join("android/app/build"),
     ];
     for p in &android_builds {
         if p.exists() { cmd::remove_dir(p).ok(); }
