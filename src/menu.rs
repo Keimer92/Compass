@@ -534,8 +534,10 @@ fn render_footer(frame: &mut Frame, area: Rect) {
     frame.render_widget(Paragraph::new(line), area);
 }
 
-/// Tinte translucido para simular vidrio esmerilado: el color de la seccion
+/// Tinte translúcido para simular vidrio esmerilado: el color de la sección
 /// oscurecido y desaturado hacia el negro del fondo de la terminal.
+///
+/// Se usa para la card **seleccionada**.
 fn glass_tint(color: Color) -> Color {
     match color {
         Color::Cyan => Color::Rgb(22, 52, 68),
@@ -545,14 +547,29 @@ fn glass_tint(color: Color) -> Color {
     }
 }
 
+/// Fondo de la card **hovereada**: neutro, no teñido.
+///
+/// A propósito no comparte tinte con la seleccionada. Antes hover y selección
+/// usaban el mismo `glass_tint` y sólo se distinguían por el `BOLD` del borde,
+/// una diferencia tan leve que el hover parecía no funcionar: el mismo cursor
+/// nunca daba la sensación de "esto es a lo que voy a clickear".
+///
+/// Neutro + borde blanco deja el hover como un contorno claro sobre una card
+/// sin color, distinguible tanto del estado normal como de la selección.
+fn hover_tint() -> Color {
+    Color::Rgb(30, 30, 36)
+}
+
 fn create_card(item: &MenuItem, is_selected: bool, is_hovered: bool, project_type: ProjectType) -> Paragraph<'static> {
     let section = item.section();
     let section_color = item.section_color();
 
+    // Tres estados bien separados. Si una card está seleccionada y además
+    // hovereada, manda la selección: es la que Enter ejecutaría.
     let border = if is_selected {
         Style::default().fg(section_color).add_modifier(Modifier::BOLD)
     } else if is_hovered {
-        Style::default().fg(section_color)
+        Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(Color::DarkGray)
     };
@@ -567,22 +584,36 @@ fn create_card(item: &MenuItem, is_selected: bool, is_hovered: bool, project_typ
         format!(" {} [{}] {}", icon, section, label)
     };
 
-    let mut line1_style = Style::default().fg(section_color);
-    if is_selected {
+    // El título también marca el estado, no sólo el borde.
+    let (label_color, bold) = if is_selected {
+        (section_color, true)
+    } else if is_hovered {
+        (Color::White, true)
+    } else {
+        (section_color, false)
+    };
+    let mut line1_style = Style::default().fg(label_color);
+    if bold {
         line1_style = line1_style.add_modifier(Modifier::BOLD);
     }
+
+    // La descripción se aclara en hover: en el estado normal es DarkGray, que
+    // sobre el panel neutro del hover queda casi ilegible.
+    let desc_color = if is_hovered { Color::Gray } else { Color::DarkGray };
 
     let mut block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(border);
-    if is_selected || is_hovered {
+    if is_selected {
         block = block.style(Style::default().bg(glass_tint(section_color)));
+    } else if is_hovered {
+        block = block.style(Style::default().bg(hover_tint()));
     }
 
     Paragraph::new(Text::from(vec![
         Line::from(vec![Span::styled(line1, line1_style)]),
-        Line::from(vec![Span::styled(format!(" {}", desc), Style::default().fg(Color::DarkGray))]),
+        Line::from(vec![Span::styled(format!(" {}", desc), Style::default().fg(desc_color))]),
     ]))
     .alignment(Alignment::Center)
     .block(block)
@@ -794,3 +825,69 @@ pub fn run(ctx: &ProjectContext) -> anyhow::Result<()> {
 }
 
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::buffer::Buffer;
+    use ratatui::layout::Rect;
+    use ratatui::widgets::Widget;
+
+    /// Renderiza una card en un buffer nuevo y devuelve `(fg, bg)` del centro.
+    fn card_style(is_selected: bool, is_hovered: bool) -> (Option<Color>, Option<Color>) {
+        let area = Rect::new(0, 0, CARD_W, CARD_H);
+        let mut buf = Buffer::empty(area);
+        create_card(&MenuItem::WindowsBuild, is_selected, is_hovered, ProjectType::Rust)
+            .render(area, &mut buf);
+        // (1, 1) es la esquina superior izquierda interior: siempre parte de la
+        // card, nunca borde.
+        let s = buf[(1, 1)].style();
+        (s.fg, s.bg)
+    }
+
+    /// Regresión: hover y selección compartían `glass_tint`, así que el hover no
+    /// se distinguía salvo por un `BOLD` en el borde. Este test falla si vuelve
+    /// a pasar.
+    #[test]
+    fn hover_is_visually_distinct_from_selected() {
+        let normal = card_style(false, false);
+        let hover = card_style(false, true);
+        let selected = card_style(true, false);
+
+        assert_ne!(normal, hover, "el hover debe verse distinto del estado normal");
+        assert_ne!(
+            hover, selected,
+            "el hover debe verse distinto de la selección (no comparten el mismo fondo)"
+        );
+        assert_ne!(normal, selected);
+    }
+
+    #[test]
+    fn selected_keeps_the_section_tint() {
+        // `WindowsBuild` está en DEV ⇒ Cyan ⇒ Rgb(22, 52, 68).
+        let (_, bg) = card_style(true, false);
+        assert_eq!(bg, Some(glass_tint(Color::Cyan)));
+    }
+
+    #[test]
+    fn normal_card_has_no_background() {
+        let (_, bg) = card_style(false, false);
+        // `Buffer::empty` inicializa el fondo a `Color::Reset` (el del terminal),
+        // no a `None`. `Reset` significa "no pintar", que es lo que se quiere.
+        assert!(
+            matches!(bg, None | Some(Color::Reset)),
+            "una card en reposo no debe pintar fondo propio, recibió {bg:?}"
+        );
+    }
+
+    /// El hover nunca debe ganar al estado seleccionado cuando ambas cosas
+    /// ocurren a la vez (pasa con el ratón sobre la card ya elegida con teclado).
+    #[test]
+    fn selected_wins_over_hover() {
+        assert_eq!(
+            card_style(true, true),
+            card_style(true, false),
+            "seleccionada+hovereada debe pintarse como seleccionada"
+        );
+    }
+}

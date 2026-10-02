@@ -88,6 +88,38 @@ PNG en `~/.local/share/icons/hicolor/{16,24,32,48,64,128}x*/apps/`.
   `cmd.rs` (`lead`/`title_flag`/`exec_flag`). Si se unifica, ha de incluir el
   `lead` de wezterm (`start --`), que no admite `--title`.
 
+### Atajos de terminal (`assets/scripts/`, instalados en `~/.local/bin`)
+
+| Script | Qué hace |
+|--------|----------|
+| `crh` | TUI en `$PWD`. Atajo de `code-runner-here`, que se retiró. |
+| `code-runner-open [RUTA]` | TUI en `RUTA`, o en la carpeta de un fichero. Acepta `%f`. |
+
+Se instalan con `sed s/@EXE@/ruta/g`, igual que el `.desktop`. `install.sh`
+retira los nombres antiguos para no dejar dos comandos haciendo lo mismo.
+
+Existen por una limitación de cosmic-files: las `context_actions` **sólo se
+muestran con algo seleccionado**, así que el clic en el fondo de la carpeta no
+puede lanzar nada. El flujo equivalente es "Open in Terminal" → `crh`.
+
+### Estados visuales de una card (`menu.rs::create_card`)
+
+Tres estados, deliberadamente distintos entre sí:
+
+| Estado | Borde | Fondo |
+|--------|-------|-------|
+| reposo | `DarkGray` | ninguno |
+| hover | `White` + BOLD | `hover_tint()` = `Rgb(30,30,36)` neutro |
+| seleccionado | color de sección + BOLD | `glass_tint(sección)` teñido |
+
+⚠️ Antes hover y selección compartían `glass_tint` y sólo se diferenciaban por el
+`BOLD` del borde: el hover pasaba desapercibido. Cubierto por
+`menu::tests::hover_is_visually_distinct_from_selected`; si el tint vuelve a
+compartirse, el test falla.
+
+Si una card está seleccionada **y** hovereada, manda la selección: es la que
+Enter ejecutaría.
+
 ### Selector de proyecto (`context::pick_project_root`)
 
 Navegador de directorios que se usa cuando `--pick` está activo o cuando
@@ -496,5 +528,7 @@ Script de instalación para Linux (Pop!_OS / Ubuntu). Diferencias con `install.b
 
 ## Testing
 
-No hay suite de tests automatizada. La verificación es compilación exitosa
-(`cargo build`) más pruebas manuales en la máquina de destino.
+`cargo test` cubre el renderizado de las cards del menú (ver "Estados visuales
+de una card"). El resto —detección de proyectos, `reveal_on_success`, wrappers
+del menú contextual, generación del `.desktop`— se verifica con compilación
+(`cargo build`) y pruebas manuales en la máquina de destino.

@@ -1,10 +1,12 @@
 #!/usr/bin/env sh
 #
-# code-runner-here — abre la TUI de code-runner en el directorio actual.
+# crh — "code runner here": abre la TUI de code-runner en el directorio actual.
 #
-# Pensado para el flujo "Open in Terminal" de cosmic-files: abres la terminal
-# en la carpeta que quieres y lanzas esto. Es la alternativa al menú contextual,
-# que sólo muestra sus entradas cuando hay algo seleccionado.
+# Existe porque las context_actions de cosmic-files sólo aparecen cuando hay
+# algo seleccionado (el clic en el fondo de la carpeta no las muestra nunca).
+# El flujo equivalente es: clic derecho → "Open in Terminal" → `crh`.
+#
+# Atajo de `code-runner-open [RUTA]`, que acepta una ruta explícita.
 #
 # Generado por code-runner. Se reemplaza al reinstalar.
 set -e

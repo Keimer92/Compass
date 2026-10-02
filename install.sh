@@ -226,7 +226,7 @@ BIN_DIR="$HOME/.local/bin"
 mkdir -p "$BIN_DIR" 2>/dev/null || BIN_DIR=""
 
 if [ -n "$BIN_DIR" ] && [ -d "assets/scripts" ]; then
-    for s in code-runner-here code-runner-open; do
+    for s in crh code-runner-open; do
         src="assets/scripts/$s"
         [ -f "$src" ] || continue
         if sed "s|@EXE@|$EXE_BIN|g" "$src" > "$BIN_DIR/$s" 2>/dev/null; then
@@ -234,6 +234,12 @@ if [ -n "$BIN_DIR" ] && [ -d "assets/scripts" ]; then
             echo "[OK] Script: $BIN_DIR/$s"
         else
             echo "[WARN] No se pudo escribir $BIN_DIR/$s"
+        fi
+    done
+    # Nombres antiguos: se retiran para no dejar dos comandos haciendo lo mismo.
+    for old in code-runner-here; do
+        if [ -e "$BIN_DIR/$old" ]; then
+            rm -f "$BIN_DIR/$old" && echo "[OK] Retirado el script antiguo: $old"
         fi
     done
 fi
@@ -366,7 +372,7 @@ echo "Uso:"
 echo "  code-runner            # abre el menú TUI en el proyecto actual"
 echo "  code-runner --pick     # elige la carpeta del proyecto primero"
 echo "  code-runner --task clean --path /ruta/proyecto"
-echo "  code-runner-here       # TUI en \$PWD (tras 'Open in Terminal')"
+echo "  crh                    # TUI en \$PWD (atajo corto)"
 echo "  code-runner-open RUTA  # TUI en RUTA (o la carpeta de un fichero)"
 echo
 echo "Notas para Linux:"
@@ -376,8 +382,7 @@ echo "  - 'Terminal' está oculta (escribe un perfil de PowerShell)."
 echo "  - 'Menu Ctx' usa context_actions de COSMIC Files."
 echo "  - Esas entradas del menú contextual **sólo salen con algo"
 echo "    seleccionado**: cosmic-files no las añade al clic en el fondo de"
-echo "    la carpeta. Para ese caso usa 'code-runner-here' desde la"
-echo "    terminal de esa carpeta."
+echo "    la carpeta. Para ese caso usa 'crh' desde la terminal de esa carpeta."
 echo "  - Las ventanas de dev/build usan $FOUND_TERM y heredan tu PATH;"
 echo "    si las lanzas desde el launcher y algún comando no se encuentra,"
 echo "    revisa que tu gestor de versiones (fnm/nvm/asdf) inicialice en"
