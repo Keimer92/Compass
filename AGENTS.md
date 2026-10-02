@@ -88,6 +88,36 @@ PNG en `~/.local/share/icons/hicolor/{16,24,32,48,64,128}x*/apps/`.
   `cmd.rs` (`lead`/`title_flag`/`exec_flag`). Si se unifica, ha de incluir el
   `lead` de wezterm (`start --`), que no admite `--title`.
 
+### run-sh: ejecutar `.sh` con doble clic
+
+Utilidad **del sistema**, no de code-runner, pero `install.sh` la instala siempre.
+
+| Pieza | Ruta |
+|-------|------|
+| Script | `~/.local/bin/run-sh` |
+| Entry | `~/.local/share/applications/run-sh.desktop` (`NoDisplay=true`) |
+| Default | `application/x-shellscript` en `~/.config/mimeapps.list` |
+
+- **`Exec` con ruta absoluta**: cosmic-files no tiene `~/.local/bin` en el PATH,
+  así que `Exec=run-sh %f` no se resolvería.
+- **`Terminal=false` a propósito**: es `run-sh` quien abre la terminal, y así
+  controla intérprete, código de salida y ventana abierta al final.
+- **El intérprete sale del shebang**, no de asumir `sh`: un `#!bash` ejecutado
+  con dash falla con errores de sintaxis que no dicen nada.
+- **Cambia el default de todos los `.sh`**: antes se abrían en Cosmic Edit. Éste
+  sigue registrado ("Abrir con"), y para revertir:
+  `xdg-mime default com.system76.CosmicEdit.desktop application/x-shellscript`.
+- `xdg-mime default` preserva el resto de entradas de `mimeapps.list`; si no
+  está, `install.sh` edita la sección `[Default Applications]` a mano.
+
+Dos trampas del propio script, ya corregidas y documentadas en él: `set --` para
+parsear el shebang pisaba los argumentos del script, y `$'\n'` no expande en
+todos los `sh` (la cola se arma con `printf '%s\n'`).
+
+Aviso al verificar que el script recibe un tty: comprobar `[ -t 1 ]` **antes** de
+cualquier redirección. Si el script hace `> fichero` y luego comprueba `-t 1`, da
+falso por definición y parece un fallo del runner.
+
 ### Atajos de terminal (`assets/scripts/`, instalados en `~/.local/bin`)
 
 | Script | Qué hace |

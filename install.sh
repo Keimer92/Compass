@@ -272,6 +272,84 @@ if [ -n "$FOUND_TERM" ] && [ -n "$BIN_DIR" ]; then
 fi
 echo
 
+# ── 6c. run-sh: ejecutar .sh con doble clic ──────────────────────────
+# Utilidad del sistema, no de code-runner, pero se instala aquí porque comparte
+# casi toda la maquinaria: wrapper en ~/.local/bin, .desktop con MimeType y
+# actualización de la base de aplicaciones.
+#
+# ⚠️ Esto cambia qué pasa al hacer doble clic en CUALQUIER .sh del sistema:
+# antes se abrían en el editor, ahora se ejecutan. Es lo pedido, pero conviene
+# saber que Cosmic Edit sigue registrado como alternativa ("Abrir con").
+if [ -n "$BIN_DIR" ] && [ -f "assets/scripts/run-sh" ]; then
+    if install -Dm755 "assets/scripts/run-sh" "$BIN_DIR/run-sh" 2>/dev/null; then
+        echo "[OK] Script: $BIN_DIR/run-sh"
+    else
+        cp -f "assets/scripts/run-sh" "$BIN_DIR/run-sh" && chmod +x "$BIN_DIR/run-sh" \
+            && echo "[OK] Script: $BIN_DIR/run-sh"
+    fi
+
+    if [ -f "assets/run-sh.desktop.in" ]; then
+        # Ruta absoluta a propósito: cosmic-files no tiene ~/.local/bin en el
+        # PATH, así que un Exec con sólo el nombre no se resolvería.
+        if sed "s|@RUNSH@|$BIN_DIR/run-sh|g" "assets/run-sh.desktop.in" \
+            > "$APPS_DIR/run-sh.desktop" 2>/dev/null; then
+            chmod +x "$APPS_DIR/run-sh.desktop"
+            if command -v desktop-file-validate >/dev/null 2>&1 \
+                && ! desktop-file-validate "$APPS_DIR/run-sh.desktop" 2>/dev/null; then
+                echo "[WARN] run-sh.desktop no pasa desktop-file-validate; se deja instalado."
+            fi
+            echo "[OK] Entrada: $APPS_DIR/run-sh.desktop"
+        fi
+    fi
+
+    # Registro como aplicación capaz de abrir .sh. `update-desktop-database`
+    # construye la cache; el default se fija más abajo.
+    command -v update-desktop-database >/dev/null 2>&1 \
+        && update-desktop-database "$APPS_DIR" >/dev/null 2>&1
+
+    # Default para application/x-shellscript. `xdg-mime default` edita
+    # ~/.config/mimeapps.list preservando el resto de entradas (navegador,
+    # editor, handlers de esquemas); por eso se prefiere a reescribir el
+    # fichero entero.
+    MIME_OK=0
+    if command -v xdg-mime >/dev/null 2>&1; then
+        if xdg-mime default run-sh.desktop application/x-shellscript >/dev/null 2>&1; then
+            MIME_OK=1
+        fi
+    fi
+
+    if [ "$MIME_OK" -eq 0 ]; then
+        # Respaldo sin xdg-mime: se inserta o reemplaza la línea dentro de la
+        # sección [Default Applications], sin tocar las demás.
+        MIMELIST="$HOME/.config/mimeapps.list"
+        if mkdir -p "$(dirname "$MIMELIST")" 2>/dev/null; then
+            touch "$MIMELIST"
+            if ! grep -q '^\[Default Applications\]' "$MIMELIST" 2>/dev/null; then
+                printf '[Default Applications]\n' >> "$MIMELIST"
+            fi
+            if grep -q '^application/x-shellscript=' "$MIMELIST" 2>/dev/null; then
+                sed -i 's|^application/x-shellscript=.*|application/x-shellscript=run-sh.desktop|' "$MIMELIST"
+            else
+                sed -i '/^\[Default Applications\]/a application/x-shellscript=run-sh.desktop' "$MIMELIST"
+            fi
+            MIME_OK=1
+        fi
+    fi
+
+    if [ "$MIME_OK" -eq 1 ]; then
+        echo "[OK] Doble clic en .sh ahora EJECUTA el script."
+        echo "     Para volver a abrirlos en el editor:"
+        echo "       xdg-mime default com.system76.CosmicEdit.desktop application/x-shellscript"
+    else
+        echo "[WARN] No se pudo fijar el default de application/x-shellscript."
+        echo "       Los .sh seguirán abriéndose en el editor; puedes elegir"
+        echo "       'Abrir con → Ejecutar script de shell' a mano."
+    fi
+else
+    echo "[--] run-sh omitido (falta assets/scripts/run-sh)."
+fi
+echo
+
 # ── 7. Menú contextual de COSMIC Files (opcional) ──────────────────────
 if [ "$WITH_CONTEXT_MENU" -eq 1 ]; then
     echo "[INFO] Instalando menú contextual en COSMIC Files..."

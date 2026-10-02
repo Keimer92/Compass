@@ -1,0 +1,153 @@
+#!/usr/bin/env sh
+#
+# run-sh — ejecuta un script de shell en una ventana de terminal.
+#
+# Instalado para poder lanzar cualquier .sh con doble clic en cosmic-files,
+# en vez de abrirlo como texto. El .desktop asociado tiene Terminal=false a
+# propósito: este script es quien abre la terminal, así que se controla el
+# flujo (intérprete correcto, código de salida, ventana abierta al final).
+#
+# No es específico de ningún proyecto: es una utilidad del sistema.
+#
+set -e
+
+SELF="$(basename "$0")"
+
+usage() {
+    cat <<EOF
+Uso: $SELF [-t TERMINAL] RUTA_AL_SCRIPT [ARGUMENTOS...]
+
+Ejecuta RUTA_AL_SCRIPT en una ventana de terminal nueva.
+
+  -t, --terminal BIN   Emulador a usar (por defecto: el primero disponible)
+
+Ejemplos:
+  $SELF ~/descargas/instalar.sh
+  $SELF -t konsole ~/scripts/build.sh --release
+  cat algo | $SELF /dev/stdin
+EOF
+}
+
+TERM_BIN=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -t|--terminal)
+            TERM_BIN="${2:-}"
+            [ -n "$TERM_BIN" ] || { echo "[ERROR] $SELF: falta el valor de $1" >&2; exit 2; }
+            shift 2
+            ;;
+        -h|--help) usage; exit 0 ;;
+        --) shift; break ;;
+        -*) echo "[ERROR] $SELF: opción desconocida: $1" >&2; usage >&2; exit 2 ;;
+        *) break ;;
+    esac
+done
+
+if [ $# -lt 1 ]; then
+    echo "[ERROR] $SELF: falta la ruta del script." >&2
+    usage >&2
+    exit 2
+fi
+
+script="$1"
+shift
+
+if [ ! -e "$script" ]; then
+    echo "[ERROR] No existe: $script" >&2
+    exit 1
+fi
+if [ -d "$script" ]; then
+    echo "[ERROR] Es un directorio, no un script: $script" >&2
+    exit 1
+fi
+if [ ! -r "$script" ]; then
+    echo "[ERROR] Sin permiso de lectura: $script" >&2
+    exit 1
+fi
+
+# Ruta absoluta: el .desktop puede dar una ruta relativa y la terminal
+# arranca en otro directorio.
+case "$script" in
+    /*) ;;
+    *) script="$(cd "$(dirname "$script")" 2>/dev/null && pwd)/$(basename "$script")" || {
+            echo "[ERROR] No se pudo resolver la ruta: $script" >&2
+            exit 1
+        } ;;
+esac
+
+# ── Intérprete ────────────────────────────────────────────────────────
+# Se lee el shebang en vez de asumir `sh`: un script con `#!/usr/bin/env bash`
+# fallaría con errores confusos de sintaxis si se forzara a dash.
+#
+# El parseo del shebang usa `set --` sobre una copia en un subshell `( … )`, no
+# sobre `$@` directamente: hacerlo aquí pisaba los argumentos que el usuario
+# pasó al script y acaban siendo interpretados como ficheros extra.
+interp=""
+first="$(head -n 1 "$script" 2>/dev/null || true)"
+case "$first" in
+    '#!'*) interp="$( SHeBANG="$first" sh -c '
+            rest="${SHeBANG#\#!}"
+            set -- $rest
+            if [ "${1:-}" = "/usr/bin/env" ] || [ "${1:-}" = "/bin/env" ]; then
+                shift
+            fi
+            printf "%s" "${1:-}"
+        ' )" ;;
+esac
+[ -n "$interp" ] || interp="sh"
+
+if ! command -v "$interp" >/dev/null 2>&1 && [ ! -x "$interp" ]; then
+    echo "[WARN] Intérprete '$interp' no encontrado; se usará sh." >&2
+    interp="sh"
+fi
+
+# ── Terminal ──────────────────────────────────────────────────────────
+# Mismo orden que el resto del sistema: cosmic-term primero, porque en
+# Pop!_OS es el terminal por defecto y puede ser el único instalado.
+if [ -z "$TERM_BIN" ]; then
+    for candidate in cosmic-term gnome-terminal konsole xfce4-terminal alacritty kitty wezterm xterm; do
+        if command -v "$candidate" >/dev/null 2>&1; then
+            TERM_BIN="$candidate"
+            break
+        fi
+    done
+fi
+
+if [ -z "$TERM_BIN" ]; then
+    echo "[ERROR] No se encontró ningún emulador de terminal." >&2
+    echo "        Instala uno, por ejemplo: sudo apt install gnome-terminal" >&2
+    exit 1
+fi
+
+# ── Construcción del comando ──────────────────────────────────────────
+# El intérprete, el script y los argumentos van entrecomillados uno a uno;
+# un nombre con espacios rompería el Exec si fuera a pelo.
+q() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+
+inner="$interp $(q "$script")"
+for arg in "$@"; do
+    inner="$inner $(q "$arg")"
+done
+
+# Cola: código de salida y pausa. Sin esto la ventana cerraría al terminar y el
+# usuario no vería el resultado.
+#
+# Los saltos de línea se generan con `printf`, no con `$'\n'`: esa forma ANSI-C
+# no está soportada por todos los `sh` (dash la acepta, pero BusyBox y otros no)
+# y fallaba en silencio dejando un `$` literal dentro del script.
+tail_cmd="$(printf '%s\n' \
+    'rc=$?' \
+    'printf "\n[run-sh] código de salida: %s\n" "$rc"' \
+    'printf "Pulsa Enter para cerrar..."' \
+    'read -r _')"
+
+inner="$(printf '%s\n%s' "$inner" "$tail_cmd")"
+
+title="$(basename "$script")"
+
+# `wezterm start --` no acepta `--title`, así que se comprueba aparte.
+case "$TERM_BIN" in
+    wezterm) exec wezterm start -- sh -lc "$inner" ;;
+    xterm)    exec xterm -T "$title" -e sh -lc "$inner" ;;
+    *)        exec "$TERM_BIN" --title "$title" -e sh -lc "$inner" ;;
+esac
