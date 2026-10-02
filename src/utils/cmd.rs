@@ -96,8 +96,16 @@ pub fn run_npm_install(dir: &std::path::Path) -> Result<()> {
 
 /// Emulador de terminal conocido, con su forma exacta de invocar un comando.
 ///
-/// `cosmic-term` va primero: es el terminal por defecto de Pop!_OS/COSMIC, y en
-/// una instalación COSMIC limpia puede ser el único emulador disponible.
+/// **El orden es la preferencia**: se usa el primero que esté en el PATH.
+///
+/// `alacritty` va primero por defecto porque, a diferencia de `cosmic-term`,
+/// implementa el modo de ratón **1003 (all-motion)**. Eso importa para el menú
+/// TUI: con 1002 (sólo movimiento con botón pulsado) el hover de las cards no
+/// se activa nunca, porque el terminal no envía ningún evento.
+///
+/// Ver `MouseReporter` en `cosmic-term/src/mouse_reporter.rs`: para
+/// `CursorMoved` hace `self.button.map(...)`, y `Option::map` sobre `None`
+/// devuelve `None` — sin botón no se envía nada.
 ///
 /// Los tres campos separan lo que antes se mezclaba en un único `&[&str]`:
 /// - `lead`: argumentos previos, sólo para los que lanzan subcomando
@@ -118,11 +126,11 @@ struct TerminalSpec {
 
 #[cfg(not(windows))]
 const TERMINALS: &[TerminalSpec] = &[
+    TerminalSpec { bin: "alacritty",       lead: &[],                title_flag: Some("--title"), exec_flag: "-e" },
     TerminalSpec { bin: "cosmic-term",     lead: &[],                title_flag: Some("--title"), exec_flag: "-e" },
     TerminalSpec { bin: "gnome-terminal",  lead: &[],                title_flag: Some("--title"), exec_flag: "-e" },
     TerminalSpec { bin: "konsole",         lead: &[],                title_flag: Some("--title"), exec_flag: "-e" },
     TerminalSpec { bin: "xfce4-terminal",  lead: &[],                title_flag: Some("--title"), exec_flag: "-e" },
-    TerminalSpec { bin: "alacritty",       lead: &[],                title_flag: Some("--title"), exec_flag: "-e" },
     TerminalSpec { bin: "kitty",           lead: &[],                title_flag: Some("--title"), exec_flag: "-e" },
     TerminalSpec { bin: "wezterm",         lead: &["start", "--"],    title_flag: None,           exec_flag: "" },
     TerminalSpec { bin: "xterm",           lead: &[],                title_flag: Some("-T"),      exec_flag: "-e" },

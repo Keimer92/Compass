@@ -560,6 +560,26 @@ fn hover_tint() -> Color {
     Color::Rgb(30, 30, 36)
 }
 
+/// ⚠️ El hover **no funciona en cosmic-term**, y no es culpa de este código.
+///
+/// cosmic-term implementa el modo 1002 (movimiento sólo con botón pulsado), no
+/// el 1003 (all-motion). En `mouse_reporter.rs`, tanto `sgr_mouse_code` como
+/// `normal_mouse_code` hacen:
+///
+/// ```text
+/// Event::Mouse(MouseEvent::CursorMoved { .. }) =>
+///     self.button.map(|button| (button_number(button) + 32, "M"))
+/// ```
+///
+/// `Option::map` sobre `None` devuelve `None` ⇒ **sin botón pulsado no se envía
+/// ningún byte**. Además `report_mouse` sólo consulta `SGR_MOUSE` y el modo
+/// normal; nunca mira `ANY_EVENT_MOUSE` (1003), que es el que crossterm activa
+/// con `EnableMouseCapture`.
+///
+/// Resultado: la app pide movimiento, cosmic-term no lo manda, y `state.hover`
+/// nunca cambia de `None`. Los colores de hover de aquí sí son correctos y se
+/// aplican en terminales que sí implementen 1003 (alacritty, kitty,
+/// gnome-terminal, wezterm, foot).
 fn create_card(item: &MenuItem, is_selected: bool, is_hovered: bool, project_type: ProjectType) -> Paragraph<'static> {
     let section = item.section();
     let section_color = item.section_color();

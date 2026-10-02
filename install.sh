@@ -91,17 +91,18 @@ fi
 EXE_BIN="${EXE_BIN:-code-runner}"
 
 # ── 4. Detectar terminal ──────────────────────────────────────────────
-# El orden replica `TERMINALS` en src/utils/cmd.rs: cosmic-term primero,
-# porque es el terminal por defecto de Pop!_OS y puede ser el único instalado.
+# El orden replica `TERMINALS` en src/utils/cmd.rs: **alacritty** primero.
+# No es arbitrario: alacritty implementa el modo de ratón 1003 (all-motion) y
+# cosmic-term no, así que sólo alacritty hace funcionar el hover del menú TUI.
 echo "[INFO] Comprobando emulador de terminal..."
 FOUND_TERM=""
 FOUND_TERM_ARGS=""
 for entry in \
+    "alacritty:--title \"Code Runner\"" \
     "cosmic-term:--title \"Code Runner\"" \
     "gnome-terminal:--title \"Code Runner\"" \
     "konsole:--" \
     "xfce4-terminal:--title \"Code Runner\"" \
-    "alacritty:--title \"Code Runner\"" \
     "kitty:--title \"Code Runner\"" \
     "wezterm:start --" \
     "xterm:-T \"Code Runner\""
