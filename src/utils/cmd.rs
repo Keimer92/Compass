@@ -97,8 +97,15 @@ pub fn run_npm_install(dir: &std::path::Path) -> Result<()> {
 /// Emulador de terminal + prefijo de args para fijar título y ejecutar `sh -lc`.
 ///
 /// El último elemento de cada tupla es el argv que precede al script de shell.
+/// `cosmic-term` va primero: es el terminal por defecto de Pop!_OS/COSMIC, y en
+/// una instalación COSMIC limpia puede ser el único emulador disponible.
+///
+/// Nota: `cosmic-term` sigue la convención de `alacritty_terminal` (`-e` para
+/// ejecutar, `--title` para el título). Si una versión rechazara `-e`, `spawn()`
+/// devuelve error y se reporta en vez de fallar en silencio.
 #[cfg(not(windows))]
 const TERMINALS: &[(&str, &[&str])] = &[
+    ("cosmic-term", &["--title"]),
     ("gnome-terminal", &["--title"]),
     ("konsole", &["--title"]),
     ("xfce4-terminal", &["--title"]),

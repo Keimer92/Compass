@@ -319,11 +319,11 @@ impl MenuState {
                 ProjectType::Flutter => !matches!(item, MenuItem::AndroidBuildArmv7 | MenuItem::Version | MenuItem::InstallDebug),
                 ProjectType::Kotlin => !matches!(item, MenuItem::AndroidBuildArmv7 | MenuItem::Version | MenuItem::FlutterProfile),
             })
-            // `ConfigureTerminal` escribe un perfil de PowerShell (PSReadLine) y
-            // `ContextMenu` manipula el registro de Windows (ExtendedSubCommandsKey).
-            // No existen equivalentes en Linux, así que se ocultan en vez de
-            // exponer tarjetas que fallarían silenciosamente.
-            .filter(|item| cfg!(windows) || !matches!(item, MenuItem::ConfigureTerminal | MenuItem::ContextMenu))
+            // `ConfigureTerminal` escribe un perfil de PowerShell (PSReadLine), que
+            // no existe en Linux, así que se oculta en vez de exponer una tarjeta
+            // que fallaría. `ContextMenu` sí se muestra: en Pop!_OS/COSMIC lo
+            // implementa `context_menu_cosmic.rs`.
+            .filter(|item| cfg!(windows) || !matches!(item, MenuItem::ConfigureTerminal))
             .collect();
 
         Self {

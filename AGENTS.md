@@ -26,8 +26,29 @@ El orden de detección es: **Flutter → Tauri → KMP → Rust**. Si un proyect
 | Flutter Android (APK/AAB) | ✅ | ✅ |
 | Flutter **desktop** | ✅ (windows) | ⚠️ emite `-d windows` — sin equivalente |
 | Tauri **desktop** | ✅ (exe/msi) | ⚠️ `npm run tauri build` compila AppImage/deb; `exts` sigue filtrando `exe`/`msi` |
-| Menú contextual (Code Runner + Vibe Coding) | ✅ | ❌ oculto (registro de Windows) |
+| Menú contextual Code Runner + Vibe Coding | ✅ registro | ⚠️ COSMIC Files ≥ 1.0.10, entradas **planas** (ver abajo) |
 | Configurar Terminal (PSReadLine) | ✅ | ❌ oculto (perfil de PowerShell) |
+
+### Vibe Coding en COSMIC Files (`context_menu_cosmic.rs`)
+
+COSMIC 1.0.10 (mayo 2026) añadió *user-defined context menu actions*. Se configuran como presets `ContextActionPreset` en el campo `context_actions` de la config de cosmic-files (`cosmic-config`, esquema v1):
+
+```
+$XDG_CONFIG_HOME/cosmic/cosmic-files/v1/context_actions
+```
+
+```json
+{ "name": "Vibe Coding: OpenCode", "confirm": false,
+  "selection": "folders", "steps": ["…/vibe-opencode.sh \"%f\""] }
+```
+
+- `selection`: `any` | `files` | `folders`.
+- `steps`: se parsean con `mime_app::exec_to_command`, o sea **sintaxis `Exec=` de freedesktop**. El `%f` debe ir entrecomillado: se sustituye literalmente, y sin comillas una ruta con espacios rompe el tokenizado.
+- **Un wrapper `vibe-<slug>.sh` por herramienta** en `$XDG_DATA_HOME/code-runner/vibe/`, en vez de incrustar `sh -c "cd %f && …"`. El `cd` y el quoting viven en el archivo (se escapan una vez); el preset sólo invoca el wrapper.
+- **Limitación: sin submenús anidados.** `ContextActionPreset` sólo tiene `name`, `confirm`, `selection`, `steps` — no hay campo de agrupación. Las 4 entradas quedan **planas**, no en cascada como en Windows. El prefijo `"Vibe Coding: "` las agrupa visualmente y es el criterio que usa `uninstall()` para borrarlas sin tocar las del usuario.
+- `install()` hace **merge**: preserva los presets previos del usuario, y sólo reemplaza los que empiezan con el prefijo. Respalda el archivo previo a `context_actions.json.code-runner-bak` antes de escribir.
+- Requiere cerrar y reabrir COSMIC Files. Sin `cosmic-files` en el PATH, `install()` falla con mensaje explícito.
+- `VIBE_TOOLS` está duplicado (el de `context_menu.rs` usa `key` de registro, que aquí no aplica). Si se unifica, debe subir a un módulo común.
 
 ### Notas de implementación Linux
 
@@ -35,7 +56,7 @@ El orden de detección es: **Flutter → Tauri → KMP → Rust**. Si un proyect
 - **Ejecutables**: `platform::exe_name("adb")` → `adb.exe` en Windows, `adb` en Linux. Lo usan `adb`, `emulator`, `sdkmanager` y `keytool`.
 - **Gradle**: `platform::find_gradlew()` acepta `gradlew` **y** `gradlew.bat`, porque un proyecto KMP clonado entre Windows y Linux conserva sólo uno de los dos wrappers. `ensure_gradle()` abortaba en Linux antes de hacer nada.
 - **ANDROID_HOME**: se resuelve por `ANDROID_HOME` → `ANDROID_SDK_ROOT` → `$HOME/Android/Sdk` → `$HOME/android-sdk` → `$XDG_DATA_HOME/Android/Sdk` → `/usr/lib/android-sdk`.
-- **Ventanas**: `spawn_new_window*()` detecta un emulador de terminal (`gnome-terminal`, `konsole`, `xfce4-terminal`, `alacritty`, `kitty`, `wezterm`, `xterm`) y ejecuta el comando con `sh -lc`. Antes, la rama `#[cfg(not(windows))]` seguía invocando `powershell`, lo que dejaba la TUI inutilizable.
+- **Ventanas**: `spawn_new_window*()` detecta un emulador de terminal (`cosmic-term`, `gnome-terminal`, `konsole`, `xfce4-terminal`, `alacritty`, `kitty`, `wezterm`, `xterm`) y ejecuta el comando con `sh -lc`. Antes, la rama `#[cfg(not(windows))]` seguía invocando `powershell`, lo que dejaba la TUI inutilizable.
 - **Builds**: `reveal_on_success()` genera `sh` en Linux (`find -printf` + `sort -rn` para el artefacto más reciente, `mv` para renombrar, `xdg-open`/`gio open` para revelar). Mantiene la ventana abierta con `read -r` en ambos casos.
 - **Sintaxis de shell embebida**: `TAURI_DEV_HOST`, `export RELEASE_*` y `ANDROID_SERIAL` se emiten con sintaxis `set X=Y &` / `$env:X=` / `$LASTEXITCODE` en Windows y `X=Y` / `export X=` / `$?` en Linux.
 - **PowerShell call-operator**: `menu.rs` omite el `&` al construir el comando en Linux (en `sh` sería un error de sintaxis).
@@ -97,6 +118,7 @@ tasks/
   ├─ sha1.rs    — show() [huellas SHA-1/SHA-256 debug+release, lee keystore.properties/key.properties]
   ├─ terminal.rs — configure() [PSReadLine profile]
   ├─ context_menu.rs — install/uninstall/toggle para CodeRunner + Vibe Coding (menú cascada con ExtendedSubCommandsKey: OpenCode, Kilo Code, Cline, Antigravity)
+  ├─ context_menu_cosmic.rs — install/uninstall para COSMIC Files (context_actions, COSMIC ≥ 1.0.10)
   └─ whatsapp.rs — build()
   └─ version.rs — bump() [port de versionar.bat: Tauri/Rust, todo-o-nada]
 ```

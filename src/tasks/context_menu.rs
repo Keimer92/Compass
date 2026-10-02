@@ -38,24 +38,12 @@ fn exe_path() -> String {
 // ── Code Runner (entry principal) ──────────────────────────────────────
 
 /// Todo este módulo manipula el registro de Windows (`ExtendedSubCommandsKey`
-/// para el menú cascada), que no existe en Linux. La tarjeta está oculta en el
-/// menú, pero las tasks siguen alcanzables por CLI: se informa en vez de
-/// invocar PowerShell y reportar un fallo genérico.
-fn unsupported_on_this_platform(action: &str) -> Result<()> {
-    println!();
-    println!("[INFO] El menú contextual sólo está disponible en Windows.");
-    println!("       {action} requiere el registro de Windows (`HKCU\\Software\\Classes`).");
-    println!();
-    println!("En Linux el equivalente sería una entrada .desktop con `Actions=`,");
-    println!("que no está implementada. Las tarjetas 'Code Runner' y 'Vibe Coding'");
-    println!("del menú contextual no están soportadas en esta plataforma.");
-    println!();
-    Ok(())
-}
-
+/// para el menú cascada) en Windows, y la config `context_actions` de
+/// cosmic-files en Linux. El enrutado por plataforma ocurre en las funciones
+/// públicas; aquí abajo solo vive la implementación de Windows.
 pub fn install() -> Result<()> {
     if !crate::utils::platform::IS_WINDOWS {
-        return unsupported_on_this_platform("Instalar el menú contextual");
+        return super::context_menu_cosmic::install();
     }
 
     let exe = exe_path();
@@ -104,7 +92,7 @@ pub fn install() -> Result<()> {
 
 pub fn uninstall() -> Result<()> {
     if !crate::utils::platform::IS_WINDOWS {
-        return unsupported_on_this_platform("Desinstalar el menú contextual");
+        return super::context_menu_cosmic::uninstall();
     }
 
     let ps = "\
@@ -172,7 +160,7 @@ fn resolve_tool_command(tool: &VibeTool) -> Option<(String, String)> {
 /// Instala el menú cascada "Vibe Coding" con las sub-entradas que estén disponibles.
 pub fn install_vibe_coding() -> Result<()> {
     if !crate::utils::platform::IS_WINDOWS {
-        return unsupported_on_this_platform("Instalar el menú 'Vibe Coding'");
+        return super::context_menu_cosmic::install();
     }
 
     let icon = opencode_icon();
@@ -264,7 +252,7 @@ pub fn install_vibe_coding() -> Result<()> {
 
 pub fn uninstall_vibe_coding() -> Result<()> {
     if !crate::utils::platform::IS_WINDOWS {
-        return unsupported_on_this_platform("Desinstalar el menú 'Vibe Coding'");
+        return super::context_menu_cosmic::uninstall();
     }
 
     let ps = format!(
@@ -316,26 +304,46 @@ pub fn uninstall_antigravity() -> Result<()> {
 pub fn toggle() -> Result<()> {
     loop {
         cmd::clear_screen();
+        let title = if crate::utils::platform::IS_WINDOWS {
+            "MENÚ CONTEXTUAL DE WINDOWS"
+        } else {
+            "MENÚ CONTEXTUAL DE COSMIC FILES"
+        };
         println!("╔══════════════════════════════════════════════════╗");
-        println!("║     MENÚ CONTEXTUAL DE WINDOWS                  ║");
+        println!("║     {title:<49}║");
         println!("╚══════════════════════════════════════════════════╝");
         println!();
 
-        let cr_installed = is_installed("zz_CodeRunner");
+        // En COSMIC el registro de Code Runner no aplica: la task instala las
+        // entradas de Vibe Coding, así que la opción 1 se limita a Vibe Coding.
+        let cr_installed = crate::utils::platform::IS_WINDOWS && is_installed("zz_CodeRunner");
         let vc_installed = is_installed(VIBE_KEY);
 
         let cr_label = if cr_installed { "✔ Code Runner" } else { "  Code Runner" };
         let vc_label = if vc_installed { "✔ Vibe Coding" } else { "  Vibe Coding" };
 
-        let options = vec![
-            format!("1. {cr_label}  [{}]", if cr_installed { "Desinstalar" } else { "Instalar" }),
-            format!("2. {vc_label}  [{}]", if vc_installed { "Desinstalar" } else { "Instalar" }),
-            "3. Instalar todos".to_string(),
-            "4. Desinstalar todos".to_string(),
-            "5. Volver".to_string(),
-        ];
+        let mut options = Vec::new();
+        if crate::utils::platform::IS_WINDOWS {
+            options.push(format!(
+                "1. {cr_label}  [{}]",
+                if cr_installed { "Desinstalar" } else { "Instalar" }
+            ));
+            options.push(format!(
+                "2. {vc_label}  [{}]",
+                if vc_installed { "Desinstalar" } else { "Instalar" }
+            ));
+            options.push("3. Instalar todos".to_string());
+            options.push("4. Desinstalar todos".to_string());
+        } else {
+            options.push(format!(
+                "1. {vc_label}  [{}]",
+                if vc_installed { "Desinstalar" } else { "Instalar" }
+            ));
+            options.push("2. Volver".to_string());
+        }
+        options.push(format!("{}. Volver", options.len() + 1));
 
-        let choice = inquire::Select::new("Selecciona una opción:", options)
+        let choice = inquire::Select::new("Selecciona una opción:", options.clone())
             .with_vim_mode(true)
             .prompt()?;
 
@@ -366,7 +374,17 @@ pub fn toggle() -> Result<()> {
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
+/// ¿Está instalada la entrada `name`? `name` es `zz_CodeRunner` o `VIBE_KEY`.
 fn is_installed(name: &str) -> bool {
+    // En Linux la fuente de verdad es la config de cosmic-files, no el registro.
+    if !crate::utils::platform::IS_WINDOWS {
+        return if name == VIBE_KEY {
+            super::context_menu_cosmic::is_installed()
+        } else {
+            false
+        };
+    }
+
     // Vibe Coding usa ExtendedSubCommandsKey en vez de command
     let ps = if name == VIBE_KEY {
         format!(
