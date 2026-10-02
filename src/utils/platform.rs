@@ -68,6 +68,24 @@ fn env_path(key: &str) -> Option<PathBuf> {
 /// Previously duplicated in `context.rs` and `android.rs`; single source now.
 pub const NDK_VERSION: &str = "27.0.12077973";
 
+/// Extensiones del artefacto de un build **desktop**, para `reveal_on_success`.
+///
+/// Windows produce `exe`/`msi`. En Linux el binario no lleva extensión, y Tauri
+/// empaqueta además `AppImage` y `deb`; KMP genera una distribución sin
+/// extensión. Por eso en Linux se devuelve una lista vacía, que
+/// `sh_newest_artifact` interpreta como "cualquier archivo regular" en vez de
+/// "no hay filtro" — así el artefacto se revela igual en ambas plataformas.
+///
+/// Sin esto, `reveal_on_success` nunca encontraba nada en Linux y caía siempre
+/// al mensaje "(artefacto no encontrado)".
+pub fn desktop_artifact_exts() -> &'static [&'static str] {
+    if IS_WINDOWS {
+        &["exe", "msi"]
+    } else {
+        &[]
+    }
+}
+
 /// Localiza un wrapper de Gradle (`gradlew` o `gradlew.bat`) en `dir`.
 ///
 /// Acepta ambas formas porque un proyecto KMP generado en Windows y luego

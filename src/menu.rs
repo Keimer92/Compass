@@ -21,6 +21,7 @@ use ratatui::{
 
 use crate::utils::cmd;
 use crate::utils::context::{ProjectContext, ProjectType};
+use crate::utils::platform;
 
 const COLS: usize = 3;
 const CARD_W: u16 = 24;
@@ -58,7 +59,6 @@ pub enum MenuItem {
     AndroidBuildArmv7,
     AndroidBuildAll,
     InstallDebug,
-    LaunchEmulator,
     FlutterProfile,
     // MNT section
     CleanCache,
@@ -86,7 +86,6 @@ impl MenuItem {
             Self::AndroidBuildArmv7 => "\u{1f680}",
             Self::AndroidBuildAll => "\u{1f680}",
             Self::InstallDebug => "\u{1f4e6}",
-            Self::LaunchEmulator => "\u{1f4f1}",
             Self::FlutterProfile => "\u{1f3af}",
             Self::CleanCache => "\u{1f9f9}",
             Self::DebugAndroid => "\u{1f50d}",
@@ -105,7 +104,7 @@ impl MenuItem {
 
     fn section(&self) -> &str {
         match self {
-            Self::WindowsDev | Self::AndroidDev | Self::WindowsBuild | Self::AndroidBuildArm64 | Self::AndroidBuildArmv7 | Self::AndroidBuildAll | Self::InstallDebug | Self::LaunchEmulator | Self::FlutterProfile => "DEV",
+            Self::WindowsDev | Self::AndroidDev | Self::WindowsBuild | Self::AndroidBuildArm64 | Self::AndroidBuildArmv7 | Self::AndroidBuildAll | Self::InstallDebug | Self::FlutterProfile => "DEV",
             Self::CleanCache | Self::DebugAndroid | Self::ConfigureSigning | Self::Sha1 | Self::CleanProject | Self::Version => "MNT",
             Self::CreateGitignore | Self::InitGit | Self::ManageKeystore | Self::BuildWhatsApp | Self::ConfigureTerminal | Self::ContextMenu => "CFG",
         }
@@ -115,12 +114,17 @@ impl MenuItem {
         match self {
             Self::WindowsDev => match project_type {
                 ProjectType::Rust => "Run",
-                _ => "Windows",
+                // La tarjeta cubre el dev de escritorio, así que se nombra por
+                // plataforma: decir "Windows" en Pop!_OS-era confuso y la tarea
+                // emitía `-d windows`, que no existe fuera de Windows.
+                _ if platform::IS_WINDOWS => "Windows",
+                _ => "Linux",
             },
             Self::AndroidDev => "Android",
             Self::WindowsBuild => match project_type {
                 ProjectType::Rust => "Build",
-                _ => "Win Build",
+                _ if platform::IS_WINDOWS => "Win Build",
+                _ => "Linux Build",
             },
             Self::AndroidBuildArm64 => match project_type {
                 ProjectType::Tauri => "Android a64",
@@ -141,7 +145,6 @@ impl MenuItem {
                 ProjectType::Rust => "",
             },
             Self::InstallDebug => "Install",
-            Self::LaunchEmulator => "Emulator",
             Self::FlutterProfile => "Profile",
             Self::CleanCache => "Clean Cache",
             Self::DebugAndroid => "Debug Andr",
@@ -186,7 +189,6 @@ impl MenuItem {
                 Self::CreateGitignore => "Crea .gitignore",
                 Self::InitGit => "Git init + commit",
                 Self::ManageKeystore => "",
-                Self::LaunchEmulator => "",
                 Self::BuildWhatsApp => "Compila WhatsApp",
                 Self::ConfigureTerminal => "Autocompletado",
                 Self::ContextMenu => "Menu contextual",
@@ -208,7 +210,6 @@ impl MenuItem {
                 Self::CreateGitignore => "Crea .gitignore",
                 Self::InitGit => "Git init + commit",
                 Self::ManageKeystore => "Administra llaves",
-                Self::LaunchEmulator => "Lanza emulador",
                 Self::BuildWhatsApp => "Compila WhatsApp",
                 Self::Version => "Bump pkg/cargo/tauri",
                 Self::ConfigureTerminal => "Autocompletado",
@@ -231,7 +232,6 @@ impl MenuItem {
                 Self::CreateGitignore => "Crea .gitignore",
                 Self::InitGit => "Git init + commit",
                 Self::ManageKeystore => "Administrar firmas",
-                Self::LaunchEmulator => "Lanza emulador",
                 Self::BuildWhatsApp => "Compila WhatsApp",
                 Self::Version => "",
                 Self::ConfigureTerminal => "Autocompletado",
@@ -253,7 +253,6 @@ impl MenuItem {
                 Self::CleanProject => "Limpia proyecto",
                 Self::CreateGitignore => "Crea .gitignore",
                 Self::InitGit => "Git init + commit",
-                Self::LaunchEmulator => "Lanza emulador",
                 Self::ManageKeystore => "Administrar firmas",
                 Self::BuildWhatsApp => "Compila WhatsApp",
                 Self::Version => "",
@@ -284,7 +283,6 @@ impl MenuState {
             MenuItem::AndroidBuildArmv7,
             MenuItem::AndroidBuildAll,
             MenuItem::InstallDebug,
-            MenuItem::LaunchEmulator,
             MenuItem::FlutterProfile,
             MenuItem::CleanCache,
             MenuItem::DebugAndroid,
@@ -308,7 +306,6 @@ impl MenuState {
                     | MenuItem::AndroidBuildArmv7
                     | MenuItem::AndroidBuildAll
                     | MenuItem::InstallDebug
-                    | MenuItem::LaunchEmulator
                     | MenuItem::DebugAndroid
                     | MenuItem::ConfigureSigning
                     | MenuItem::Sha1
@@ -403,7 +400,11 @@ fn draw_menu(frame: &mut Frame, state: &mut MenuState, ctx: &ProjectContext) {
                 Style::default().fg(Color::DarkGray),
             )]),
             Line::from(vec![Span::styled(
-                " Maximiza la ventana (Alt+Enter) y presiona una tecla.",
+                if cfg!(windows) {
+                    " Maximiza la ventana (Alt+Enter) y presiona una tecla."
+                } else {
+                    " Maximiza la ventana (Shift+Ctrl+Mas o F11) y presiona una tecla."
+                },
                 Style::default().fg(Color::DarkGray),
             )]),
         ]))
@@ -705,7 +706,6 @@ fn menu_item_to_task(item: MenuItem, ptype: ProjectType) -> &'static str {
 
         (MenuItem::InstallDebug, _) => "android-install-debug",
 
-        (MenuItem::LaunchEmulator, _) => "launch-emulator",
 
         (MenuItem::FlutterProfile, ProjectType::Flutter) => "flutter-profile",
 

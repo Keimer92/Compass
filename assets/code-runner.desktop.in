@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Code Runner
+GenericName=Task Runner
+Comment=Ejecuta tareas de desarrollo de Tauri, Flutter, Kotlin y Rust
+Exec=@EXEC_CMD@
+Icon=code-runner
+Terminal=false
+StartupNotify=true
+Categories=Development;IDE;
+Keywords=tauri;flutter;kotlin;rust;android;gradle;build;deploy;cargo;vibe coding;

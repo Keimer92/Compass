@@ -16,8 +16,11 @@ fn resolve_icon(name: &str) -> String {
         .or_else(|| fallback)
         .and_then(|p| p.to_str().map(|s| s.to_string()))
         .unwrap_or_else(|| {
-            let home = std::env::var("USERPROFILE").unwrap_or_default();
-            format!("{}\\.cargo\\bin\\Default.ico", home)
+            // Sin icono junto al binario, se busca en la carpeta de instalación de
+            // cargo. En Linux el home es `HOME`, no `USERPROFILE` (que ahí no
+            // existe y dejaba la ruta como "\.cargo\bin\Default.ico").
+            let home = crate::utils::platform::home_dir().unwrap_or_default();
+            home.join(".cargo").join("bin").join("Default.ico").display().to_string()
         })
 }
 
@@ -29,10 +32,20 @@ fn opencode_icon() -> String {
     resolve_icon("opencode.ico")
 }
 
+/// Ruta del ejecutable de code-runner.
+///
+/// En Linux no lleva extensión: el registro de Windows guarda
+/// `"…\code-runner.exe" -p "%1"`, y apuntar a un `.exe` inexistente dejaba la
+/// entrada del menú apuntando al vacío.
 fn exe_path() -> String {
+    let name = if crate::utils::platform::IS_WINDOWS {
+        "code-runner.exe"
+    } else {
+        "code-runner"
+    };
     exe_dir()
-        .and_then(|d| d.join("code-runner.exe").to_str().map(|s| s.to_string()))
-        .unwrap_or_else(|| "code-runner.exe".to_string())
+        .and_then(|d| d.join(name).to_str().map(|s| s.to_string()))
+        .unwrap_or_else(|| name.to_string())
 }
 
 // ── Code Runner (entry principal) ──────────────────────────────────────
@@ -134,18 +147,38 @@ const VIBE_TOOLS: &[VibeTool] = &[
 ];
 
 /// Resuelve el ejecutable real de una herramienta de Vibe Coding.
-/// Primero busca en PATH; para `agy` (binario nativo, no npm) hace fallback
-/// a la ruta de instalación oficial de Antigravity en Windows
-/// (`%LOCALAPPDATA%\agy\bin\agy.exe`), que NO se agrega al PATH por defecto.
+///
+/// Primero busca en el PATH. Para `agy` (binario nativo, no npm) hace fallback a
+/// las rutas de instalación conocidas, porque el instalador de Antigravity no
+/// lo agrega al PATH por defecto.
+///
+/// En Linux la comprobación del PATH es `command -v` en vez del
+/// `Get-Command` de PowerShell: con el comando de Windows el `if` nunca era
+/// verdadero, así que `resolved` salía vacío y el menú se instalaba sin ninguna
+/// sub-entrada.
 fn resolve_tool_command(tool: &VibeTool) -> Option<(String, String)> {
     if command_exists(tool.cli.split_whitespace().next().unwrap_or(tool.cli)) {
         return Some((tool.cli.to_string(), String::new()));
     }
 
-    // Fallback: ruta conocida de instalación de Antigravity CLI.
+    // Fallback: ruta conocida de instalación de Antigravity CLI. En Windows es
+    // `%LOCALAPPDATA%\agy\bin\agy.exe`, que no se agrega al PATH por defecto.
+    // En Linux el instalador oficial también deja `agy` fuera del PATH, en
+    // `~/.local/bin` o `/usr/local/bin`, así que se comprueba ahí.
     if tool.title == "Antigravity" {
+        let mut candidates = Vec::new();
         if let Ok(local) = std::env::var("LOCALAPPDATA") {
-            let candidate = std::path::Path::new(&local).join("agy").join("bin").join("agy.exe");
+            candidates.push(
+                std::path::Path::new(&local).join("agy").join("bin").join("agy.exe"),
+            );
+        }
+        if let Some(home) = crate::utils::platform::home_dir() {
+            candidates.push(home.join(".local").join("bin").join("agy"));
+            candidates.push(home.join("agy").join("bin").join("agy"));
+        }
+        candidates.push(std::path::PathBuf::from("/usr/local/bin/agy"));
+
+        for candidate in candidates {
             if candidate.exists() {
                 if let Some(p) = candidate.to_str() {
                     return Some((p.to_string(), p.to_string()));
@@ -182,9 +215,11 @@ pub fn install_vibe_coding() -> Result<()> {
         .collect();
 
     if resolved.is_empty() {
-        println!("[WARN] No se encontró opencode, kilo, cline ni agy.");
+        println!("[WARN] No se encontró opencode, kilo, cline ni agy en el PATH.");
         println!("[WARN] Se instalará el menú Vibe Coding sin sub-entradas.");
         println!("[WARN] Instala las CLIs y vuelve a ejecutar el instalador.");
+    } else {
+        println!("[INFO] Detectadas {} herramienta(s) de Vibe Coding en el PATH.", resolved.len());
     }
 
     println!("[INFO] Detectando herramientas Vibe Coding...");
@@ -322,54 +357,90 @@ pub fn toggle() -> Result<()> {
         let cr_label = if cr_installed { "✔ Code Runner" } else { "  Code Runner" };
         let vc_label = if vc_installed { "✔ Vibe Coding" } else { "  Vibe Coding" };
 
-        let mut options = Vec::new();
+        // `options` y `actions` van en paralelo: el `match` de abajo despacha
+        // por acción, no por el prefijo del texto. Antes se emparejaba con
+        // `starts_with("2.")` y en Linux eso hacía que "2. Volver" instalara
+        // Vibe Coding en lugar de volver.
+        let mut options: Vec<String> = Vec::new();
+        let mut actions: Vec<MenuChoice> = Vec::new();
+
+        let push = |options: &mut Vec<String>, actions: &mut Vec<MenuChoice>, label: String, act: MenuChoice| {
+            options.push(label);
+            actions.push(act);
+        };
+
         if crate::utils::platform::IS_WINDOWS {
-            options.push(format!(
-                "1. {cr_label}  [{}]",
-                if cr_installed { "Desinstalar" } else { "Instalar" }
-            ));
-            options.push(format!(
-                "2. {vc_label}  [{}]",
-                if vc_installed { "Desinstalar" } else { "Instalar" }
-            ));
-            options.push("3. Instalar todos".to_string());
-            options.push("4. Desinstalar todos".to_string());
+            push(
+                &mut options,
+                &mut actions,
+                format!(
+                    "1. {cr_label}  [{}]",
+                    if cr_installed { "Desinstalar" } else { "Instalar" }
+                ),
+                MenuChoice::ToggleCodeRunner,
+            );
+            push(
+                &mut options,
+                &mut actions,
+                format!(
+                    "2. {vc_label}  [{}]",
+                    if vc_installed { "Desinstalar" } else { "Instalar" }
+                ),
+                MenuChoice::ToggleVibeCoding,
+            );
+            push(&mut options, &mut actions, "3. Instalar todos".to_string(), MenuChoice::InstallAll);
+            push(&mut options, &mut actions, "4. Desinstalar todos".to_string(), MenuChoice::UninstallAll);
         } else {
-            options.push(format!(
-                "1. {vc_label}  [{}]",
-                if vc_installed { "Desinstalar" } else { "Instalar" }
-            ));
-            options.push("2. Volver".to_string());
+            push(
+                &mut options,
+                &mut actions,
+                format!(
+                    "1. {vc_label}  [{}]",
+                    if vc_installed { "Desinstalar" } else { "Instalar" }
+                ),
+                MenuChoice::ToggleVibeCoding,
+            );
         }
-        options.push(format!("{}. Volver", options.len() + 1));
+        let back = options.len() + 1;
+        push(&mut options, &mut actions, format!("{back}. Volver"), MenuChoice::Back);
 
-        let choice = inquire::Select::new("Selecciona una opción:", options.clone())
+        let choice = inquire::Select::new("Selecciona una opción:", options)
             .with_vim_mode(true)
-            .prompt()?;
+            .raw_prompt()?;
 
-        match choice.as_str() {
-            s if s.starts_with("1.") => {
+        match actions.get(choice.index).copied().unwrap_or(MenuChoice::Back) {
+            MenuChoice::ToggleCodeRunner => {
                 if cr_installed { uninstall()?; } else { install()?; }
                 pause();
             }
-            s if s.starts_with("2.") => {
+            MenuChoice::ToggleVibeCoding => {
                 if vc_installed { uninstall_vibe_coding()?; } else { install_vibe_coding()?; }
                 pause();
             }
-            s if s.starts_with("3.") => {
+            MenuChoice::InstallAll => {
                 install()?;
                 install_vibe_coding()?;
                 pause();
             }
-            s if s.starts_with("4.") => {
+            MenuChoice::UninstallAll => {
                 uninstall()?;
                 uninstall_vibe_coding()?;
                 pause();
             }
-            _ => break,
+            MenuChoice::Back => break,
         }
     }
     Ok(())
+}
+
+/// Acción del menú interactivo, emparejada 1:1 con cada opción mostrada.
+#[derive(Debug, Clone, Copy)]
+enum MenuChoice {
+    ToggleCodeRunner,
+    ToggleVibeCoding,
+    InstallAll,
+    UninstallAll,
+    Back,
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────
@@ -408,12 +479,29 @@ fn command_is_current(name: &str, needle: &str) -> bool {
     output.map(|o| String::from_utf8_lossy(&o.stdout).trim() == "True").unwrap_or(false)
 }
 
+/// ¿Está `name` disponible como comando?
+#[cfg(windows)]
 fn command_exists(name: &str) -> bool {
     let ps = format!(
         "$null -ne (Get-Command -Name '{name}' -ErrorAction SilentlyContinue)"
     );
     let output = cmd::run("powershell", &["-NoProfile", "-Command", &ps]);
     output.map(|o| String::from_utf8_lossy(&o.stdout).trim() == "True").unwrap_or(false)
+}
+
+#[cfg(not(windows))]
+fn command_exists(name: &str) -> bool {
+    std::process::Command::new("sh")
+        .args(["-c", &format!("command -v -- {}", sh_quote(name))])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+/// Entrecomilla para `sh` (comillas simples, escapando la interna).
+#[cfg(not(windows))]
+fn sh_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', r"'\''"))
 }
 
 /// Verifica que el texto visible (`(default)` o `MUIVerb`) de la entrada

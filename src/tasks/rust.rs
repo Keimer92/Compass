@@ -13,7 +13,13 @@ pub fn build(ctx: &ProjectContext) -> Result<()> {
     println!("[INFO] Ejecutando 'cargo build --release'...");
 
     let release_dir = ctx.script_dir.join("target/release");
-    let cmd_line = cmd::reveal_on_success("cargo build --release", &release_dir, &["exe"], None);
+    // Sin extensión en Linux: `desktop_artifact_exts()` lo resuelve por plataforma.
+    let cmd_line = cmd::reveal_on_success(
+        "cargo build --release",
+        &release_dir,
+        crate::utils::platform::desktop_artifact_exts(),
+        None,
+    );
 
     cmd::spawn_new_window("cargo build", &ctx.script_dir, &cmd_line)?;
     println!("[OK] 'cargo build --release' lanzado en nueva ventana.");

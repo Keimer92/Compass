@@ -19,13 +19,16 @@ El orden de detección es: **Flutter → Tauri → KMP → Rust**. Si un proyect
 
 | Función | Windows | Linux (Pop!_OS / Ubuntu) |
 |---------|---------|-------------------------|
+| Entrada del launcher (`.desktop` + iconos) | ❌ | ✅ `install.sh` |
+| Selector de proyecto (`--pick`) | ✅ | ✅ |
 | Tauri dev/build (Windows + Android) | ✅ | ✅ |
 | Rust puro | ✅ | ✅ |
-| Android (dev + release APK/AAB) | ✅ | ✅ |
+| Android (dev + release APK/AAB) | ✅ | ✅ sólo dispositivo físico |
 | Kotlin Multiplatform (Android + `packageDistributionForCurrentOS`) | ✅ | ✅ |
 | Flutter Android (APK/AAB) | ✅ | ✅ |
-| Flutter **desktop** | ✅ (windows) | ⚠️ emite `-d windows` — sin equivalente |
-| Tauri **desktop** | ✅ (exe/msi) | ⚠️ `npm run tauri build` compila AppImage/deb; `exts` sigue filtrando `exe`/`msi` |
+| Flutter **desktop** | ✅ | ✅ `-d linux` / `flutter build linux` |
+| Tauri **desktop** | ✅ (exe/msi) | ✅ AppImage/deb (`platform::desktop_artifact_exts()`) |
+| KMP **desktop** | ✅ (exe) | ✅ binario sin extensión (mismo helper) |
 | Menú contextual Code Runner + Vibe Coding | ✅ registro | ⚠️ COSMIC Files ≥ 1.0.10, entradas **planas** (ver abajo) |
 | Configurar Terminal (PSReadLine) | ✅ | ❌ oculto (perfil de PowerShell) |
 
@@ -50,11 +53,57 @@ $XDG_CONFIG_HOME/cosmic/cosmic-files/v1/context_actions
 - Requiere cerrar y reabrir COSMIC Files. Sin `cosmic-files` en el PATH, `install()` falla con mensaje explícito.
 - `VIBE_TOOLS` está duplicado (el de `context_menu.rs` usa `key` de registro, que aquí no aplica). Si se unifica, debe subir a un módulo común.
 
+### Launcher de COSMIC (`.desktop`)
+
+`install.sh` genera `~/.local/share/applications/code-runner.desktop` e instala los
+PNG en `~/.local/share/icons/hicolor/{16,24,32,48,64,128}x*/apps/`.
+
+- **El `.ico` no le sirve al launcher.** Pop!_OS no trae ImageMagick ni
+  `icoutils`, así que `tools/ico2png.py` (solo stdlib) decodifica el BMP-DIB de
+  32bpp de `Icon.ico` y genera el set de PNG. Ejecuta `python3 tools/ico2png.py`
+  tras cambiar el icono original.
+- **`code-runner` es una TUI: el launcher no puede lanzarla directamente** (no
+  hay tty). El `Exec` envuelve el binario en el emulador detectado:
+  `cosmic-term --title "Code Runner" -e "<exe>" --pick`.
+- **`--pick` es obligatorio en el `.desktop`**: desde el launcher el directorio
+  actual es `$HOME`, donde no hay proyecto que autodetectar. Sin `--pick`,
+  `detect()` fallaría y la app no abriría.
+- El `Exec` se valida con `desktop-file-validate` si está disponible; una entrada
+  mal formada desaparece del launcher en silencio.
+- La tabla de terminales está **duplicada** entre `install.sh` y `TERMINALS` en
+  `cmd.rs` (`lead`/`title_flag`/`exec_flag`). Si se unifica, ha de incluir el
+  `lead` de wezterm (`start --`), que no admite `--title`.
+
+### Selector de proyecto (`context::pick_project_root`)
+
+Navegador de directorios que se usa cuando `--pick` está activo o cuando
+`detect()` falla y no hay `--task`. `main.rs` cae ahí automáticamente: es lo que
+hace utilizable la entrada del launcher.
+
+- Mantiene `options` y `actions` en vectores paralelos; despacha por acción, no
+  por el prefijo del texto (un `starts_with("2."")` ya causó un bug: en Linux
+  "2. Volver" instalaba Vibe Coding).
+- Las subcarpetas se marcan con su tipo (`classify_dir`), para que se sepa qué
+  es un proyecto antes de entrar.
+- Los ocultos se listan al final, no se ocultan.
+- Esc / Ctrl-C devuelven `Ok(None)`; `main.rs` sale sin error.
+
 ### Notas de implementación Linux
 
+- **Artefactos de desktop sin extensión**: `platform::desktop_artifact_exts()`
+  devuelve `["exe","msi"]` en Windows y `[]` en Linux. `sh_newest_artifact`
+  interpreta la lista vacía como "cualquier archivo regular", no como "nada que
+  buscar": con `["exe"]` en Linux, `reveal_on_success` nunca encontraba el
+  binario (que no lleva extensión) y siempre caía al fallback.
+- **Wrappers de Vibe Coding**: abren su propia terminal. cosmic-files lanza el
+  paso sin tty, así que un `exec opencode` directo vuelca secuencias ANSI a un
+  pipe. `cmd::terminal_prefix()` construye el argv; se comparte con
+  `spawn_in_terminal` para que ambos coincidan en la forma de invocar el emulador.
+- **Detección de CLIs en `command_exists`**: en Linux es `command -v`, no el
+  `Get-Command` de PowerShell (que siempre daba falso ⇒ menú sin sub-entradas).
 - **Rutas**: todos los literales de ruta en el crate usan `/` como separador. Windows lo acepta y `std::path` lo normaliza, y en Linux el `\` se trataría como carácter literal de nombre de archivo (haría que `clean_project` reportara `[OK]` sin borrar nada). `src/utils/platform.rs` cubre los casos dinámicos.
 - **Ejecutables**: `platform::exe_name("adb")` → `adb.exe` en Windows, `adb` en Linux. Lo usan `adb`, `emulator`, `sdkmanager` y `keytool`.
-- **Gradle**: `platform::find_gradlew()` acepta `gradlew` **y** `gradlew.bat`, porque un proyecto KMP clonado entre Windows y Linux conserva sólo uno de los dos wrappers. `ensure_gradle()` abortaba en Linux antes de hacer nada.
+- **Gradle**: `platform::find_gradlew()` acepta `gradlew` **y** `gradlew.bat`, porque un proyecto KMP clonado entre Windows y Linux conserva sólo uno de los dos wrappers. `ensure_gradle()` abortaba en Linux antes de hacer nada. `gradlew_cmd(ctx, args)` usa el wrapper que exista de verdad (y ejecuta `gradlew.bat` con `sh` si es el único presente); también da `+x` a `gradlew` cuando falta, porque git no siempre lo preserva al clonar entre sistemas.
 - **ANDROID_HOME**: se resuelve por `ANDROID_HOME` → `ANDROID_SDK_ROOT` → `$HOME/Android/Sdk` → `$HOME/android-sdk` → `$XDG_DATA_HOME/Android/Sdk` → `/usr/lib/android-sdk`.
 - **Ventanas**: `spawn_new_window*()` detecta un emulador de terminal (`cosmic-term`, `gnome-terminal`, `konsole`, `xfce4-terminal`, `alacritty`, `kitty`, `wezterm`, `xterm`) y ejecuta el comando con `sh -lc`. Antes, la rama `#[cfg(not(windows))]` seguía invocando `powershell`, lo que dejaba la TUI inutilizable.
 - **Builds**: `reveal_on_success()` genera `sh` en Linux (`find -printf` + `sort -rn` para el artefacto más reciente, `mv` para renombrar, `xdg-open`/`gio open` para revelar). Mantiene la ventana abierta con `read -r` en ambos casos.
@@ -90,7 +139,7 @@ main.rs
           └─ run_global_task() para context-menu y opencode
 
 menu.rs
-  ├─ MenuItem (19 variants: WindowsDev, AndroidDev, ..., InstallDebug, Sha1, Version, ContextMenu)
+  ├─ MenuItem (20 variants: WindowsDev, AndroidDev, ..., InstallDebug, Sha1, Version, ContextMenu)
   ├─ ratatui TUI con cards en grilla 3-columnas, 3 secciones (DEV/MNT/CFG)
   ├─ Filtro por tipo de proyecto (Rust oculta Android/Signing/Keystore)
   ├─ handle_event(): devuelve MenuAction (Run | Quit); teclado + mouse (grid matemático)
@@ -102,7 +151,7 @@ utils/
   ├─ platform.rs — helpers de portabilidad: IS_WINDOWS, exe_name(), gradlew_name(), home_dir(), data_dir(), find_gradlew(), NDK_VERSION
   ├─ cmd.rs — run*, spawn_new_window, spawn_new_window_autoexit, spawn_new_window_interactive, run_npm_install, clear_screen, remove_dir, reveal_on_success
   ├─ ui.rs — ask_text(), ask_password(), success_banner(), info_banner(), pause()
-  └─ android.rs — select_device(), list_avds(), running_emulators(), launch_emulator(), wait_for_emulator_*()
+  └─ android.rs — select_device(), wait_for_device_boot(), list_physical_devices() [sólo dispositivos físicos]
 
 tasks/
   ├─ windows.rs — dev(), build()                         [Tauri only]
@@ -138,7 +187,6 @@ tasks/
 | InstallDebug | oculto | oculto | `kotlin::install_debug` (`:<modulo>:installDebug` + lanza) | oculto |
 | CleanCache | `cleanup::clean_cache` | `cleanup::clean_cache` | `cleanup::clean_cache` | `cleanup::clean_cache` |
 | DebugAndroid | `android::debug` | mensaje info | mensaje info | oculto |
-| LaunchEmulator | `android::launch` | `android::launch` | `android::launch` | oculto |
 | ConfigureSigning | `android::configure_signing` | `android::configure_signing` | `android::configure_signing` | oculto |
 | Sha1 | `sha1::show` | `sha1::show` | `sha1::show` | oculto |
 | Version | `version::bump` (pkg/cargo/tauri) | mensaje info | mensaje info | `version::bump` (Cargo.toml) |
@@ -147,7 +195,6 @@ tasks/
 | InitGit | `git::init` | `git::init` | `git::init` | `git::init` |
 | ManageKeystore | `keystore::manage` | `android::configure_signing` | `android::configure_signing` | oculto |
 | BuildWhatsApp | `whatsapp::build` | `whatsapp::build` | `whatsapp::build` | `whatsapp::build` |
-| LaunchEmulator | `android::launch` | `android::launch` | `android::launch` | oculto |
 | ConfigureTerminal | `terminal::configure` | `terminal::configure` | `terminal::configure` | `terminal::configure` |
 | InstallContextMenu | `context_menu::toggle` | `context_menu::toggle` | `context_menu::toggle` | `context_menu::toggle` |
 | Salir | `Esc` → `process::exit(0)` | ídem | ídem | ídem |
@@ -349,14 +396,28 @@ Detecta el error típico "Project directory ... does not exist" que ocurre cuand
 3. Si responde `s`: elimina y recrea. Si responde `n`: continúa (el build fallará).
 
 ### Device Selection (`android::select_device()`)
-`android::select_device()` elige automáticamente el dispositivo Android:
+
+**Sólo dispositivos físicos.** El emulador se eliminó del flujo: ya no hay
+tarjeta "Emulator", ni task `launch-emulator`, ni `emulator_path` en el contexto,
+ni AVDs. `utils/android.rs` se reduce a `Device { serial }` + `select_device()`.
 
 | Escenario | Comportamiento |
 |-----------|---------------|
-| 1 físico conectado | Auto-selecciona, imprime `[OK] Dispositivo físico detectado: <serial>`, sin menú |
-| > 1 físicos | Muestra menú solo con los físicos |
-| 0 físicos | Muestra menú solo con emuladores (lanza y espera boot si está apagado) |
-| 0 físicos + 0 emuladores | Error |
+| 1 físico conectado | Auto-selecciona, espera `sys.boot_completed` |
+| > 1 físicos | Menú con los físicos, luego espera el boot del elegido |
+| 0 físicos | Error con pasos concretos (debug USB, huella RSA, `adb devices -l`) |
+
+Dos detalles que importan en la práctica:
+
+- **`emulator-*` se filtra** por serie. Si un emulador queda corriendo de antes,
+  no se confunde con un teléfono.
+- **Espera de boot**: un teléfono recién conectado aparece como `device` en
+  `adb devices` pero aún rechaza `adb install`. `wait_for_device_boot()` espera
+  a que `sys.boot_completed` valga `1` (60 s) para fallar tarde, no con un error
+  confuso en medio del build.
+- **`unauthorized` / `offline`**: cuando hay líneas en `adb devices` pero ningún
+  dispositivo utilizable, se diagnostica el caso concreto en vez de decir
+  genéricamente "no se detectaron dispositivos".
 
 ### UI Helpers (`ui.rs`)
 | Función | Descripción |
@@ -407,13 +468,19 @@ Script de instalación para Windows:
 
 Script de instalación para Linux (Pop!_OS / Ubuntu). Diferencias con `install.bat`:
 
-1. Verifica `command -v cargo` en vez de `where cargo`
-2. Cierra instancias con `pkill -x code-runner` en vez de `taskkill`
-3. Compila con `cargo install --path . --force`
-4. Comprueba que exista un emulador de terminal (requisito para las ventanas de dev/build) y avisa si falta
-5. Avisa si `ANDROID_HOME` no está configurado
-6. **No** instala menús contextuales (exclusivo de Windows)
+1. Hace `cd` a su propio directorio (el check de `Cargo.toml` miraba el CWD de
+   quien lo invocaba, y fallaba con `./ruta/al/proyecto/install.sh`)
+2. Verifica `command -v cargo` en vez de `where cargo`
+3. Cierra instancias con `pkill -x code-runner` en vez de `taskkill`
+4. Compila con `cargo install --path . --force`
+5. Instala la **entrada del launcher** (`.desktop`) e iconos PNG en hicolor
+6. Comprueba SDK, **JDK** y node/npm por separado: sin `java` no hay `keytool`
+   (firmas/huellas), ni `sdkmanager` (NDK), ni Gradle
+7. Avisa si `ANDROID_HOME` no está configurado
+8. Menú contextual: **no** se instala por defecto (el de Windows es registro).
+   Opt-in con `./install.sh --with-context-menu`
 
 ## Testing
 
-No hay suite de tests automatizada. La verificación es compilación exitosa (`cargo build`).
+No hay suite de tests automatizada. La verificación es compilación exitosa
+(`cargo build`) más pruebas manuales en la máquina de destino.

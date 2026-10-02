@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::env;
 use anyhow::{Context, Result};
 
@@ -25,7 +25,6 @@ pub struct ProjectContext {
     pub script_dir: PathBuf,
     pub project_type: ProjectType,
     pub android_home: Option<PathBuf>,
-    pub emulator_path: Option<PathBuf>,
     pub ndk_home: Option<PathBuf>,
     pub adb_path: Option<PathBuf>,
     pub sdk_manager: Option<PathBuf>,
@@ -68,7 +67,6 @@ pub(crate) fn kotlin_android_dir(ctx: &ProjectContext) -> PathBuf {
 pub fn detect() -> Result<ProjectContext> {
     let (script_dir, project_type) = detect_project_root()?;
     let android_home = detect_android_home();
-    let emulator_path = detect_emulator_path(&android_home);
     let ndk_home = android_home
         .as_ref()
         .map(|a| a.join("ndk").join(platform::NDK_VERSION));
@@ -76,12 +74,7 @@ pub fn detect() -> Result<ProjectContext> {
         a.join("platform-tools")
             .join(platform::exe_name("adb"))
     });
-    let sdk_manager = android_home.as_ref().map(|a| {
-        a.join("cmdline-tools")
-            .join("latest")
-            .join("bin")
-            .join(platform::exe_name("sdkmanager"))
-    });
+    let sdk_manager = android_home.as_ref().and_then(|a| find_sdkmanager(a));
     let has_node_modules = script_dir.join("node_modules").exists();
     let has_android_project = match project_type {
         ProjectType::Tauri => platform::find_gradlew(
@@ -98,7 +91,6 @@ pub fn detect() -> Result<ProjectContext> {
         script_dir,
         project_type,
         android_home,
-        emulator_path,
         ndk_home,
         adb_path,
         sdk_manager,
@@ -108,55 +100,234 @@ pub fn detect() -> Result<ProjectContext> {
     })
 }
 
+/// ¿Este directorio (sin mirar hacia arriba) es la raíz de un proyecto?
+///
+/// El orden es el de siempre: Flutter → Tauri → KMP → Rust, con `package.json`
+/// como fallback a Tauri para proyectos JS/Node con frontend.
+pub fn classify_dir(d: &Path) -> Option<ProjectType> {
+    if d.join("pubspec.yaml").exists() {
+        return Some(ProjectType::Flutter);
+    }
+    if d.join("tauri.conf.json").exists() {
+        return Some(ProjectType::Tauri);
+    }
+    // Acepta `gradlew` o `gradlew.bat`: en Linux el wrapper no lleva extensión.
+    if platform::find_gradlew(d).is_some() && d.join("settings.gradle.kts").exists() {
+        return Some(ProjectType::Kotlin);
+    }
+    if d.join("package.json").exists() {
+        return Some(ProjectType::Tauri);
+    }
+    if d.join("Cargo.toml").exists() {
+        return Some(ProjectType::Rust);
+    }
+    None
+}
+
 fn detect_project_root() -> Result<(PathBuf, ProjectType)> {
     let current = env::current_dir().context("No se pudo obtener el directorio actual")?;
     let mut dir = Some(current.as_path());
 
     while let Some(d) = dir {
-        if d.join("pubspec.yaml").exists() {
-            return Ok((d.to_path_buf(), ProjectType::Flutter));
-        }
-        if d.join("tauri.conf.json").exists() {
-            return Ok((d.to_path_buf(), ProjectType::Tauri));
-        }
-        // Acepta `gradlew` o `gradlew.bat`: en Linux el wrapper no lleva extensión.
-        if platform::find_gradlew(d).is_some() && d.join("settings.gradle.kts").exists() {
-            return Ok((d.to_path_buf(), ProjectType::Kotlin));
-        }
-        if d.join("package.json").exists() {
-            return Ok((d.to_path_buf(), ProjectType::Tauri));
-        }
-        if d.join("Cargo.toml").exists() {
-            return Ok((d.to_path_buf(), ProjectType::Rust));
+        if let Some(pt) = classify_dir(d) {
+            return Ok((d.to_path_buf(), pt));
         }
         dir = d.parent();
     }
 
     anyhow::bail!(
         "No se encontró un proyecto Tauri, Flutter/Dart, Kotlin Multiplatform o Rust en este directorio ni en sus padres.\n\
-         Asegúrate de ejecutar este comando dentro de la raíz de un proyecto válido."
+         Usa el selector con 'code-runner --pick' para elegir la carpeta del proyecto."
     );
 }
 
-/// Detecta la ruta del emulador de Android desde ANDROID_HOME o rutas comunes.
-fn detect_emulator_path(android_home: &Option<PathBuf>) -> Option<PathBuf> {
-    let emu = platform::exe_name("emulator");
-    let mut candidates: Vec<PathBuf> = Vec::new();
-
-    if let Some(home) = android_home {
-        candidates.push(home.join("emulator").join(&emu));
+/// Etiqueta corta del tipo de proyecto, para el selector.
+fn type_label(pt: ProjectType) -> &'static str {
+    match pt {
+        ProjectType::Tauri => "Tauri",
+        ProjectType::Flutter => "Flutter",
+        ProjectType::Kotlin => "Kotlin",
+        ProjectType::Rust => "Rust",
     }
+}
 
-    if platform::IS_WINDOWS {
-        candidates.push(PathBuf::from(r"E:\SDKs\Android\emulator").join(&emu));
-    } else {
-        if let Some(h) = platform::home_dir() {
-            candidates.push(h.join("Android").join("Sdk").join("emulator").join(&emu));
+/// Navegador interactivo para elegir la carpeta de un proyecto.
+///
+/// Hace falta porque desde el launcher de COSMIC el proceso arranca con el
+/// directorio actual en `$HOME`, donde no hay ningún proyecto que detectar.
+/// `code-runner` cae aquí cuando [`detect`] falla y no se pasó `--task`.
+///
+/// contract: devuelve la raíz elegida, o `Ok(None)` si el usuario cancela con Esc.
+pub fn pick_project_root(start: &Path) -> Result<Option<PathBuf>> {
+    use inquire::{Confirm, Select};
+
+    let mut current = start
+        .canonicalize()
+        .unwrap_or_else(|_| start.to_path_buf());
+
+    loop {
+        let here = classify_dir(&current);
+        // `options[i]` y `actions[i]` van siempre en paralelo: el índice elegido
+        // en el prompt es el mismo que el de `actions`.
+        let mut options: Vec<String> = Vec::new();
+        let mut actions: Vec<Action> = Vec::new();
+
+        // 1. Usar esta misma carpeta, si ya es un proyecto.
+        if let Some(pt) = here {
+            options.push(format!("✔  USAR ESTA CARPETA  ({})", type_label(pt)));
+            actions.push(Action::Use);
         }
-        candidates.push(PathBuf::from("/usr/lib/android-sdk/emulator/emulator"));
+
+        // 2. Subir al padre.
+        if let Some(parent) = current.parent() {
+            if parent != current {
+                options.push("↰  Subir al directorio padre".to_string());
+                actions.push(Action::Up);
+            }
+        }
+
+        // 3. Subdirectorios. Los ocultos van al final.
+        let mut visible: Vec<PathBuf> = Vec::new();
+        let mut hidden: Vec<PathBuf> = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(&current) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if !p.is_dir() {
+                    continue;
+                }
+                let name = entry.file_name().to_string_lossy().into_owned();
+                if name.starts_with('.') {
+                    hidden.push(p);
+                } else {
+                    visible.push(p);
+                }
+            }
+        }
+        visible.sort_by_key(|p| p.file_name().map(|n| n.to_ascii_lowercase()));
+        hidden.sort_by_key(|p| p.file_name().map(|n| n.to_ascii_lowercase()));
+
+        let subdirs: Vec<(PathBuf, Option<ProjectType>)> = visible
+            .iter()
+            .chain(hidden.iter())
+            .map(|p| (p.clone(), classify_dir(p)))
+            .collect();
+
+        for (p, pt) in &subdirs {
+            let name = p.file_name().unwrap_or_default().to_string_lossy();
+            match pt {
+                Some(t) => options.push(format!("  📂 {name}    ({})", type_label(*t))),
+                None => options.push(format!("  📂 {name}")),
+            }
+            actions.push(match pt {
+                Some(_) => Action::Enter(p.clone()),
+                None => Action::Descend(p.clone()),
+            });
+        }
+
+        if options.is_empty() {
+            println!();
+            println!("[INFO] No hay subdirectorios en: {}", current.display());
+            if Confirm::new("¿Salir sin elegir proyecto?")
+                .with_default(true)
+                .prompt()?
+            {
+                return Ok(None);
+            }
+            continue;
+        }
+
+        // Muestra la ruta actual como cabecera del prompt para no perderse.
+        let shown = current.display().to_string();
+        let shown = if shown.len() > 96 {
+            format!("…{}", &shown[shown.len() - 95..])
+        } else {
+            shown
+        };
+        println!();
+        println!("╔══════════════════════════════════════════════════╗");
+        println!("║  SELECCIONA EL PROYECTO                          ║");
+        println!("╚══════════════════════════════════════════════════╝");
+        println!("\n  📂 {shown}\n");
+
+        // `raw_prompt()` devuelve el índice además del valor; `prompt()` sólo el
+        // valor, y aquí necesitamos el índice para mapear a `actions`.
+        let idx = match Select::new("Elige una carpeta:", options)
+            .with_vim_mode(true)
+            .with_page_size(14)
+            .raw_prompt()
+        {
+            Ok(c) => c.index,
+            // Esc / Ctrl-C = cancelar sin escribir nada.
+            Err(_) => {
+                println!("[INFO] Selección cancelada.");
+                return Ok(None);
+            }
+        };
+
+        match actions.get(idx).expect("índice dentro de rango") {
+            Action::Use => return Ok(Some(current.clone())),
+            Action::Up => {
+                if let Some(parent) = current.parent() {
+                    current = parent.to_path_buf();
+                }
+            }
+            Action::Descend(p) | Action::Enter(p) => current = p.clone(),
+        }
+    }
+}
+
+enum Action {
+    Use,
+    Up,
+    /// Entrar en un subdirectorio que no es proyecto, para seguir descendiendo.
+    Descend(PathBuf),
+    /// Entrar en un subdirectorio que ya es la raíz de un proyecto.
+    Enter(PathBuf),
+}
+
+/// Localiza `sdkmanager` dentro de `$ANDROID_HOME/cmdline-tools`.
+///
+/// La documentación y casi todas las herramientas asumen el nombre estable
+/// `cmdline-tools/latest`, pero el layout real varía:
+///
+/// - El instalador de Google descarga una carpeta versionada (`13.0`) y el
+///   usuario (o el paquete de Ubuntu) crea `latest` como symlink.
+/// - El paquete `google-android-cmdline-tools-*-installer` de Ubuntu **no**
+///   crea ese symlink: deja `13.0` a secas, y sin él el runner nunca encontraba
+///   `sdkmanager` y por tanto no podía instalar el NDK.
+///
+/// Se prueba `latest` primero (layout recomendado) y luego la carpeta
+/// versionada más alta, ordenando numéricamente para que `9.0` no gane a
+/// `13.0`.
+fn find_sdkmanager(android_home: &Path) -> Option<PathBuf> {
+    let bin_name = platform::exe_name("sdkmanager");
+    let root = android_home.join("cmdline-tools");
+
+    let latest = root.join("latest").join("bin").join(&bin_name);
+    if latest.exists() {
+        return Some(latest);
     }
 
-    candidates.into_iter().find(|c| c.exists())
+    let mut versions: Vec<(Vec<u64>, PathBuf)> = std::fs::read_dir(&root)
+        .into_iter()
+        .flatten()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_dir())
+        .filter_map(|e| {
+            let name = e.file_name().to_string_lossy().into_owned();
+            let key: Vec<u64> = name.split('.').filter_map(|p| p.parse().ok()).collect();
+            // Una carpeta "latest" residual, o sin dígitos, no es una versión.
+            if key.is_empty() {
+                return None;
+            }
+            let bin = e.path().join("bin").join(&bin_name);
+            bin.exists().then_some((key, bin))
+        })
+        .collect();
+
+    // Mayor versión primero.
+    versions.sort_by(|a, b| b.0.cmp(&a.0));
+    versions.into_iter().next().map(|(_, bin)| bin)
 }
 
 fn detect_android_home() -> Option<PathBuf> {

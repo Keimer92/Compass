@@ -67,26 +67,38 @@ pub fn ask_password(prompt: &str) -> Result<String> {
     Ok(password)
 }
 
-pub fn success_banner(title: &str) {
-    let inner = format!("  \u{2705}  {}  \u{2705}  ", title);
-    let width = inner.len().max(48);
+/// Ancho en columnas de un texto, contando cada `char` como una.
+///
+/// `str::len()` devuelve bytes, y los emojis de los banners (✅, ℹ️) ocupan 3-4
+/// bytes pero 1-2 columnas. Centrar con `len()` descentraba la línea varios
+/// caracteres; por eso el padding se calcula sobre el conteo de caracteres.
+fn display_width(s: &str) -> usize {
+    s.chars().count()
+}
+
+/// Imprime un banner con bordes de caja y el texto centrado.
+fn banner(icon: &str, title: &str) {
+    let inner = format!("  {icon}  {title}  ");
+    let inner_w = display_width(&inner);
+    let width = inner_w.max(48);
     let h_border = "\u{2500}".repeat(width);
+    // Relleno para centrar: `width - inner_w`, partido por los dos lados.
+    let left = (width - inner_w) / 2;
+    let right = width - inner_w - left;
+
     println!();
     println!("  \u{250C}{}\u{2510}", h_border);
-    println!("  \u{2502}{:^width$}\u{2502}", inner);
+    println!("  \u{2502}{}{}{}\u{2502}", " ".repeat(left), inner, " ".repeat(right));
     println!("  \u{2514}{}\u{2518}", h_border);
     println!();
 }
 
+pub fn success_banner(title: &str) {
+    banner("\u{2705}", title);
+}
+
 pub fn info_banner(title: &str) {
-    let inner = format!("  \u{2139}  {}  ", title);
-    let width = inner.len().max(48);
-    let h_border = "\u{2500}".repeat(width);
-    println!();
-    println!("  \u{250C}{}\u{2510}", h_border);
-    println!("  \u{2502}{:^width$}\u{2502}", inner);
-    println!("  \u{2514}{}\u{2518}", h_border);
-    println!();
+    banner("\u{2139}\u{FE0E}", title);
 }
 
 pub fn pause() {

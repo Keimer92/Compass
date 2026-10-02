@@ -37,6 +37,35 @@ fn dir_size(path: &Path) -> u64 {
     walk(path)
 }
 
+/// Todos los directorios llamados `name` bajo `root`, a cualquier profundidad.
+///
+/// La profundidad está acotada para no recorrer un árbol enorme por error.
+fn find_dirs_named(root: &Path, name: &str) -> Vec<std::path::PathBuf> {
+    fn walk(dir: &Path, name: &str, depth: usize, out: &mut Vec<std::path::PathBuf>) {
+        if depth > 8 {
+            return;
+        }
+        let Ok(entries) = std::fs::read_dir(dir) else { return };
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if !p.is_dir() {
+                continue;
+            }
+            if entry.file_name() == std::ffi::OsStr::new(name) {
+                out.push(p.clone());
+            } else {
+                walk(&p, name, depth + 1, out);
+            }
+        }
+    }
+
+    let mut out = Vec::new();
+    if root.is_dir() {
+        walk(root, name, 0, &mut out);
+    }
+    out
+}
+
 fn clean_cache_tauri(ctx: &ProjectContext, aggressive: bool) -> Result<()> {
     if aggressive {
         println!("[INFO] Limpieza agresiva...\n");
@@ -68,8 +97,8 @@ fn clean_cache_tauri(ctx: &ProjectContext, aggressive: bool) -> Result<()> {
         println!("\n[INFO] Limpieza rápida (builds)...\n");
         let targets = [
             ("Android build", ctx.script_dir.join("src-tauri/gen/android/app/build")),
-            ("Windows Release", ctx.script_dir.join("src-tauri/target/release")),
-            ("Windows Debug", ctx.script_dir.join("src-tauri/target/debug")),
+            ("Release", ctx.script_dir.join("src-tauri/target/release")),
+            ("Debug", ctx.script_dir.join("src-tauri/target/debug")),
             ("Dist", ctx.script_dir.join("dist")),
             ("Vite cache", ctx.script_dir.join("node_modules/.vite")),
         ];
@@ -205,7 +234,7 @@ pub fn clean_cache(ctx: &ProjectContext) -> Result<()> {
     println!();
 
     let (opt1, opt2) = match ctx.project_type {
-        ProjectType::Tauri => ("1. Rápida - Solo limpia builds (Android + Windows)", "2. Agresiva - Limpia TODO (target, node_modules, npm cache, builds)"),
+        ProjectType::Tauri => ("1. Rápida - Solo limpia builds (Android + Desktop)", "2. Agresiva - Limpia TODO (target, node_modules, npm cache, builds)"),
         ProjectType::Flutter => ("1. Rápida - Solo limpia builds (Android + Flutter)", "2. Agresiva - Limpia TODO (build, node_modules, Flutter cache)"),
         ProjectType::Kotlin => ("1. Rápida - Solo limpia builds (Gradle + Kotlin)", "2. Agresiva - Limpia TODO (build, .gradle, node_modules, npm cache)"),
         ProjectType::Rust => ("1. Rápida - Solo limpia target/", "2. Agresiva - cargo clean + cache"),
@@ -307,7 +336,6 @@ pub fn clean_project(ctx: &ProjectContext) -> Result<()> {
             "android/app/proguard-tauri.pro",
             "android/app/tauri.build.gradle.kts",
             "android/app/tauri.properties",
-            "android/app/src/main/java/com/schooltracker/proela/generated",
             "schemas",
         ];
         for rel in &artifacts {
@@ -316,6 +344,13 @@ pub fn clean_project(ctx: &ProjectContext) -> Result<()> {
                 if full.is_dir() { cmd::remove_dir(&full).ok(); }
                 else { std::fs::remove_file(&full).ok(); }
             }
+        }
+        // Los `generated` del código Kotlin/Java (protobuf, data binding) viven
+        // bajo el paquete de la app, cuyo nombre depende del `identifier` del
+        // proyecto. Se barren por nombre de carpeta en vez de hardcodear una ruta
+        // que sólo tenía sentido para un proyecto concreto.
+        for generated in find_dirs_named(&gen_dir.join("android/app/src/main/java"), "generated") {
+            cmd::remove_dir(&generated).ok();
         }
         println!("  [OK] gen/ ({})", format_size(size));
     }
@@ -395,8 +430,8 @@ pub fn clean_project(ctx: &ProjectContext) -> Result<()> {
     println!("Para compilar en una máquina nueva:");
     println!("  1. npm install");
     println!("  2. npx tauri android init  (solo para Android)");
-    println!("  3. npm run tauri dev       (Windows)");
-    println!("  4. npm run tauri android dev (Android)");
+    println!("  3. npm run tauri dev          (Desktop)");
+    println!("  4. npm run tauri android dev  (Android)");
 
     pause();
     Ok(())

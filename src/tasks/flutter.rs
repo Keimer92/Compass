@@ -44,14 +44,24 @@ fn read_flutter_app_meta(ctx: &ProjectContext) -> Option<(String, String)> {
     Some((sanitize_app_name(&name?), version?))
 }
 
+/// Target de Flutter para desktop en la plataforma actual.
+///
+/// Antes era `windows` fijo, así que en Linux `flutter run -d windows` fallaba
+/// con "no supported devices". Flutter usa `linux` en Linux y `windows` en
+/// Windows; `flutter run -d <target>` sin `-d` también valía, pero ser
+/// explícito da un error más claro si falta el toolchain del desktop.
+fn desktop_target() -> &'static str {
+    if crate::utils::platform::IS_WINDOWS { "windows" } else { "linux" }
+}
+
 pub fn run_windows(ctx: &ProjectContext) -> Result<()> {
     ensure_pubget(ctx)?;
     ensure_whatsapp_npm(ctx)?;
 
     cmd::spawn_new_window_interactive(
-        "Flutter Windows (Dev)",
+        "Flutter Desktop (Dev)",
         &ctx.script_dir,
-        "flutter run -d windows",
+        &format!("flutter run -d {}", desktop_target()),
     )?;
 
     Ok(())
@@ -77,9 +87,9 @@ pub fn profile_windows(ctx: &ProjectContext) -> Result<()> {
     ensure_whatsapp_npm(ctx)?;
 
     cmd::spawn_new_window_interactive(
-        "Flutter Windows (Profile)",
+        "Flutter Desktop (Profile)",
         &ctx.script_dir,
-        "flutter run --profile -d windows",
+        &format!("flutter run --profile -d {}", desktop_target()),
     )?;
 
     Ok(())
@@ -101,15 +111,23 @@ pub fn profile_android(ctx: &ProjectContext) -> Result<()> {
 }
 
 pub fn build_windows(ctx: &ProjectContext) -> Result<()> {
-    println!("\n[INFO] Compilando Windows (Release)...\n");
+    println!("\n[INFO] Compilando aplicación de escritorio (Release)...\n");
     ensure_pubget(ctx)?;
     ensure_whatsapp_npm(ctx)?;
 
-    let release_dir = ctx.script_dir.join("build/windows/x64/runner/Release");
-    let cmd_line = cmd::reveal_on_success("flutter build windows --release", &release_dir, &["exe"], None);
+    let target = desktop_target();
+    // Flutter no escribe los artefactos en una ruta fija por plataforma, así que
+    // se busca de forma recursiva bajo build/ en vez de hardcodear la de Windows.
+    let release_dir = ctx.script_dir.join("build");
+    let cmd_line = cmd::reveal_on_success(
+        &format!("flutter build {target} --release"),
+        &release_dir,
+        crate::utils::platform::desktop_artifact_exts(),
+        None,
+    );
 
     cmd::spawn_new_window(
-        "Flutter Windows Build (Release)",
+        "Flutter Desktop Build (Release)",
         &ctx.script_dir,
         &cmd_line,
     )?;

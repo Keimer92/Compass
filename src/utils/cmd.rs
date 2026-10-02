@@ -94,37 +94,79 @@ pub fn run_npm_install(dir: &std::path::Path) -> Result<()> {
 // `konsole`, `xterm`, ...). Sin esto, `spawn_new_window*` heredaba la terminal
 // de la TUI y la pintaba encima, dejándola inutilizable.
 
-/// Emulador de terminal + prefijo de args para fijar título y ejecutar `sh -lc`.
+/// Emulador de terminal conocido, con su forma exacta de invocar un comando.
 ///
-/// El último elemento de cada tupla es el argv que precede al script de shell.
 /// `cosmic-term` va primero: es el terminal por defecto de Pop!_OS/COSMIC, y en
 /// una instalación COSMIC limpia puede ser el único emulador disponible.
 ///
-/// Nota: `cosmic-term` sigue la convención de `alacritty_terminal` (`-e` para
-/// ejecutar, `--title` para el título). Si una versión rechazara `-e`, `spawn()`
-/// devuelve error y se reporta en vez de fallar en silencio.
+/// Los tres campos separan lo que antes se mezclaba en un único `&[&str]`:
+/// - `lead`: argumentos previos, sólo para los que lanzan subcomando
+///   (`wezterm start --`).
+/// - `title_flag`: flag del título, o `None` si el terminal no lo expone.
+/// - `exec_flag`: flag que introduce el comando a ejecutar.
+///
+/// `wezterm` necesita `lead` porque no acepta `--title`; con el modelo anterior
+/// (`&["start", "--"]` playing el papel de flag de título) se le pasaba
+/// `'título' -e ...` como argumentos sueltos.
 #[cfg(not(windows))]
-const TERMINALS: &[(&str, &[&str])] = &[
-    ("cosmic-term", &["--title"]),
-    ("gnome-terminal", &["--title"]),
-    ("konsole", &["--title"]),
-    ("xfce4-terminal", &["--title"]),
-    ("alacritty", &["--title"]),
-    ("kitty", &["--title"]),
-    ("wezterm", &["start", "--"]),
-    ("xterm", &["-T"]),
+struct TerminalSpec {
+    bin: &'static str,
+    lead: &'static [&'static str],
+    title_flag: Option<&'static str>,
+    exec_flag: &'static str,
+}
+
+#[cfg(not(windows))]
+const TERMINALS: &[TerminalSpec] = &[
+    TerminalSpec { bin: "cosmic-term",     lead: &[],                title_flag: Some("--title"), exec_flag: "-e" },
+    TerminalSpec { bin: "gnome-terminal",  lead: &[],                title_flag: Some("--title"), exec_flag: "-e" },
+    TerminalSpec { bin: "konsole",         lead: &[],                title_flag: Some("--title"), exec_flag: "-e" },
+    TerminalSpec { bin: "xfce4-terminal",  lead: &[],                title_flag: Some("--title"), exec_flag: "-e" },
+    TerminalSpec { bin: "alacritty",       lead: &[],                title_flag: Some("--title"), exec_flag: "-e" },
+    TerminalSpec { bin: "kitty",           lead: &[],                title_flag: Some("--title"), exec_flag: "-e" },
+    TerminalSpec { bin: "wezterm",         lead: &["start", "--"],    title_flag: None,           exec_flag: "" },
+    TerminalSpec { bin: "xterm",           lead: &[],                title_flag: Some("-T"),      exec_flag: "-e" },
 ];
 
-/// Devuelve el primer emulador de terminal disponible en el PATH.
+/// Primer emulador de terminal disponible en el PATH.
+///
+/// Se busca en el orden de [`TERMINALS`], que pone primero los de Pop!_OS.
 #[cfg(not(windows))]
-fn detect_terminal() -> Option<(&'static str, &'static [&'static str])> {
-    TERMINALS.iter().copied().find(|(bin, _)| {
+fn detect_terminal() -> Option<&'static TerminalSpec> {
+    TERMINALS.iter().find(|spec| {
         Command::new("sh")
-            .args(["-c", &format!("command -v {bin}")])
+            .args(["-c", &format!("command -v {}", spec.bin)])
             .output()
             .map(|o| o.status.success())
             .unwrap_or(false)
     })
+}
+
+/// Prefijo de argv para abrir `script` en una ventana de terminal nueva.
+///
+/// Devuelve `None` si no hay ningún emulador instalado. Es la mitad "cómo
+/// invocar un terminal" de [`spawn_in_terminal`], expuesta por separado porque
+/// `context_menu_cosmic` la necesita para incrustarla en los wrappers `vibe-*`
+/// (que corren sin tty y deben abrir su propia ventana).
+///
+/// En Windows devuelve `None`: allí las ventanas se abren con
+/// `CREATE_NEW_CONSOLE`, no con un emulador.
+pub fn terminal_prefix(title: &str, script: &str) -> Option<Vec<String>> {
+    let spec = detect_terminal()?;
+    let mut argv: Vec<String> = Vec::with_capacity(8);
+    argv.push(spec.bin.to_string());
+    argv.extend(spec.lead.iter().map(|s| s.to_string()));
+    if let Some(flag) = spec.title_flag {
+        argv.push(flag.to_string());
+        argv.push(title.to_string());
+    }
+    if !spec.exec_flag.is_empty() {
+        argv.push(spec.exec_flag.to_string());
+    }
+    argv.push("sh".to_string());
+    argv.push("-lc".to_string());
+    argv.push(script.to_string());
+    Some(argv)
 }
 
 /// Escapa una cadena para incrustarla entre comillas simples en POSIX `sh`.
@@ -136,26 +178,23 @@ fn sh_quote(s: &str) -> String {
 /// Envuelve `script` en un emulador de terminal nuevo y lo lanza.
 #[cfg(not(windows))]
 fn spawn_in_terminal(title: &str, script: &str) -> Result<()> {
-    let (bin, title_flag) = detect_terminal().with_context(|| {
+    let argv = terminal_prefix(title, script).with_context(|| {
         "[ERROR] No se encontró ningún emulador de terminal.\n\
-         Instala uno de: gnome-terminal, konsole, xfce4-terminal, alacritty, kitty, wezterm, xterm"
+         Instala uno de: cosmic-term, gnome-terminal, konsole, xfce4-terminal, alacritty, kitty, wezterm, xterm"
     })?;
 
-    // `wezterm start -- <cmd>` no acepta `--title`; se omite el flag.
-    let mut args: Vec<String> = title_flag.iter().map(|s| s.to_string()).collect();
-    if !title_flag.is_empty() {
-        args.push(title.to_string());
-    }
-    args.push("-e".to_string());
-    args.push("sh".to_string());
-    args.push("-lc".to_string());
-    args.push(script.to_string());
-
-    Command::new(bin)
-        .args(&args)
+    let bin = argv[0].clone();
+    Command::new(&bin)
+        .args(&argv[1..])
         .spawn()
         .with_context(|| format!("No se pudo abrir una ventana de {bin}"))?;
     Ok(())
+}
+
+/// En Windows no hay emulador externo que lanzar: ver `spawn_in_terminal`.
+#[cfg(windows)]
+pub fn terminal_prefix(_title: &str, _script: &str) -> Option<Vec<String>> {
+    None
 }
 
 /// Abre una ventana de terminal que **permanece abierta** al terminar el comando.

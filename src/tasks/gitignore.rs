@@ -231,7 +231,7 @@ fn print_preserved(project_type: ProjectType) {
             println!("  - composeApp/build.gradle.kts");
             println!("  - settings.gradle.kts, gradle.properties");
             println!("  - gradle/wrapper/ (Gradle Wrapper)");
-            println!("  - gradlew + gradlew.bat");
+            println!("  - gradlew + gradlew.bat (wrappers de ambas plataformas)");
         }
     }
 }
@@ -247,12 +247,12 @@ fn print_instructions(project_type: ProjectType) {
             println!("  1. git clone <repo>");
             println!("  2. npm install");
             println!("  3. npx tauri android init (solo si compilas para Android)");
-            println!("  4. npm run tauri dev (Windows) / tauri android dev (Android)");
+            println!("  4. npm run tauri dev (Desktop) / tauri android dev (Android)");
         }
         ProjectType::Flutter => {
             println!("  1. git clone <repo>");
             println!("  2. flutter pub get");
-            println!("  3. flutter run (Windows) / flutter run (Android)");
+            println!("  3. flutter run (Desktop) / flutter run (Android)");
         }
         ProjectType::Kotlin => {
             println!("  1. git clone <repo>");

@@ -127,14 +127,45 @@ fn release_signing_env(ctx: &ProjectContext) -> Option<String> {
     }
 }
 
-fn gradlew_cmd(args: &str) -> String {
-    // En Windows Gradle se invoca a través de `cmd` porque PowerShell no puede
-    // ejecutar un `.bat` directamente. En Linux, `./gradlew` (el wrapper POSIX).
+/// Comando para invocar el wrapper de Gradle en la raíz del proyecto.
+///
+/// En Windows Gradle se llama a través de `cmd` porque PowerShell no puede
+/// ejecutar un `.bat` directamente. En Linux se usa el wrapper POSIX `./gradlew`.
+///
+/// No se hardcodea el nombre: un proyecto clonado entre Windows y Linux conserva
+/// sólo uno de los dos wrappers, y `find_gradlew` acepta ambos. Además se
+/// comprueba el bit de ejecución y se añade si falta — git no siempre lo
+/// preserva al clonar entre sistemas de archivos distintos.
+fn gradlew_cmd(ctx: &ProjectContext, args: &str) -> String {
     if platform::IS_WINDOWS {
-        format!("cmd /c gradlew.bat {}", args)
-    } else {
-        format!("./gradlew {}", args)
+        return format!("cmd /c gradlew.bat {}", args);
     }
+
+    let wrapper = platform::find_gradlew(&ctx.script_dir)
+        .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+        .unwrap_or_else(|| platform::gradlew_name().to_string());
+
+    // Si sólo llegó `gradlew.bat` a Linux, hay que ejecutarlo con `sh`: los .bat
+    // no corren en POSIX.
+    if wrapper.ends_with(".bat") {
+        return format!("sh gradlew.bat {}", args);
+    }
+
+    // Sin bit +x, `./gradlew` da Permission denied. Se corrige en el sitio y se
+    // avisa, en vez de fallar con un error poco claro dentro de la ventana.
+    let path = ctx.script_dir.join(&wrapper);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(meta) = std::fs::metadata(&path) {
+            if meta.permissions().mode() & 0o111 == 0 {
+                let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755));
+                println!("[INFO] Se dio +x a {} (no lo tenía).", wrapper);
+            }
+        }
+    }
+
+    format!("./{} {}", wrapper, args)
 }
 
 /// Detecta si el modulo Gradle de un proyecto Kotlin es `:app` o `:composeApp`
@@ -173,23 +204,33 @@ pub fn run_windows(ctx: &ProjectContext) -> Result<()> {
     cmd::spawn_new_window_interactive(
         "KMP Desktop (Run)",
         &ctx.script_dir,
-        &gradlew_cmd(&format!("{}:run", gradle_module(ctx))),
+        &gradlew_cmd(ctx, &format!("{}:run", gradle_module(ctx))),
     )?;
 
     Ok(())
 }
 
-fn extract_namespace(project_dir: &std::path::Path) -> Option<String> {
+/// Extrae `namespace = "..."` del módulo Gradle Android.
+///
+/// Se resuelven los dos nombres de módulo (`app` y `composeApp`) porque
+/// `kotlin_android_dir` ya los distingue: hardcodear `composeApp/` hacía que los
+/// proyectos con módulo `:app` cayesen al namespace de ejemplo y el
+/// `am start` posterior apuntara a una actividad inexistente.
+fn extract_namespace(ctx: &ProjectContext) -> Option<String> {
+    let module_dir = kotlin_android_dir(ctx);
     let paths = [
-        project_dir.join("composeApp/build.gradle.kts"),
-        project_dir.join("composeApp/build.gradle"),
+        module_dir.join("build.gradle.kts"),
+        module_dir.join("build.gradle"),
     ];
     for p in &paths {
         if let Ok(content) = std::fs::read_to_string(p) {
             for line in content.lines() {
                 let trimmed = line.trim();
                 if let Some(ns) = trimmed.strip_prefix("namespace = ") {
-                    return Some(ns.trim_matches('"').to_string());
+                    let ns = ns.trim().trim_matches('"').trim_matches('\'').trim_end_matches(';');
+                    if !ns.is_empty() {
+                        return Some(ns.to_string());
+                    }
                 }
             }
         }
@@ -233,7 +274,7 @@ fn install_and_launch_cmd(ctx: &ProjectContext, serial: &str) -> String {
         .map(|p| p.display().to_string())
         .unwrap_or_else(|| "adb".to_string());
 
-    let namespace = extract_namespace(&ctx.script_dir)
+    let namespace = extract_namespace(ctx)
         .unwrap_or_else(|| "com.example.app".to_string());
 
     let activity = extract_main_activity_package(ctx)
@@ -250,7 +291,7 @@ fn install_and_launch_cmd(ctx: &ProjectContext, serial: &str) -> String {
                  & '{}' shell am start -n '{}/{}' \
              }}",
             serial,
-            gradlew_cmd(&format!("{}:installDebug", gradle_module(ctx))),
+            gradlew_cmd(ctx, &format!("{}:installDebug", gradle_module(ctx))),
             adb_path,
             namespace,
             activity,
@@ -265,7 +306,7 @@ fn install_and_launch_cmd(ctx: &ProjectContext, serial: &str) -> String {
                  '{}' shell am start -n '{}/{}' \
              fi",
             serial,
-            gradlew_cmd(&format!("{}:installDebug", gradle_module(ctx))),
+            gradlew_cmd(ctx, &format!("{}:installDebug", gradle_module(ctx))),
             adb_path,
             namespace,
             activity,
@@ -308,15 +349,17 @@ pub fn install_debug(ctx: &ProjectContext) -> Result<()> {
 }
 
 pub fn build_windows(ctx: &ProjectContext) -> Result<()> {
-    println!("\n[INFO] Compilando Windows (Desktop) con Gradle...\n");
+    println!("\n[INFO] Compilando aplicación de escritorio con Gradle...\n");
     ensure_gradle(ctx)?;
     ensure_whatsapp_npm(ctx)?;
 
     let dist_dir = kotlin_android_dir(ctx).join("build").join("compose").join("binaries").join("main");
     let cmd_line = cmd::reveal_on_success(
-        &gradlew_cmd(&format!("{}:packageDistributionForCurrentOS", gradle_module(ctx))),
+        &gradlew_cmd(ctx, &format!("{}:packageDistributionForCurrentOS", gradle_module(ctx))),
         &dist_dir,
-        &["exe"],
+        // KMP genera un binario sin extensión en Linux; con la lista de Windows
+        // ("exe") el find no encontraba nada y nunca se revelaba el artefacto.
+        platform::desktop_artifact_exts(),
         None,
     );
 
@@ -334,7 +377,7 @@ pub fn build_apk(ctx: &ProjectContext) -> Result<()> {
     ensure_gradle(ctx)?;
 
     let android_dir = kotlin_android_dir(ctx);
-    let mut gradle = gradlew_cmd(&format!("{}:assembleRelease", gradle_module(ctx)));
+    let mut gradle = gradlew_cmd(ctx, &format!("{}:assembleRelease", gradle_module(ctx)));
     if let Some(env) = release_signing_env(ctx) {
         gradle = format!("{}; {}", env, gradle);
     } else {
@@ -363,7 +406,7 @@ pub fn build_aab(ctx: &ProjectContext) -> Result<()> {
     ensure_gradle(ctx)?;
 
     let android_dir = kotlin_android_dir(ctx);
-    let mut gradle = gradlew_cmd(&format!("{}:bundleRelease", gradle_module(ctx)));
+    let mut gradle = gradlew_cmd(ctx, &format!("{}:bundleRelease", gradle_module(ctx)));
     if let Some(env) = release_signing_env(ctx) {
         gradle = format!("{}; {}", env, gradle);
     } else {
@@ -413,7 +456,7 @@ pub fn clean(ctx: &ProjectContext) -> Result<()> {
     println!("  - {}/build.gradle.kts", module_name);
     println!("  - settings.gradle.kts, gradle.properties");
     println!("  - gradle/wrapper/ (wrapper no se borra)");
-    println!("  - gradlew + gradlew.bat");
+    println!("  - gradlew + gradlew.bat (wrappers de ambas plataformas)");
     println!("  - whatsapp_engine/ (motor WhatsApp)");
     println!("  - {}/resources/whatsapp-engine-bundle/ (bundle WhatsApp compilado)", module_name);
     println!("  - Firmas: keystore.properties, *.keystore, *.jks");
@@ -436,10 +479,18 @@ pub fn clean(ctx: &ProjectContext) -> Result<()> {
 
     // 1. gradle clean
     pb.set_message("Ejecutando gradle clean");
-    let _ = if cfg!(windows) {
+    let _ = if platform::IS_WINDOWS {
         cmd::run_in_dir("cmd", &["/c", "gradlew.bat", "clean"], &ctx.script_dir)
     } else {
-        cmd::run_in_dir("./gradlew", &["clean"], &ctx.script_dir)
+        // Misma resolución que `gradlew_cmd`: usa el wrapper que exista de verdad.
+        let wrapper = platform::find_gradlew(&ctx.script_dir)
+            .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+            .unwrap_or_else(|| platform::gradlew_name().to_string());
+        if wrapper.ends_with(".bat") {
+            cmd::run_in_dir("sh", &["gradlew.bat", "clean"], &ctx.script_dir)
+        } else {
+            cmd::run_in_dir(&format!("./{wrapper}"), &["clean"], &ctx.script_dir)
+        }
     };
     pb.inc(1);
 

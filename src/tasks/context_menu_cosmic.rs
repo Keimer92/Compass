@@ -120,30 +120,85 @@ fn cosmic_files_installed() -> bool {
 
 fn cmd_has(bin: &str) -> bool {
     std::process::Command::new("sh")
-        .args(["-c", &format!("command -v {bin}")])
+        .args(["-c", &format!("command -v -- {}", shell_quote(bin))])
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false)
 }
 
+/// ¿Está disponible el binario de una línea de comando como `opencode --auto`?
+///
+/// Sólo se mira el primer token: los flags (`--auto`, `-i`) no son ejecutables.
+fn cli_available(cli: &str) -> bool {
+    cli.split_whitespace()
+        .next()
+        .map(cmd_has)
+        .unwrap_or(false)
+}
+
 /// Escribe (o sobreescribe) el wrapper de una herramienta.
 ///
-/// El wrapper recibe la carpeta como `$1`, hace `cd`, y `exec` la CLI para que
-/// los signals lleguen al proceso real y no al wrapper.
+/// El wrapper recibe la carpeta como `$1` y **abre su propia ventana de
+/// terminal** en ella. Esto no es opcional: cosmic-files lanza el paso sin tty
+/// (stdin/stdout heredados a un pipe), y estas CLIs son TUI. Con un `exec
+/// opencode` directo, OpenCode y cline escriben sus secuencias ANSI al pipe y no
+/// queda una sesión interactiva usable.
+///
+/// `read -r` al final mantiene la ventana abierta para poder leer la salida,
+/// igual que las ventanas de dev/build. Sin emulador instalado cae a ejecución
+/// directa, con un aviso en el propio wrapper.
 fn write_wrapper(dir: &std::path::Path, title: &str, cli: &str) -> Result<PathBuf> {
     let path = dir.join(wrapper_name(title));
-    let script = format!(
-        "#!/usr/bin/env sh\n\
-         # Generado por code-runner. Lanza {title} en la carpeta recibida.\n\
-         set -e\n\
-         target=\"${{1:-$(pwd)}}\"\n\
-         cd \"$target\" || exit 1\n\
-         exec {cli}\n"
-    );
+
+    // `cli` va como un solo argumento del shell embebido, no partido en tokens:
+    // `opencode --auto` debe llegarle a `sh -lc` como una sola cadena de
+    // comandos. Por eso se cita aquí y dentro se deja sin comillas.
+    let script = match crate::utils::cmd::terminal_prefix(
+        title,
+        &format!(
+            r#"cd "$target" || exit 1; {cli}; rc=$?; echo; \
+               if [ $rc -ne 0 ]; then echo "[ERROR] {title} terminó con código $rc."; fi; \
+               read -r"#
+        ),
+    ) {
+        Some(argv) => {
+            let cmd_line = argv
+                .iter()
+                .map(|a| shell_quote(a))
+                .collect::<Vec<_>>()
+                .join(" ");
+            format!(
+                "#!/usr/bin/env sh\n\
+                 # Generado por code-runner. Abre {title} en la carpeta recibida.\n\
+                 # Abre su propia terminal porque cosmic-files no asigna un tty,\n\
+                 # y sin tty la TUI de la CLI no es interactiva.\n\
+                 set -e\n\
+                 target=\"${{1:-$(pwd)}}\"\n\
+                 [ -d \"$target\" ] || {{ echo \"No existe: $target\" >&2; exit 1; }}\n\
+                 exec {cmd_line}\n"
+            )
+        }
+        None => format!(
+            "#!/usr/bin/env sh\n\
+             # Generado por code-runner. Lanza {title} en la carpeta recibida.\n\
+             # [WARN] No se encontró emulador de terminal, así que la CLI se lanza\n\
+             #        sin tty y su TUI no será interactiva.\n\
+             set -e\n\
+             target=\"${{1:-$(pwd)}}\"\n\
+             cd \"$target\" || exit 1\n\
+             exec {cli}\n"
+        ),
+    };
+
     std::fs::write(&path, script)
         .with_context(|| format!("No se pudo escribir {}", path.display()))?;
     set_executable(&path)?;
     Ok(path)
+}
+
+/// Entrecomilla `s` para POSIX `sh` (comillas simples, escapando la interna).
+fn shell_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', r"'\''"))
 }
 
 fn set_executable(path: &std::path::Path) -> Result<()> {
@@ -193,17 +248,33 @@ pub fn install() -> Result<()> {
     let dir = wrapper_dir().context("No se pudo determinar el directorio de datos")?;
     let cfg = config_path().context("No se pudo determinar XDG_CONFIG_HOME")?;
 
-    // Presets que tenemos intención de instalar.
+    // Sólo las CLIs realmente disponibles: un preset cuyo comando no existe
+    // abre una ventana que muere al instante, que es peor que no mostrarla.
     let wanted: Vec<(&str, &str)> = VIBE_TOOLS
         .iter()
+        .filter(|t| cli_available(t.cli))
         .map(|t| (t.title, t.cli))
         .collect();
 
+    let missing: Vec<&str> = VIBE_TOOLS
+        .iter()
+        .filter(|t| !cli_available(t.cli))
+        .map(|t| t.title)
+        .collect();
+
     if wanted.is_empty() {
-        anyhow::bail!("[ERROR] No se encontró ninguna CLI de Vibe Coding en el PATH.");
+        anyhow::bail!(
+            "[ERROR] No se encontró ninguna CLI de Vibe Coding en el PATH.\n\
+             Instala al menos una (opencode, kilo, cline o agy) y vuelve a ejecutar\n\
+             'code-runner --task opencode-install'."
+        );
     }
 
     println!("[INFO] Instalando entradas de Vibe Coding en COSMIC Files...");
+    if !missing.is_empty() {
+        println!("[WARN] No se encontraron: {}", missing.join(", "));
+        println!("[WARN] Sólo se instalarán las que sí están disponibles.");
+    }
     std::fs::create_dir_all(&dir)
         .with_context(|| format!("No se pudo crear {}", dir.display()))?;
 

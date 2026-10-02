@@ -19,7 +19,14 @@ struct Cli {
     #[arg(short, long, help = "Ruta del proyecto (se autodetecta por defecto)")]
     path: Option<String>,
 
-    #[arg(long, help = "Registrar eventos del menú TUI en %TEMP%\\code-runner-tui.log")]
+    /// Elegir la carpeta del proyecto con un navegador, en vez de autodetectar.
+    ///
+    /// Necesario cuando se lanza desde el launcher de COSMIC, donde el
+    /// directorio actual es `$HOME` y no hay ningún proyecto que detectar.
+    #[arg(long, help = "Elegir la carpeta del proyecto con un navegador")]
+    pick: bool,
+
+    #[arg(long, help = "Registrar eventos del menú TUI en <tmpdir>/code-runner-tui.log")]
     trace: bool,
 }
 
@@ -37,15 +44,54 @@ fn main() -> Result<()> {
         }
     }
 
-    let ctx = if let Some(p) = &cli.path {
+    // ── Resolución de la carpeta del proyecto ──
+    //
+    // Tres caminos, en orden de prioridad:
+    //   1. `--pick`      → abre el navegador siempre.
+    //   2. `--path`      → usa la ruta explícita.
+    //   3. autodetección → sube desde el CWD; si falla y no hay `--task`,
+    //                     cae al navegador (así se puede usar desde el launcher,
+    //                     que arranca en `$HOME` sin ningún proyecto).
+    let dir = if cli.pick {
+        match utils::context::pick_project_root(&std::env::current_dir()?)? {
+            Some(d) => d,
+            None => {
+                println!("[INFO] No se eligió ningún proyecto.");
+                return Ok(());
+            }
+        }
+    } else if let Some(p) = &cli.path {
         let dir = std::path::PathBuf::from(p);
         if !dir.exists() {
             anyhow::bail!("La ruta especificada no existe: {}", p);
         }
-        std::env::set_current_dir(&dir)?;
-        utils::context::detect()?
+        dir
     } else {
-        utils::context::detect()?
+        std::env::current_dir()?
+    };
+
+    std::env::set_current_dir(&dir)?;
+
+    let ctx = match utils::context::detect() {
+        Ok(c) => c,
+        Err(e) => {
+            // Con `--task` el error es el resultado real: no tiene sentido
+            // preguntar nada. Sin `--task` damos la opción de elegir carpeta.
+            if cli.task.is_some() {
+                return Err(e);
+            }
+            eprintln!("\n[WARN] {}\n", e);
+            match utils::context::pick_project_root(&dir)? {
+                Some(d) => {
+                    std::env::set_current_dir(&d)?;
+                    utils::context::detect()?
+                }
+                None => {
+                    println!("[INFO] No se eligió ningún proyecto.");
+                    return Ok(());
+                }
+            }
+        }
     };
 
     if let Some(task) = &cli.task {
@@ -151,12 +197,15 @@ fn run_task_direct(ctx: &crate::utils::context::ProjectContext, task: &str) -> R
             crate::utils::context::ProjectType::Kotlin => tasks::android::configure_signing(ctx),
             crate::utils::context::ProjectType::Rust => anyhow::bail!("No aplicable a proyectos Rust"),
         },
-        "launch-emulator" => tasks::android::launch(ctx),
         "whatsapp" => tasks::whatsapp::build(ctx),
         "terminal" => tasks::terminal::configure(ctx),
         "flutter-profile" => {
             println!("\n[INFO] Selecciona la plataforma para Profile:\n");
-            println!("  1. Windows");
+            if utils::platform::IS_WINDOWS {
+                println!("  1. Windows");
+            } else {
+                println!("  1. Linux");
+            }
             println!("  2. Android");
             print!("\nOpcion: ");
             io::stdout().flush()?;

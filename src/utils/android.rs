@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::path::Path;
 use std::time::Duration;
 
@@ -7,247 +6,160 @@ use inquire::Select;
 
 use crate::utils::{cmd, context::ProjectContext};
 
-#[derive(Debug, Clone)]
-pub enum DeviceKind {
-    Emulator { avd_name: String, running: bool },
-    Physical,
-}
-
+/// Dispositivo Android disponible para instalar/ejecutar.
+///
+/// Sólo dispositivos físicos: el emulador se eliminó del flujo. Cualquier
+/// serie que empiece por `emulator-` se filtra, de modo que un emulador que
+/// estuviera corriendo no se confunde con un teléfono.
 #[derive(Debug, Clone)]
 pub struct Device {
     pub serial: String,
-    pub kind: DeviceKind,
 }
 
 impl Device {
     fn label(&self) -> String {
-        match &self.kind {
-            DeviceKind::Emulator { avd_name, running } => {
-                let status = if *running { "🟢" } else { "⚫" };
-                format!("{} Emulator: {} ({})", status, avd_name, self.serial)
-            }
-            DeviceKind::Physical => {
-                format!("📱 Físico: {}", self.serial)
-            }
-        }
+        format!("Físico: {}", self.serial)
     }
 }
 
-pub fn list_avds(emulator_path: &Path) -> Result<Vec<String>> {
-    let output = cmd::run(
-        emulator_path.to_str().context("Ruta de emulador inválida")?,
-        &["-list-avds"],
-    )?;
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let avds: Vec<String> = stdout
-        .lines()
-        .map(|l| l.trim().to_string())
-        .filter(|l| !l.is_empty())
-        .collect();
-    Ok(avds)
-}
-
-pub fn running_emulators(adb_path: &Path) -> HashMap<String, String> {
-    let output = match cmd::run(
-        adb_path.to_str().expect("Ruta de adb inválida"),
-        &["devices"],
-    ) {
-        Ok(o) => o,
-        Err(_) => return HashMap::new(),
-    };
-    let stdout = String::from_utf8_lossy(&output.stdout);
-
-    let emu_serials: Vec<String> = stdout
-        .lines()
-        .skip(1)
-        .filter(|l| {
-            let t = l.trim();
-            !t.is_empty()
-                && t.contains("device")
-                && !t.contains("offline")
-                && t.starts_with("emulator-")
-        })
-        .map(|l| l.split_whitespace().next().unwrap_or("").to_string())
-        .filter(|s| !s.is_empty())
-        .collect();
-
-    let mut map = HashMap::new();
-    for serial in emu_serials {
-        if let Ok(output) = cmd::run(
-            adb_path.to_str().expect("Ruta de adb inválida"),
-            &["-s", &serial, "emu", "avd", "name"],
-        ) {
-            let name = String::from_utf8_lossy(&output.stdout)
-                .lines()
-                .next()
-                .unwrap_or("")
-                .trim()
-                .to_string();
-            if !name.is_empty() {
-                map.insert(name, serial);
-            }
-        }
-    }
-    map
-}
-
-pub fn launch_emulator(emulator_path: &Path, avd_name: &str) -> Result<()> {
-    println!("[INFO] Lanzando emulador '{}'...", avd_name);
-    cmd::spawn_new_window(
-        &format!("Android Emulator ({})", avd_name),
-        emulator_path
-            .parent()
-            .context("No se pudo resolver directorio del emulador")?,
-        &format!("{} -avd {}", emulator_path.display(), avd_name),
-    )?;
-    Ok(())
-}
-
-pub fn wait_for_emulator_boot(adb_path: &Path, serial: &str, timeout_secs: u64) -> Result<()> {
+/// Comprueba que un dispositivo físico haya terminado de arrancar.
+///
+/// `sys.boot_completed` pasa a `1` cuando el sistema termina de iniciar. Un
+/// teléfono recién conectado puede aparecer en `adb devices` como `device` y
+/// aun así no aceptar un `adb install` hasta que acaba de arrancar, así que
+/// esperar aquí evita un fallo confuso más abajo.
+pub fn wait_for_device_boot(adb_path: &Path, serial: &str, timeout_secs: u64) -> Result<()> {
     let start = std::time::Instant::now();
     loop {
         if start.elapsed() > Duration::from_secs(timeout_secs) {
             anyhow::bail!(
-                "[ERROR] Timeout esperando al dispositivo {} ({}s)",
+                "[ERROR] Timeout esperando a que el dispositivo {} termine de arrancar ({}s).",
                 serial,
                 timeout_secs
             );
         }
 
-        let output = cmd::run(
+        if let Ok(o) = cmd::run(
             adb_path.to_str().context("Ruta de adb inválida")?,
             &["-s", serial, "shell", "getprop", "sys.boot_completed"],
-        );
-
-        if let Ok(o) = output {
-            let val = String::from_utf8_lossy(&o.stdout).trim().to_string();
-            if val == "1" {
+        ) {
+            if String::from_utf8_lossy(&o.stdout).trim() == "1" {
                 println!("[OK] Dispositivo listo: {}", serial);
                 return Ok(());
             }
         }
 
-        std::thread::sleep(Duration::from_secs(3));
+        std::thread::sleep(Duration::from_secs(2));
     }
 }
 
-pub fn wait_for_emulator_serial(adb_path: &Path, timeout_secs: u64) -> Result<String> {
-    let start = std::time::Instant::now();
-    loop {
-        if start.elapsed() > Duration::from_secs(timeout_secs) {
-            anyhow::bail!(
-                "[ERROR] Timeout esperando que aparezca el emulador ({}s)",
-                timeout_secs
-            );
-        }
-
-        if let Ok(output) = cmd::run(
-            adb_path.to_str().context("Ruta de adb inválida")?,
-            &["devices"],
-        ) {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            for line in stdout.lines().skip(1) {
-                let trimmed = line.trim();
-                if !trimmed.is_empty()
-                    && trimmed.contains("device")
-                    && !trimmed.contains("offline")
-                    && trimmed.starts_with("emulator-")
-                {
-                    let serial = trimmed.split_whitespace().next().unwrap_or("").to_string();
-                    if !serial.is_empty() {
-                        println!("[INFO] Emulador detectado: {}", serial);
-                        return Ok(serial);
-                    }
-                }
-            }
-        }
-
-        std::thread::sleep(Duration::from_secs(3));
-    }
-}
-
+/// Elige el dispositivo físico sobre el que trabajar.
+///
+/// Con un solo teléfono conectado lo auto-selecciona sin mostrar menú; con
+/// varios, pregunta. Si no hay ninguno, da un mensaje accionable en vez de
+/// caer a un emulador.
 pub fn select_device(ctx: &ProjectContext) -> Result<Device> {
-    // Collect physical devices
-    let mut phys: Vec<Device> = Vec::new();
-    if let Some(adb) = &ctx.adb_path {
-        if let Ok(output) = cmd::run(adb.to_str().unwrap(), &["devices", "-l"]) {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            for line in stdout.lines().skip(1) {
-                let trimmed = line.trim();
-                if trimmed.is_empty()
-                    || trimmed.contains("offline")
-                    || !trimmed.contains("device")
-                {
-                    continue;
-                }
-                let serial = trimmed.split_whitespace().next().unwrap_or("").to_string();
-                if serial.is_empty() || serial.starts_with("emulator-") {
-                    continue;
-                }
-                phys.push(Device { serial, kind: DeviceKind::Physical });
-            }
-        }
-    }
-
-    // Auto-select if exactly one physical device
-    if phys.len() == 1 {
-        let device = phys.into_iter().next().unwrap();
-        println!("[OK] Dispositivo físico detectado: {}", device.serial);
-        return Ok(device);
-    }
-
-    // Multiple physical devices → show menu
-    if phys.len() > 1 {
-        let labels: Vec<String> = phys.iter().map(|d| d.label()).collect();
-        let selection = Select::new("Varios dispositivos físicos. Selecciona uno:", labels).prompt()?;
-        let idx = phys.iter().position(|d| d.label() == selection).context("Selección inválida")?;
-        return Ok(phys.into_iter().nth(idx).unwrap());
-    }
-
-    // No physical devices → fallback to emulators
-    let running_emus = ctx
-        .adb_path
-        .as_ref()
-        .map(|adb| running_emulators(adb))
-        .unwrap_or_default();
-
-    let mut emus: Vec<Device> = Vec::new();
-    if let Some(emu_path) = &ctx.emulator_path {
-        if let Ok(avds) = list_avds(emu_path) {
-            for avd in avds {
-                let serial = running_emus.get(&avd).cloned().unwrap_or_default();
-                let running = !serial.is_empty();
-                emus.push(Device {
-                    serial,
-                    kind: DeviceKind::Emulator { avd_name: avd, running },
-                });
-            }
-        }
-    }
-
-    if emus.is_empty() {
+    let Some(adb) = ctx.adb_path.as_ref() else {
         anyhow::bail!(
-            "No se encontraron dispositivos Android.\n\
-             Conecta un dispositivo físico con depuración USB activada,\n\
-             o crea un AVD con Android Studio (Tools > AVD Manager)."
+            "[ERROR] No se encontró adb.\n\
+             Instala platform-tools y define ANDROID_HOME:\n  \
+             sdkmanager \"platform-tools\"\n\
+             Y revisa que el teléfono tenga depuración USB activada."
         );
+    };
+
+    let phys = list_physical_devices(adb)?;
+
+    match phys.len() {
+        0 => anyhow::bail!(
+            "[ERROR] No se detectó ningún dispositivo Android.\n\
+             \n\
+             Para conectarlo:\n\
+             \x20 1. Activa 'Depuración USB' en Opciones de desarrollador del teléfono\n\
+             \x20 2. Conéctalo por cable (o usa depuración por Wi-Fi)\n\
+             \x20 3. Acepta la huella RSA que aparece en pantalla\n\
+             \x20 4. Desbloquea la pantalla: el dispositivo sólo aparece cuando\n\
+             \x20    está desbloqueado y en modo depuración\n\
+             \n\
+             Verifica con: adb devices -l"
+        ),
+        1 => {
+            let device = phys.into_iter().next().expect("longitud 1");
+            println!("[OK] Dispositivo físico detectado: {}", device.serial);
+            wait_for_device_boot(adb, &device.serial, 60)?;
+            Ok(device)
+        }
+        _ => {
+            let labels: Vec<String> = phys.iter().map(|d| d.label()).collect();
+            let selection = Select::new("Varios dispositivos. Selecciona uno:", labels).prompt()?;
+            let idx = phys
+                .iter()
+                .position(|d| d.label() == selection)
+                .context("Selección inválida")?;
+            let device = phys.into_iter().nth(idx).expect("índice válido");
+            wait_for_device_boot(adb, &device.serial, 60)?;
+            Ok(device)
+        }
+    }
+}
+
+/// Lista los dispositivos físicos conectados vía `adb devices`.
+fn list_physical_devices(adb_path: &Path) -> Result<Vec<Device>> {
+    let adb = adb_path.to_str().context("Ruta de adb inválida")?;
+    let Ok(output) = cmd::run(adb, &["devices", "-l"]) else {
+        anyhow::bail!(
+            "[ERROR] No se pudo ejecutar adb.\n\
+             Verifica que platform-tools esté instalado y que el servidor\n\
+             adb funcione: adb kill-server && adb start-server"
+        );
+    };
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut devices: Vec<Device> = stdout
+        .lines()
+        .skip(1)
+        .filter_map(|line| {
+            let t = line.trim();
+            if t.is_empty() {
+                return None;
+            }
+            // Estados válidos: `device` (listo), `offline`, `unauthorized`,
+            // `recovery`, `sideload`. Sólo `device` sirve para instalar.
+            let (serial, rest) = t.split_once(char::is_whitespace)?;
+            if !rest.trim_start().starts_with("device") {
+                return None;
+            }
+            // Las series `emulator-*` son de emuladores, no dispositivos reales.
+            if serial.is_empty() || serial.starts_with("emulator-") {
+                return None;
+            }
+            Some(Device { serial: serial.to_string() })
+        })
+        .collect();
+
+    devices.sort_by(|a, b| a.serial.cmp(&b.serial));
+    devices.dedup_by(|a, b| a.serial == b.serial);
+
+    // Diagnóstico cuando hay líneas `adb devices` pero ninguna utilizable: lo
+    // más común es `unauthorized`, que se arregla aceptando la huella RSA.
+    if devices.is_empty() {
+        for line in stdout.lines().skip(1) {
+            let t = line.trim();
+            if t.contains("unauthorized") {
+                println!(
+                    "[WARN] Hay un dispositivo pero no autorizado: {}",
+                    t.split_whitespace().next().unwrap_or("?")
+                );
+                println!("       Desbloquea el teléfono y acepta la huella RSA que muestra.");
+            } else if t.contains("offline") {
+                println!(
+                    "[WARN] Hay un dispositivo en estado 'offline': {}",
+                    t.split_whitespace().next().unwrap_or("?")
+                );
+                println!("       Prueba: adb kill-server && adb start-server");
+            }
+        }
     }
 
-    let labels: Vec<String> = emus.iter().map(|d| d.label()).collect();
-    let selection = Select::new("Selecciona un emulador:", labels).prompt()?;
-    let idx = emus.iter().position(|d| d.label() == selection).context("Selección inválida")?;
-    let mut device = emus.into_iter().nth(idx).unwrap();
-
-    if let DeviceKind::Emulator { ref avd_name, running: false } = &device.kind {
-        if let Some(emu_path) = &ctx.emulator_path {
-            launch_emulator(emu_path, avd_name)?;
-        }
-        if let Some(adb) = &ctx.adb_path {
-            let serial = wait_for_emulator_serial(adb, 120)?;
-            device.serial = serial;
-            wait_for_emulator_boot(adb, &device.serial, 120)?;
-        }
-    }
-
-    Ok(device)
+    Ok(devices)
 }
