@@ -349,10 +349,19 @@ pub fn toggle() -> Result<()> {
         println!("╚══════════════════════════════════════════════════╝");
         println!();
 
-        // En COSMIC el registro de Code Runner no aplica: la task instala las
-        // entradas de Vibe Coding, así que la opción 1 se limita a Vibe Coding.
-        let cr_installed = crate::utils::platform::IS_WINDOWS && is_installed("zz_CodeRunner");
-        let vc_installed = is_installed(VIBE_KEY);
+        // En COSMIC, instalar y desinstalar afecta a la misma lista de presets
+        // (`context_menu_cosmic`), así que ambas entradas comparten el estado.
+        let cr_installed = if crate::utils::platform::IS_WINDOWS {
+            is_installed("zz_CodeRunner")
+        } else {
+            super::context_menu_cosmic::is_installed()
+        };
+        let vc_installed = if crate::utils::platform::IS_WINDOWS {
+            is_installed(VIBE_KEY)
+        } else {
+            // Presencia de alguna entrada con el prefijo de Vibe Coding.
+            super::context_menu_cosmic::has_vibe_entries()
+        };
 
         let cr_label = if cr_installed { "✔ Code Runner" } else { "  Code Runner" };
         let vc_label = if vc_installed { "✔ Vibe Coding" } else { "  Vibe Coding" };
@@ -369,38 +378,26 @@ pub fn toggle() -> Result<()> {
             actions.push(act);
         };
 
-        if crate::utils::platform::IS_WINDOWS {
-            push(
-                &mut options,
-                &mut actions,
-                format!(
-                    "1. {cr_label}  [{}]",
-                    if cr_installed { "Desinstalar" } else { "Instalar" }
-                ),
-                MenuChoice::ToggleCodeRunner,
-            );
-            push(
-                &mut options,
-                &mut actions,
-                format!(
-                    "2. {vc_label}  [{}]",
-                    if vc_installed { "Desinstalar" } else { "Instalar" }
-                ),
-                MenuChoice::ToggleVibeCoding,
-            );
-            push(&mut options, &mut actions, "3. Instalar todos".to_string(), MenuChoice::InstallAll);
-            push(&mut options, &mut actions, "4. Desinstalar todos".to_string(), MenuChoice::UninstallAll);
-        } else {
-            push(
-                &mut options,
-                &mut actions,
-                format!(
-                    "1. {vc_label}  [{}]",
-                    if vc_installed { "Desinstalar" } else { "Instalar" }
-                ),
-                MenuChoice::ToggleVibeCoding,
-            );
-        }
+        push(
+            &mut options,
+            &mut actions,
+            format!(
+                "1. {cr_label}  [{}]",
+                if cr_installed { "Desinstalar" } else { "Instalar" }
+            ),
+            MenuChoice::ToggleCodeRunner,
+        );
+        push(
+            &mut options,
+            &mut actions,
+            format!(
+                "2. {vc_label}  [{}]",
+                if vc_installed { "Desinstalar" } else { "Instalar" }
+            ),
+            MenuChoice::ToggleVibeCoding,
+        );
+        push(&mut options, &mut actions, "3. Instalar todos".to_string(), MenuChoice::InstallAll);
+        push(&mut options, &mut actions, "4. Desinstalar todos".to_string(), MenuChoice::UninstallAll);
         let back = options.len() + 1;
         push(&mut options, &mut actions, format!("{back}. Volver"), MenuChoice::Back);
 

@@ -1,0 +1,24 @@
+#!/usr/bin/env sh
+#
+# code-runner-here — abre la TUI de code-runner en el directorio actual.
+#
+# Pensado para el flujo "Open in Terminal" de cosmic-files: abres la terminal
+# en la carpeta que quieres y lanzas esto. Es la alternativa al menú contextual,
+# que sólo muestra sus entradas cuando hay algo seleccionado.
+#
+# Generado por code-runner. Se reemplaza al reinstalar.
+set -e
+
+CR_BIN="@EXE@"
+
+if [ ! -x "$CR_BIN" ]; then
+    CR_BIN="$(command -v code-runner 2>/dev/null || true)"
+fi
+if [ -z "$CR_BIN" ] || [ ! -x "$CR_BIN" ]; then
+    echo "[ERROR] No se encontró code-runner." >&2
+    echo "        Reinstálalo con ./install.sh" >&2
+    exit 1
+fi
+
+cd "$PWD" || exit 1
+exec "$CR_BIN" --path "$PWD"

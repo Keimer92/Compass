@@ -34,22 +34,36 @@ El orden de detección es: **Flutter → Tauri → KMP → Rust**. Si un proyect
 
 ### Vibe Coding en COSMIC Files (`context_menu_cosmic.rs`)
 
-COSMIC 1.0.10 (mayo 2026) añadió *user-defined context menu actions*. Se configuran como presets `ContextActionPreset` en el campo `context_actions` de la config de cosmic-files (`cosmic-config`, esquema v1):
+COSMIC 1.0.10 (mayo 2026) añadió *user-defined context menu actions*. Se configuran como presets `ContextActionPreset` en el campo `context_actions` de la config de cosmic-files.
+
+**Ruta** — cosmic-files usa `cosmic_config::Config::new(App::APP_ID, CONFIG_VERSION)`, que resuelve como `$XDG_CONFIG_HOME/cosmic/<APP_ID>/v<VERSION>/<campo>`. Con `APP_ID = "com.system76.CosmicFiles"` y `CONFIG_VERSION = 1`:
 
 ```
-$XDG_CONFIG_HOME/cosmic/cosmic-files/v1/context_actions
+$XDG_CONFIG_HOME/cosmic/com.system76.CosmicFiles/v1/context_actions
 ```
 
-```json
-{ "name": "Vibe Coding: OpenCode", "confirm": false,
-  "selection": "folders", "steps": ["…/vibe-opencode.sh \"%f\""] }
+⚠️ El APP_ID lleva punto y mayúsculas. **No** es `cosmic-files`: escribir en `cosmic-files/` deja el fichero donde cosmic-files nunca lo busca, y el síntoma es que el menú simplemente no aparece — sin error en la app, sin error en los logs, nada.
+
+**Formato: RON, no JSON.** cosmic-config serializa con `ron`. De ahí la dependencia `ron` en `Cargo.toml`; `serde_json` no sirve aquí.
+
+```ron
+[
+    (
+        name: "Vibe Coding: OpenCode",
+        confirm: false,
+        selection: Folders,
+        steps: [
+            "/ruta/al/wrapper.sh \"%f\"",
+        ],
+    ),
+]
 ```
 
-- `selection`: `any` | `files` | `folders`.
+- `selection`: enum `Any` | `Files` | `Folders`, con alias de serde en minúsculas.
 - `steps`: se parsean con `mime_app::exec_to_command`, o sea **sintaxis `Exec=` de freedesktop**. El `%f` debe ir entrecomillado: se sustituye literalmente, y sin comillas una ruta con espacios rompe el tokenizado.
 - **Un wrapper `vibe-<slug>.sh` por herramienta** en `$XDG_DATA_HOME/code-runner/vibe/`, en vez de incrustar `sh -c "cd %f && …"`. El `cd` y el quoting viven en el archivo (se escapan una vez); el preset sólo invoca el wrapper.
 - **Limitación: sin submenús anidados.** `ContextActionPreset` sólo tiene `name`, `confirm`, `selection`, `steps` — no hay campo de agrupación. Las 4 entradas quedan **planas**, no en cascada como en Windows. El prefijo `"Vibe Coding: "` las agrupa visualmente y es el criterio que usa `uninstall()` para borrarlas sin tocar las del usuario.
-- `install()` hace **merge**: preserva los presets previos del usuario, y sólo reemplaza los que empiezan con el prefijo. Respalda el archivo previo a `context_actions.json.code-runner-bak` antes de escribir.
+- `install()` hace **merge**: preserva los presets previos del usuario, y sólo reemplaza los que empiezan con el prefijo. Respalda el archivo previo a `context_actions.ron.code-runner-bak` antes de escribir.
 - Requiere cerrar y reabrir COSMIC Files. Sin `cosmic-files` en el PATH, `install()` falla con mensaje explícito.
 - `VIBE_TOOLS` está duplicado (el de `context_menu.rs` usa `key` de registro, que aquí no aplica). Si se unifica, debe subir a un módulo común.
 

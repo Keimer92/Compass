@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Abrir con Code Runner
+GenericName=Task Runner
+Comment=Abre el menú de code-runner en la carpeta seleccionada
+Exec=@OPEN_CMD@ %f
+Icon=code-runner
+Terminal=false
+StartupNotify=true
+NoDisplay=true
+MimeType=inode/directory;
+Keywords=tauri;flutter;kotlin;rust;android;cargo;

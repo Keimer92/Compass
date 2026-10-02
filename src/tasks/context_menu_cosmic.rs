@@ -1,21 +1,52 @@
 //! Menú contextual para **COSMIC Files** (Pop!_OS / COSMIC).
 //!
-//! COSMIC 1.0.10 (mayo 2026) añadió soporte de *user-defined context menu
-//! actions*. Se configuran como presets `ContextActionPreset` dentro del campo
-//! `context_actions` de la config de cosmic-files (esquema v1), que sigue el
-//! patrón de `cosmic-config`:
+//! Se configura con presets `ContextActionPreset` en el campo `context_actions`
+//! de la config de cosmic-files.
+//!
+//! ## Ruta
+//!
+//! cosmic-files abre su config con `cosmic_config::Config::new(App::APP_ID,
+//! CONFIG_VERSION)` y cosmic-config resuelve eso como:
 //!
 //! ```text
-//! $XDG_CONFIG_HOME/cosmic/cosmic-files/v1/context_actions
+//! $XDG_CONFIG_HOME/cosmic/<APP_ID>/v<VERSION>/<campo>
 //! ```
 //!
-//! Estructura de un preset (`cosmic-files/src/context_action.rs`):
+//! Con `APP_ID = "com.system76.CosmicFiles"` y `CONFIG_VERSION = 1`:
 //!
-//! ```json
-//! { "name": "...", "confirm": false, "selection": "folders", "steps": ["..."] }
+//! ```text
+//! ~/.config/cosmic/com.system76.CosmicFiles/v1/context_actions
 //! ```
 //!
-//! - `selection`: `any` | `files` | `folders` (alias de serde para Any/Files/Folders)
+//! El APP_ID lleva punto y mayúsculas (`com.system76.CosmicFiles`), **no** es
+//! `cosmic-files`. Escribir en `cosmic-files/` deja el fichero en un directorio
+//! que cosmic-files nunca abre: el menú no aparece y no hay ningún error visible
+//! en ninguna parte, ni en la app ni en sus logs.
+//!
+//! ## Formato: RON, no JSON
+//!
+//! cosmic-config serializa con `ron`, no con JSON. Todos los ficheros de su
+//! config están en RON (`favorites`, `tab`, `desktop`…). Por eso este módulo usa
+//! el crate `ron` en lugar de `serde_json`.
+//!
+//! ## Estructura de un preset (`cosmic-files/src/context_action.rs`)
+//!
+//! ```ron
+//! [
+//!     (
+//!         name: "Vibe Coding: OpenCode",
+//!         confirm: false,
+//!         selection: Folders,
+//!         steps: [
+//!             "/ruta/al/wrapper.sh \"%f\"",
+//!         ],
+//!     ),
+//! ]
+//! ```
+//!
+//! - `selection`: enum `Any` | `Files` | `Folders`, con alias de serde en
+//!   minúsculas. Serializa en PascalCase; aquí se replican los alias para poder
+//!   leer presets escritos a mano.
 //! - `steps`: cada elemento se parsea con `mime_app::exec_to_command`, es decir
 //!   **sintaxis `Exec=` de freedesktop**. El código de campo `%f` se sustituye
 //!   por la ruta de la carpeta, y debe ir entrecomillado para sobrevivir a rutas
@@ -30,51 +61,102 @@
 //! que es el criterio que usa [`uninstall`] para borrar sólo las nuestras sin
 //! tocar las del usuario.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
 use crate::utils::platform;
 
-/// Prefijo común de nuestras entradas. Debe coincidir con [`VIBE_PREFIX_STR`].
+/// Prefijo común de las entradas de Vibe Coding. Debe coincidir con [`VIBE_PREFIX_STR`].
 const VIBE_PREFIX: &str = "Vibe Coding: ";
 
 /// Prefijo en tiempo de compilación, para `install`/`uninstall` sin deserializar.
 const VIBE_PREFIX_STR: &str = VIBE_PREFIX;
 
-/// Un preset de cosmic-files. Sólo los campos que realmente usa el deserializador
-/// de cosmic-files; `#[serde(default)]` en su struct hace que el resto sea opcional.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-struct Preset {
-    name: String,
-    #[serde(default)]
-    confirm: bool,
-    #[serde(default = "any_selection")]
-    selection: String,
-    #[serde(default)]
-    steps: Vec<String>,
+/// Nombre exacto de la entrada que abre el TUI de code-runner.
+///
+/// Sin prefijo porque es una entrada única y con nombre reconocible; el
+/// emparejamiento es exacto (ver [`Preset::is_ours`]) para no capturar presets
+/// del usuario que empiecen por "Code Runner".
+const CODE_RUNNER_NAME: &str = "Code Runner";
+
+/// A qué se aplica el preset.
+///
+/// Réplica de `ContextActionSelection` en `cosmic-files/src/context_action.rs`.
+/// El enum real usa `#[serde(alias = "any")]` (alias, no `rename_all`), así que
+/// serializa como `Any`/`Files`/`Folders` pero acepta también minúsculas; aquí se
+/// replican los alias para poder leer presets escritos a mano.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+enum Selection {
+    #[default]
+    #[serde(alias = "any")]
+    Any,
+    #[serde(alias = "files")]
+    Files,
+    #[serde(alias = "folders")]
+    Folders,
 }
 
-fn any_selection() -> String {
-    "any".to_string()
+/// Un preset de cosmic-files.
+///
+/// Réplica de `ContextActionPreset` (`cosmic-files/src/context_action.rs`). El
+/// struct real lleva `#[serde(default)]`, de modo que un preset con campos
+/// ausentes se completa con valores por defecto en vez de fallar.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+struct Preset {
+    name: String,
+    confirm: bool,
+    selection: Selection,
+    steps: Vec<String>,
 }
 
 impl Preset {
     fn vibe(title: &str, wrapper: &PathBuf) -> Self {
-        // El campo `%f` va entrecomillado: es un code field de freedesktop y se
-        // sustituye literalmente, así que sin comillas una ruta con espacios
-        // rompería el tokenizado del Exec.
         Preset {
             name: format!("{VIBE_PREFIX}{title}"),
-            confirm: false,
-            selection: "folders".to_string(),
-            steps: vec![format!("{} \"%f\"", wrapper.display())],
+            steps: vec![exec_step(wrapper)],
+            ..Default::default()
         }
+        .with_selection(Selection::Folders)
     }
 
-    fn is_vibe(&self) -> bool {
-        self.name.starts_with(VIBE_PREFIX_STR)
+    /// Entrada principal: abrir el menú TUI de code-runner en la carpeta.
+    ///
+    /// `selection: Any` (no `Folders`) a propósito: el wrapper resuelve un
+    /// fichero a su directorio contenedor, así que funciona igual seleccionando
+    /// un archivo que una carpeta. En Windows el registro lo limitaba a
+    /// `Directory`, lo que hacía inútil la entrada sobre un archivo suelto.
+    fn code_runner(wrapper: &PathBuf) -> Self {
+        Preset {
+            name: CODE_RUNNER_NAME.to_string(),
+            steps: vec![exec_step(wrapper)],
+            ..Default::default()
+        }
+        .with_selection(Selection::Any)
     }
+
+    fn with_selection(mut self, selection: Selection) -> Self {
+        self.selection = selection;
+        self
+    }
+
+    /// ¿Es una entrada instalada por nosotros?
+    ///
+    /// Cubre las de Vibe Coding (por prefijo) y la de Code Runner (por nombre
+    /// exacto). Se usa en `install`/`uninstall` para preservar las del usuario.
+    fn is_ours(&self) -> bool {
+        self.name.starts_with(VIBE_PREFIX_STR) || self.name == CODE_RUNNER_NAME
+    }
+}
+
+/// Construye un paso `Exec=` de freedesktop que invoca `wrapper` con la ruta
+/// seleccionada en `%f`.
+///
+/// El `%f` va entrecomillado porque se sustituye literalmente: sin comillas, una
+/// ruta con espacios rompería el tokenizado del Exec.
+fn exec_step(wrapper: &Path) -> String {
+    format!("{} \"%f\"", wrapper.display())
 }
 
 /// Directorio de los wrappers `vibe-*` que lanzan cada CLI en la carpeta elegida.
@@ -90,7 +172,25 @@ fn wrapper_dir() -> Option<PathBuf> {
     )
 }
 
-/// Ruta de la config de context actions de cosmic-files.
+/// `App::APP_ID` de cosmic-files (`cosmic-files/src/app.rs`).
+const COSMIC_FILES_APP_ID: &str = "com.system76.CosmicFiles";
+
+/// `CONFIG_VERSION` de cosmic-files (`cosmic-files/src/config.rs`).
+const COSMIC_FILES_CONFIG_VERSION: u64 = 1;
+
+/// Ruta del fichero de `context_actions` de cosmic-files.
+///
+/// cosmic-files abre su config con `cosmic_config::Config::new(App::APP_ID,
+/// CONFIG_VERSION)`, y cosmic-config lo resuelve como
+/// `$XDG_CONFIG_HOME/cosmic/<APP_ID>/v<VERSION>/<campo>`. O sea:
+///
+/// ```text
+/// ~/.config/cosmic/com.system76.CosmicFiles/v1/context_actions
+/// ```
+///
+/// El APP_ID es `com.system76.CosmicFiles` (con el punto y las mayúsculas), no
+/// `cosmic-files`: escribir en `cosmic-files/` deja la config en un directorio
+/// que cosmic-files nunca abre, y el menú no aparece sin ningún error visible.
 fn config_path() -> Option<PathBuf> {
     let base = std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
@@ -98,8 +198,8 @@ fn config_path() -> Option<PathBuf> {
         .or_else(|| platform::home_dir().map(|h| h.join(".config")))?;
     Some(
         base.join("cosmic")
-            .join("cosmic-files")
-            .join("v1")
+            .join(COSMIC_FILES_APP_ID)
+            .join(format!("v{COSMIC_FILES_CONFIG_VERSION}"))
             .join("context_actions"),
     )
 }
@@ -111,6 +211,18 @@ fn wrapper_name(title: &str) -> String {
         .map(|c| if c.is_alphanumeric() { c.to_ascii_lowercase() } else { '-' })
         .collect();
     format!("vibe-{slug}.sh")
+}
+
+/// Nombre del wrapper de la entrada principal de Code Runner.
+const CR_WRAPPER: &str = "code-runner-open.sh";
+
+/// Ruta del ejecutable de code-runner.
+///
+/// `current_exe()` es lo correcto porque cosmic-files puede lanzarlo desde
+/// cualquier CWD y sin PATH de sesión (mismo motivo por el que el `.desktop`
+/// lleva la ruta absoluta).
+fn code_runner_exe() -> Result<PathBuf> {
+    std::env::current_exe().context("No se pudo determinar la ruta de code-runner")
 }
 
 /// Detecta si cosmic-files está instalado (para no escribir config en otra distro).
@@ -136,27 +248,66 @@ fn cli_available(cli: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Escribe (o sobreescribe) el wrapper de una herramienta.
+/// Preámbulo común a todos los wrappers.
 ///
-/// El wrapper recibe la carpeta como `$1` y **abre su propia ventana de
-/// terminal** en ella. Esto no es opcional: cosmic-files lanza el paso sin tty
-/// (stdin/stdout heredados a un pipe), y estas CLIs son TUI. Con un `exec
-/// opencode` directo, OpenCode y cline escriben sus secuencias ANSI al pipe y no
-/// queda una sesión interactiva usable.
+/// `$1` es la ruta que cosmic-files sustituyó en `%f`. Puede ser un fichero o una
+/// carpeta (según `selection`), así que se normaliza a directorio: sin esto,
+/// `cd` a un fichero falla y el TUI no llega a abrirse.
+const WRAPPER_PREAMBLE: &str = r#"#!/usr/bin/env sh
+# Generado por code-runner. NO editar: se regenera al reinstalar.
+# Abre su propia terminal porque cosmic-files no asigna un tty, y sin tty
+# las TUI no son interactivas.
+set -e
+target="${1:-$(pwd)}"
+# Si `%f` era un fichero, se trabaja en su carpeta contenedor.
+if [ -f "$target" ]; then
+    target="$(dirname "$target")"
+fi
+[ -d "$target" ] || { echo "No existe: $target" >&2; exit 1; }
+# `export` es imprescindible: el comando se ejecuta en un `sh -lc` hijo, y una
+# variable sin exportar llega ahí como cadena vacía. Sin esto, `cd "$target"`
+# hace `cd ""`, que en dash no falla sino que se queda en el directorio actual:
+# la TUI se abriría en la carpeta desde la que se lanzó, no en la elegida.
+export target
+"#;
+
+/// Escribe (o sobreescribe) el wrapper de una herramienta de Vibe Coding.
 ///
-/// `read -r` al final mantiene la ventana abierta para poder leer la salida,
-/// igual que las ventanas de dev/build. Sin emulador instalado cae a ejecución
-/// directa, con un aviso en el propio wrapper.
+/// El wrapper abre una terminal en la carpeta recibida. `read -r` al final
+/// mantiene la ventana abierta para poder leer la salida, igual que las
+/// ventanas de dev/build. Sin emulador instalado cae a ejecución directa, con un
+/// aviso en el propio wrapper.
 fn write_wrapper(dir: &std::path::Path, title: &str, cli: &str) -> Result<PathBuf> {
     let path = dir.join(wrapper_name(title));
+    write_terminal_script(&path, title, &format!("exec {cli}"))?;
+    Ok(path)
+}
 
-    // `cli` va como un solo argumento del shell embebido, no partido en tokens:
-    // `opencode --auto` debe llegarle a `sh -lc` como una sola cadena de
-    // comandos. Por eso se cita aquí y dentro se deja sin comillas.
+/// Escribe el wrapper de la entrada principal: abre el TUI de code-runner.
+///
+/// No lleva `--pick`: la carpeta viene dada. Si esa carpeta no es la raíz de un
+/// proyecto, `code-runner` cae por su cuenta al selector de proyecto empezando
+/// por ella (en `main.rs`, `detect()` falla sin `--task` ⇒ `pick_project_root`).
+fn write_code_runner_wrapper(dir: &std::path::Path) -> Result<PathBuf> {
+    let path = dir.join(CR_WRAPPER);
+    let exe = code_runner_exe()?;
+    // Ruta absoluta entrecomillada con shlex-style simple; se pasa como
+    // argumento de `--path` sin quoting POSIX porque ya va dentro de una
+    // cadena que `sh -lc` re-evalúa con comillas dobles.
+    let cmd = format!("exec {} --path \"$target\"", shell_quote(&exe.display().to_string()));
+    write_terminal_script(&path, CODE_RUNNER_NAME, &cmd)?;
+    Ok(path)
+}
+
+/// Genera un wrapper que abre el comando `cmd` en una ventana de terminal.
+fn write_terminal_script(path: &std::path::Path, title: &str, cmd: &str) -> Result<()> {
+    // `cmd` va como un solo argumento del shell embebido, no partido en tokens:
+    // `opencode --auto` debe llegarle a `sh -lc` como una sola cadena. Por eso
+    // se cita en el argv y se deja sin comillas dentro.
     let script = match crate::utils::cmd::terminal_prefix(
         title,
         &format!(
-            r#"cd "$target" || exit 1; {cli}; rc=$?; echo; \
+            r#"cd "$target" || exit 1; {cmd}; rc=$?; echo; \
                if [ $rc -ne 0 ]; then echo "[ERROR] {title} terminó con código $rc."; fi; \
                read -r"#
         ),
@@ -167,33 +318,20 @@ fn write_wrapper(dir: &std::path::Path, title: &str, cli: &str) -> Result<PathBu
                 .map(|a| shell_quote(a))
                 .collect::<Vec<_>>()
                 .join(" ");
-            format!(
-                "#!/usr/bin/env sh\n\
-                 # Generado por code-runner. Abre {title} en la carpeta recibida.\n\
-                 # Abre su propia terminal porque cosmic-files no asigna un tty,\n\
-                 # y sin tty la TUI de la CLI no es interactiva.\n\
-                 set -e\n\
-                 target=\"${{1:-$(pwd)}}\"\n\
-                 [ -d \"$target\" ] || {{ echo \"No existe: $target\" >&2; exit 1; }}\n\
-                 exec {cmd_line}\n"
-            )
+            format!("{WRAPPER_PREAMBLE}exec {cmd_line}\n")
         }
         None => format!(
-            "#!/usr/bin/env sh\n\
-             # Generado por code-runner. Lanza {title} en la carpeta recibida.\n\
-             # [WARN] No se encontró emulador de terminal, así que la CLI se lanza\n\
-             #        sin tty y su TUI no será interactiva.\n\
-             set -e\n\
-             target=\"${{1:-$(pwd)}}\"\n\
-             cd \"$target\" || exit 1\n\
-             exec {cli}\n"
+            "{WRAPPER_PREAMBLE}# [WARN] No se encontró emulador de terminal: se lanza sin\n\
+             #        tty, así que la TUI no será interactiva.\n\
+             cd \"$target\"\n\
+             {cmd}\n"
         ),
     };
 
     std::fs::write(&path, script)
         .with_context(|| format!("No se pudo escribir {}", path.display()))?;
     set_executable(&path)?;
-    Ok(path)
+    Ok(())
 }
 
 /// Entrecomilla `s` para POSIX `sh` (comillas simples, escapando la interna).
@@ -216,21 +354,28 @@ fn set_executable(path: &std::path::Path) -> Result<()> {
 
 /// Lee los presets actuales. Un archivo ausente o corrupto se trata como lista
 /// vacía, pero se respalda antes de escribir para no perder datos del usuario.
+///
+/// El formato es **RON**, no JSON: cosmic-config serializa con `ron`, igual que
+/// el resto de su configuración (`favorites`, `tab`, `desktop`…).
 fn load_presets(path: &std::path::Path) -> Vec<Preset> {
     let Ok(text) = std::fs::read_to_string(path) else {
         return Vec::new();
     };
-    serde_json::from_str(&text).unwrap_or_default()
+    ron::from_str(&text).unwrap_or_default()
 }
 
+/// Escribe los presets en RON.
+///
+/// Usa `to_string_pretty` con sangría de 4 espacios para coincidir con el
+/// formato que produce cosmic-config, en vez del compacto de `ron` por defecto.
 fn save_presets(path: &std::path::Path, presets: &[Preset]) -> Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("No se pudo crear {}", parent.display()))?;
     }
-    let json = serde_json::to_string_pretty(presets)
+    let r = ron::ser::to_string_pretty(presets, ron::ser::PrettyConfig::new())
         .context("No se pudo serializar los presets")?;
-    std::fs::write(path, json)
+    std::fs::write(path, r)
         .with_context(|| format!("No se pudo escribir {}", path.display()))?;
     Ok(())
 }
@@ -270,7 +415,7 @@ pub fn install() -> Result<()> {
         );
     }
 
-    println!("[INFO] Instalando entradas de Vibe Coding en COSMIC Files...");
+    println!("[INFO] Instalando entradas del menú contextual de COSMIC Files...");
     if !missing.is_empty() {
         println!("[WARN] No se encontraron: {}", missing.join(", "));
         println!("[WARN] Sólo se instalarán las que sí están disponibles.");
@@ -278,8 +423,14 @@ pub fn install() -> Result<()> {
     std::fs::create_dir_all(&dir)
         .with_context(|| format!("No se pudo crear {}", dir.display()))?;
 
-    // 1. Wrappers ejecutables.
+    // 1. Wrappers ejecutables. La entrada de Code Runner va primera: es la
+    //    principal, y las de Vibe Coding quedan agrupadas debajo por prefijo.
     let mut installed = Vec::new();
+
+    let cr_wrapper = write_code_runner_wrapper(&dir)?;
+    println!("  ✔ wrapper {}", cr_wrapper.display());
+    installed.push(Preset::code_runner(&cr_wrapper));
+
     for (title, cli) in &wanted {
         let p = write_wrapper(&dir, title, cli)?;
         println!("  ✔ wrapper {}", p.display());
@@ -288,15 +439,15 @@ pub fn install() -> Result<()> {
 
     // 2. Merge en la config, preservando los presets que ya tuviera el usuario.
     let mut presets = load_presets(&cfg);
-    let user_count = presets.iter().filter(|p| !p.is_vibe()).count();
+    let user_count = presets.iter().filter(|p| !p.is_ours()).count();
 
-    presets.retain(|p| !p.is_vibe());
+    presets.retain(|p| !p.is_ours());
     presets.extend(installed);
 
-    // Respaldo antes de escribir: si el JSON quedó mal, el usuario puede
+    // Respaldo antes de escribir: si el RON quedó mal, el usuario puede
     // restaurarlo a mano.
     if cfg.exists() {
-        let bak = cfg.with_extension("json.code-runner-bak");
+        let bak = cfg.with_extension("ron.code-runner-bak");
         let _ = std::fs::copy(&cfg, &bak);
         println!("[INFO] Respaldo de la config previa: {}", bak.display());
     }
@@ -304,22 +455,23 @@ pub fn install() -> Result<()> {
     save_presets(&cfg, &presets)?;
 
     println!();
-    println!("[OK] Menú contextual de Vibe Coding instalado en COSMIC Files.");
+    println!("[OK] Menú contextual instalado en COSMIC Files.");
     println!("  Config: {}", cfg.display());
     println!("  Presets del usuario preservados: {user_count}");
     println!();
     println!("  Entradas (planas, COSMIC no soporta submenús anidados):");
+    println!("    {CODE_RUNNER_NAME}                    ← en carpetas y en archivos");
     for (title, _) in &wanted {
-        println!("    {} {}", VIBE_PREFIX, title);
+        println!("    {VIBE_PREFIX}{title}");
     }
     println!();
     println!("[INFO] Cierra COSMIC Files por completo y vuelve a abrirlo.");
-    println!("[INFO] Si no aparecen, confirma tu versión: se requiere");
-    println!("       COSMIC >= 1.0.10 para context actions de usuario.");
+    println!("[INFO] Las entradas sólo salen con algo seleccionado: cosmic-files no");
+    println!("       las añade al menú del clic en el fondo de la carpeta.");
     Ok(())
 }
 
-/// Elimina únicamente los presets de Vibe Coding, dejando intactos los del usuario.
+/// Elimina únicamente nuestros presets, dejando intactos los del usuario.
 pub fn uninstall() -> Result<()> {
     let cfg = match config_path() {
         Some(p) => p,
@@ -331,11 +483,11 @@ pub fn uninstall() -> Result<()> {
 
     let mut presets = load_presets(&cfg);
     let before = presets.len();
-    presets.retain(|p| !p.is_vibe());
+    presets.retain(|p| !p.is_ours());
     let removed = before - presets.len();
 
     if removed == 0 {
-        println!("[OK] No había entradas de Vibe Coding instaladas.");
+        println!("[OK] No había entradas de code-runner instaladas.");
         return Ok(());
     }
 
@@ -346,7 +498,7 @@ pub fn uninstall() -> Result<()> {
         }
     }
 
-    println!("[OK] {removed} entradas de Vibe Coding eliminadas de COSMIC Files.");
+    println!("[OK] {removed} entradas eliminadas de COSMIC Files.");
     println!("[INFO] Cierra COSMIC Files por completo y vuelve a abrirlo.");
     Ok(())
 }
@@ -354,7 +506,17 @@ pub fn uninstall() -> Result<()> {
 /// ¿Están instaladas nuestras entradas?
 pub fn is_installed() -> bool {
     config_path()
-        .map(|p| load_presets(&p).iter().any(|x| x.is_vibe()))
+        .map(|p| load_presets(&p).iter().any(|x| x.is_ours()))
+        .unwrap_or(false)
+}
+
+/// ¿Hay alguna entrada de Vibe Coding instalada?
+///
+/// Distinto de [`is_installed`], que además cuenta la entrada de Code Runner.
+/// El menú interactivo los muestra como dos interruptores separados.
+pub fn has_vibe_entries() -> bool {
+    config_path()
+        .map(|p| load_presets(&p).iter().any(|x| x.name.starts_with(VIBE_PREFIX_STR)))
         .unwrap_or(false)
 }
 

@@ -1,0 +1,36 @@
+#!/usr/bin/env sh
+#
+# code-runner-open [RUTA] — abre la TUI de code-runner en RUTA.
+#
+# Sin argumentos usa el directorio actual. Si la ruta es un fichero, se usa su
+# carpeta contenedor, que es lo que hace el preset del menú contextual.
+#
+# Pensado para recibir `%f` desde un .desktop con `MimeType=inode/directory`, de
+# forma que "Code Runner" aparezca en el menú de aplicaciones al abrir con… una
+# carpeta ya seleccionada en el gestor de archivos.
+#
+# Generado por code-runner. Se reemplaza al reinstalar.
+set -e
+
+CR_BIN="@EXE@"
+
+if [ ! -x "$CR_BIN" ]; then
+    CR_BIN="$(command -v code-runner 2>/dev/null || true)"
+fi
+if [ -z "$CR_BIN" ] || [ ! -x "$CR_BIN" ]; then
+    echo "[ERROR] No se encontró code-runner." >&2
+    echo "        Reinstálalo con ./install.sh" >&2
+    exit 1
+fi
+
+target="${1:-$PWD}"
+if [ -f "$target" ]; then
+    target="$(dirname "$target")"
+fi
+if [ ! -d "$target" ]; then
+    echo "[ERROR] No existe: $target" >&2
+    exit 1
+fi
+
+cd "$target" || exit 1
+exec "$CR_BIN" --path "$target"

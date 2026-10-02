@@ -214,6 +214,58 @@ else
 fi
 echo
 
+# ── 6b. Atajos: scripts + entradas de launcher alternativas ────────────
+# cosmic-files **no** añade las context_actions al menú del clic en el fondo
+# de una carpeta: sólo las añade cuando hay algo seleccionado (en
+# `src/menu.rs`, `context_action_items()` sólo se llama dentro de las ramas
+# `selected > 0`). Es una limitación de cosmic-files, no de la config.
+#
+# Estos atajos cubren ese caso: desde "Open in Terminal" de cualquier carpeta,
+# con `code-runner-here`.
+BIN_DIR="$HOME/.local/bin"
+mkdir -p "$BIN_DIR" 2>/dev/null || BIN_DIR=""
+
+if [ -n "$BIN_DIR" ] && [ -d "assets/scripts" ]; then
+    for s in code-runner-here code-runner-open; do
+        src="assets/scripts/$s"
+        [ -f "$src" ] || continue
+        if sed "s|@EXE@|$EXE_BIN|g" "$src" > "$BIN_DIR/$s" 2>/dev/null; then
+            chmod +x "$BIN_DIR/$s"
+            echo "[OK] Script: $BIN_DIR/$s"
+        else
+            echo "[WARN] No se pudo escribir $BIN_DIR/$s"
+        fi
+    done
+fi
+
+if [ -n "$FOUND_TERM" ] && [ -n "$BIN_DIR" ]; then
+    # Entrada con Terminal=true: deja que el shell de COSMIC elija la terminal,
+    # en vez de fijar cosmic-term en el Exec. Es más portable.
+    PICK_CMD="$FOUND_TERM $FOUND_TERM_ARGS -e \"$EXE_BIN\" --pick"
+    [ "$FOUND_TERM_ARGS" = "--" ] || [ "$FOUND_TERM_ARGS" = "start --" ] \
+        && PICK_CMD="$FOUND_TERM $FOUND_TERM_ARGS \"$EXE_BIN\" --pick"
+    if [ -f "assets/code-runner-pick.desktop.in" ]; then
+        sed "s|@PICK_CMD@|$PICK_CMD|" assets/code-runner-pick.desktop.in \
+            > "$APPS_DIR/code-runner-pick.desktop" 2>/dev/null \
+            && chmod +x "$APPS_DIR/code-runner-pick.desktop" \
+            && echo "[OK] Entrada del launcher: code-runner-pick.desktop"
+    fi
+    # Entrada "Abrir con…" sobre una carpeta. NoDisplay=true: no se quiere ver
+    # en el launcher, sólo ofrecerla como destino de apertura.
+    OPEN_CMD="$FOUND_TERM $FOUND_TERM_ARGS -e \"$BIN_DIR/code-runner-open\""
+    [ "$FOUND_TERM_ARGS" = "--" ] || [ "$FOUND_TERM_ARGS" = "start --" ] \
+        && OPEN_CMD="$FOUND_TERM $FOUND_TERM_ARGS \"$BIN_DIR/code-runner-open\""
+    if [ -f "assets/code-runner-open.desktop.in" ]; then
+        sed "s|@OPEN_CMD@|$OPEN_CMD|" assets/code-runner-open.desktop.in \
+            > "$APPS_DIR/code-runner-open.desktop" 2>/dev/null \
+            && chmod +x "$APPS_DIR/code-runner-open.desktop" \
+            && echo "[OK] Entrada 'Abrir con…': code-runner-open.desktop"
+    fi
+    command -v update-desktop-database >/dev/null 2>&1 \
+        && update-desktop-database "$APPS_DIR" 2>/dev/null
+fi
+echo
+
 # ── 7. Menú contextual de COSMIC Files (opcional) ──────────────────────
 if [ "$WITH_CONTEXT_MENU" -eq 1 ]; then
     echo "[INFO] Instalando menú contextual en COSMIC Files..."
@@ -311,15 +363,21 @@ echo "  Binario      : $EXE_BIN"
 [ "$ICONS_OK" -eq 1 ] && echo "  Iconos       : instalados"
 echo
 echo "Uso:"
-echo "  code-runner           # abre el menú TUI en el proyecto actual"
-echo "  code-runner --pick    # elige la carpeta del proyecto primero"
+echo "  code-runner            # abre el menú TUI en el proyecto actual"
+echo "  code-runner --pick     # elige la carpeta del proyecto primero"
 echo "  code-runner --task clean --path /ruta/proyecto"
+echo "  code-runner-here       # TUI en \$PWD (tras 'Open in Terminal')"
+echo "  code-runner-open RUTA  # TUI en RUTA (o la carpeta de un fichero)"
 echo
 echo "Notas para Linux:"
 echo "  - Funcionan: Tauri (dev + Android), Rust, Kotlin/KMP, Android."
 echo "  - Las tarjetas Desktop/Linux reemplazan a las de Windows."
 echo "  - 'Terminal' está oculta (escribe un perfil de PowerShell)."
 echo "  - 'Menu Ctx' usa context_actions de COSMIC Files."
+echo "  - Esas entradas del menú contextual **sólo salen con algo"
+echo "    seleccionado**: cosmic-files no las añade al clic en el fondo de"
+echo "    la carpeta. Para ese caso usa 'code-runner-here' desde la"
+echo "    terminal de esa carpeta."
 echo "  - Las ventanas de dev/build usan $FOUND_TERM y heredan tu PATH;"
 echo "    si las lanzas desde el launcher y algún comando no se encuentra,"
 echo "    revisa que tu gestor de versiones (fnm/nvm/asdf) inicialice en"
