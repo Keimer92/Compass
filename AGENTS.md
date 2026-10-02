@@ -15,6 +15,33 @@
 
 El orden de detección es: **Flutter → Tauri → KMP → Rust**. Si un proyecto coincide con `package.json` pero no con `tauri.conf.json`, se clasifica como Tauri (para proyectos JS/Node con frontend).
 
+## Platform Support
+
+| Función | Windows | Linux (Pop!_OS / Ubuntu) |
+|---------|---------|-------------------------|
+| Tauri dev/build (Windows + Android) | ✅ | ✅ |
+| Rust puro | ✅ | ✅ |
+| Android (dev + release APK/AAB) | ✅ | ✅ |
+| Kotlin Multiplatform (Android + `packageDistributionForCurrentOS`) | ✅ | ✅ |
+| Flutter Android (APK/AAB) | ✅ | ✅ |
+| Flutter **desktop** | ✅ (windows) | ⚠️ emite `-d windows` — sin equivalente |
+| Tauri **desktop** | ✅ (exe/msi) | ⚠️ `npm run tauri build` compila AppImage/deb; `exts` sigue filtrando `exe`/`msi` |
+| Menú contextual (Code Runner + Vibe Coding) | ✅ | ❌ oculto (registro de Windows) |
+| Configurar Terminal (PSReadLine) | ✅ | ❌ oculto (perfil de PowerShell) |
+
+### Notas de implementación Linux
+
+- **Rutas**: todos los literales de ruta en el crate usan `/` como separador. Windows lo acepta y `std::path` lo normaliza, y en Linux el `\` se trataría como carácter literal de nombre de archivo (haría que `clean_project` reportara `[OK]` sin borrar nada). `src/utils/platform.rs` cubre los casos dinámicos.
+- **Ejecutables**: `platform::exe_name("adb")` → `adb.exe` en Windows, `adb` en Linux. Lo usan `adb`, `emulator`, `sdkmanager` y `keytool`.
+- **Gradle**: `platform::find_gradlew()` acepta `gradlew` **y** `gradlew.bat`, porque un proyecto KMP clonado entre Windows y Linux conserva sólo uno de los dos wrappers. `ensure_gradle()` abortaba en Linux antes de hacer nada.
+- **ANDROID_HOME**: se resuelve por `ANDROID_HOME` → `ANDROID_SDK_ROOT` → `$HOME/Android/Sdk` → `$HOME/android-sdk` → `$XDG_DATA_HOME/Android/Sdk` → `/usr/lib/android-sdk`.
+- **Ventanas**: `spawn_new_window*()` detecta un emulador de terminal (`gnome-terminal`, `konsole`, `xfce4-terminal`, `alacritty`, `kitty`, `wezterm`, `xterm`) y ejecuta el comando con `sh -lc`. Antes, la rama `#[cfg(not(windows))]` seguía invocando `powershell`, lo que dejaba la TUI inutilizable.
+- **Builds**: `reveal_on_success()` genera `sh` en Linux (`find -printf` + `sort -rn` para el artefacto más reciente, `mv` para renombrar, `xdg-open`/`gio open` para revelar). Mantiene la ventana abierta con `read -r` en ambos casos.
+- **Sintaxis de shell embebida**: `TAURI_DEV_HOST`, `export RELEASE_*` y `ANDROID_SERIAL` se emiten con sintaxis `set X=Y &` / `$env:X=` / `$LASTEXITCODE` en Windows y `X=Y` / `export X=` / `$?` en Linux.
+- **PowerShell call-operator**: `menu.rs` omite el `&` al construir el comando en Linux (en `sh` sería un error de sintaxis).
+- **Instalador**: `install.sh` (Linux) reemplaza a `install.bat` (Windows). No instala menús contextuales.
+- **Paridad pendiente** (fuera del MVP): targets Linux de Flutter y Tauri desktop (comandos y `exts` de artefactos), `find_keytool` ya cubre `/usr/lib/jvm` pero `debug()` de Android en Linux usa `chrome://inspect` en vez de `edge://inspect`.
+
 ## ProjectContext
 
 Estructura inyectada en todas las funciones de tarea:
@@ -51,7 +78,8 @@ menu.rs
 
 utils/
   ├─ context.rs — detect(), ProjectType, ProjectContext, whatsapp_path()
-  ├─ cmd.rs — run*, spawn_new_window, spawn_new_window_autoexit, spawn_new_window_interactive, run_npm_install, clear_screen, remove_dir
+  ├─ platform.rs — helpers de portabilidad: IS_WINDOWS, exe_name(), gradlew_name(), home_dir(), data_dir(), find_gradlew(), NDK_VERSION
+  ├─ cmd.rs — run*, spawn_new_window, spawn_new_window_autoexit, spawn_new_window_interactive, run_npm_install, clear_screen, remove_dir, reveal_on_success
   ├─ ui.rs — ask_text(), ask_password(), success_banner(), info_banner(), pause()
   └─ android.rs — select_device(), list_avds(), running_emulators(), launch_emulator(), wait_for_emulator_*()
 
@@ -352,6 +380,17 @@ Script de instalación para Windows:
    - `code-runner --task cline-install`
    - `code-runner --task kilo-install`
 5. Si `cargo install` falla, muestra advertencia pero no detiene la copia de iconos ni la instalación de menús
+
+## install.sh
+
+Script de instalación para Linux (Pop!_OS / Ubuntu). Diferencias con `install.bat`:
+
+1. Verifica `command -v cargo` en vez de `where cargo`
+2. Cierra instancias con `pkill -x code-runner` en vez de `taskkill`
+3. Compila con `cargo install --path . --force`
+4. Comprueba que exista un emulador de terminal (requisito para las ventanas de dev/build) y avisa si falta
+5. Avisa si `ANDROID_HOME` no está configurado
+6. **No** instala menús contextuales (exclusivo de Windows)
 
 ## Testing
 
