@@ -192,9 +192,24 @@ fn spawn_in_terminal(title: &str, script: &str) -> Result<()> {
     })?;
 
     let bin = argv[0].clone();
-    Command::new(&bin)
-        .args(&argv[1..])
-        .spawn()
+    let mut cmd = Command::new(&bin);
+    cmd.args(&argv[1..]);
+
+    // La ventana nueva debe sobrevivir a la que la lanzó. Sin esto el emulador
+    // nace en el mismo grupo de procesos y con los mismos stdio que el pty del
+    // padre, así que cuando esa ventana se cierra (variante `autoexit`, que
+    // muere nada más después de lanzar esta) el hijo se va con ella: la ventana
+    // se abre y se cierra al instante.
+    //
+    // `process_group(0)` lo saca del grupo, y los stdio a /dev/null lo desligan
+    // del pty del padre. Es el equivalente a `setsid … </dev/null >/dev/null`.
+    use std::os::unix::process::CommandExt;
+    cmd.process_group(0);
+    cmd.stdin(std::process::Stdio::null());
+    cmd.stdout(std::process::Stdio::null());
+    cmd.stderr(std::process::Stdio::null());
+
+    cmd.spawn()
         .with_context(|| format!("No se pudo abrir una ventana de {bin}"))?;
     Ok(())
 }
