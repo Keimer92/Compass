@@ -38,6 +38,54 @@ pub fn gradlew_name() -> &'static str {
     }
 }
 
+/// Nombre del binding nativo que `@tauri-apps/cli` necesita en esta plataforma.
+///
+/// El CLI de Tauri 2 no es JavaScript puro: delega en un binario que llega como
+/// *optional dependency* con nombre por plataforma. Si el `node_modules` se
+/// instaló en otro sistema, el de esta plataforma no está y el CLI aborta con
+/// `Cannot find native binding` ([npm/cli#4828]).
+///
+/// La lista no es cerrada: `@tauri-apps/cli` publica un paquete por cada
+/// combinación SO/CPU/libc que soporta, y añade otros con cada versión. Estos
+/// son los de la línea 2.x; para lo que no esté aquí se devuelve `None` y la
+/// comprobación simplemente se salta (se asume que el binding existe).
+pub fn tauri_native_pkg() -> Option<&'static str> {
+    if IS_WINDOWS {
+        return match std::env::consts::ARCH {
+            "x86_64" => Some("@tauri-apps/cli-win32-x64-msvc"),
+            "aarch64" => Some("@tauri-apps/cli-win32-arm64-msvc"),
+            "x86" => Some("@tauri-apps/cli-win32-ia32-msvc"),
+            _ => None,
+        };
+    }
+
+    match std::env::consts::OS {
+        "macos" => match std::env::consts::ARCH {
+            "aarch64" => Some("@tauri-apps/cli-darwin-arm64"),
+            "x86_64" => Some("@tauri-apps/cli-darwin-x64"),
+            _ => None,
+        },
+        "linux" => {
+            // Pop!_OS es glibc, pero la build estática/musl es otro binding.
+            let libc = if cfg!(target_env = "musl") { "musl" } else { "gnu" };
+            match std::env::consts::ARCH {
+                "x86_64" => Some(match libc {
+                    "musl" => "@tauri-apps/cli-linux-x64-musl",
+                    _ => "@tauri-apps/cli-linux-x64-gnu",
+                }),
+                "aarch64" => Some(match libc {
+                    "musl" => "@tauri-apps/cli-linux-arm64-musl",
+                    _ => "@tauri-apps/cli-linux-arm64-gnu",
+                }),
+                "arm" => Some("@tauri-apps/cli-linux-arm-gnueabihf"),
+                "riscv64" => Some("@tauri-apps/cli-linux-riscv64-gnu"),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
 /// Directorio home del usuario actual.
 ///
 /// Windows: `USERPROFILE`. Linux: `HOME`.

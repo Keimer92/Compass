@@ -2,18 +2,8 @@ use std::env;
 use std::io::{self, Write};
 use anyhow::{Context, Result};
 
-use crate::utils::{android as android_utils, cmd, context::ProjectContext, platform, ui};
+use crate::utils::{android as android_utils, cmd, context::ProjectContext, platform, tauri, ui};
 use crate::tasks::signer;
-
-fn ensure_node_modules(ctx: &ProjectContext) -> Result<()> {
-    if ctx.has_node_modules {
-        return Ok(());
-    }
-    println!("\n[INFO] node_modules no encontrado. Ejecutando npm install...\n");
-    cmd::run_in_dir_status("npm", &["install"], &ctx.script_dir)?;
-    println!("[OK] npm install completado.\n");
-    Ok(())
-}
 
 fn ensure_android_project(ctx: &ProjectContext) -> Result<()> {
     if ctx.has_android_project {
@@ -28,23 +18,22 @@ fn ensure_android_project(ctx: &ProjectContext) -> Result<()> {
     Ok(())
 }
 
+/// Corre `tauri android init` con el entry point del paquete.
+///
+/// Se invoca `node` + `tauri.js` en vez de `npx tauri` por lo mismo que
+/// [`crate::utils::tauri::command`]: el shim de `node_modules/.bin` sólo existe
+/// para el sistema que hizo el install, y `npx` además puede intentar
+/// descargar el paquete de la red si no lo encuentra localmente.
 fn run_tauri_android_init(ctx: &ProjectContext) -> Result<()> {
-    let status = if cfg!(windows) {
-        std::process::Command::new("cmd")
-            .args(["/c", "npx", "tauri", "android", "init"])
-            .current_dir(&ctx.script_dir)
-            .status()
-    } else {
-        std::process::Command::new("npx")
-            .args(["tauri", "android", "init"])
-            .current_dir(&ctx.script_dir)
-            .status()
+    let Some(entry) = tauri::cli_entry(ctx) else {
+        anyhow::bail!(
+            "No se encontró @tauri-apps/cli.\nEjecuta `npm install` en: {}",
+            ctx.script_dir.display()
+        );
     };
-    match status {
-        Ok(s) if s.success() => Ok(()),
-        Ok(s) => anyhow::bail!("tauri android init fallo con codigo: {:?}", s.code()),
-        Err(e) => anyhow::bail!("No se pudo ejecutar npx: {}", e),
-    }
+    let node = platform::exe_name("node");
+    let entry = entry.to_string_lossy().into_owned();
+    cmd::run_in_dir_status(&node, &[entry.as_str(), "android", "init"], &ctx.script_dir)
 }
 
 /// Verifica que el directorio del paquete Java generado por Tauri coincida con
@@ -417,7 +406,7 @@ fn detect_lan_ip() -> Option<String> {
 }
 
 pub fn dev(ctx: &ProjectContext) -> Result<()> {
-    ensure_node_modules(ctx)?;
+    tauri::ensure(ctx)?;
     ctx.assert_android_sdk()?;
     ensure_android_project(ctx)?;
     ensure_package_consistent(ctx)?;
@@ -434,6 +423,7 @@ pub fn dev(ctx: &ProjectContext) -> Result<()> {
     println!("  Tauri se conectará automáticamente al dispositivo disponible.");
     println!();
 
+    let tauri_dev = tauri::command(ctx, "android dev");
     let dev_cmd = match detect_lan_ip() {
         Some(ip) => {
             println!("[INFO] IP LAN detectada: {}", ip);
@@ -442,14 +432,14 @@ pub fn dev(ctx: &ProjectContext) -> Result<()> {
             // Windows y en `sh -lc` en Linux, así que la sintaxis de assignación
             // del environment es distinta en cada shell.
             if platform::IS_WINDOWS {
-                format!("set TAURI_DEV_HOST={} & npx tauri android dev", ip)
+                format!("set TAURI_DEV_HOST={} & {tauri_dev}", ip)
             } else {
-                format!("TAURI_DEV_HOST={} npx tauri android dev", ip)
+                format!("TAURI_DEV_HOST={} {tauri_dev}", ip)
             }
         }
         None => {
             println!("[WARN] No se detectó IP LAN. Tauri pedirá seleccionar manualmente.");
-            "npx tauri android dev".to_string()
+            tauri_dev
         }
     };
 
@@ -463,7 +453,7 @@ pub fn dev(ctx: &ProjectContext) -> Result<()> {
 }
 
 pub fn build_arm64(ctx: &ProjectContext) -> Result<()> {
-    ensure_node_modules(ctx)?;
+    tauri::ensure(ctx)?;
     ctx.assert_android_sdk()?;
     ensure_android_project(ctx)?;
     ensure_package_consistent(ctx)?;
@@ -472,12 +462,12 @@ pub fn build_arm64(ctx: &ProjectContext) -> Result<()> {
 
     println!();
     println!("[INFO] Compilando Android solo arm64 (Release)...");
-    println!("[INFO] Usando: npx tauri android build --target aarch64");
+    println!("[INFO] Usando: {}", tauri::command(ctx, "android build --target aarch64"));
     println!();
 
     let rename = read_tauri_app_meta(ctx).map(|(name, ver)| format!("{}-v{}", name, ver));
     let apk_dir = ctx.script_dir.join("src-tauri/gen/android/app/build/outputs/apk");
-    let cmd_line = cmd::reveal_on_success("npx tauri android build --target aarch64", &apk_dir, &["apk"], rename.as_deref());
+    let cmd_line = cmd::reveal_on_success(&tauri::command(ctx, "android build --target aarch64"), &apk_dir, &["apk"], rename.as_deref());
 
     cmd::spawn_new_window(
         "Android Build arm64",
@@ -495,7 +485,7 @@ fn set_arch_armv7() {
 }
 
 pub fn build_armv7(ctx: &ProjectContext) -> Result<()> {
-    ensure_node_modules(ctx)?;
+    tauri::ensure(ctx)?;
     ctx.assert_android_sdk()?;
     ensure_android_project(ctx)?;
 
@@ -503,11 +493,11 @@ pub fn build_armv7(ctx: &ProjectContext) -> Result<()> {
 
     println!();
     println!("[INFO] Compilando Android solo armv7 (Release)...");
-    println!("[INFO] Usando: npx tauri android build --target armv7");
+    println!("[INFO] Usando: {}", tauri::command(ctx, "android build --target armv7"));
     println!();
 
     let apk_dir = ctx.script_dir.join("src-tauri/gen/android/app/build/outputs/apk");
-    let cmd_line = cmd::reveal_on_success("npx tauri android build --target armv7", &apk_dir, &["apk"], None);
+    let cmd_line = cmd::reveal_on_success(&tauri::command(ctx, "android build --target armv7"), &apk_dir, &["apk"], None);
 
     cmd::spawn_new_window(
         "Android Build armv7",
@@ -519,7 +509,7 @@ pub fn build_armv7(ctx: &ProjectContext) -> Result<()> {
 }
 
 pub fn build_all(ctx: &ProjectContext) -> Result<()> {
-    ensure_node_modules(ctx)?;
+    tauri::ensure(ctx)?;
     ctx.assert_android_sdk()?;
     ensure_android_project(ctx)?;
     ensure_package_consistent(ctx)?;
@@ -532,7 +522,7 @@ pub fn build_all(ctx: &ProjectContext) -> Result<()> {
 
     let rename = read_tauri_app_meta(ctx).map(|(name, ver)| format!("{}-v{}", name, ver));
     let apk_dir = ctx.script_dir.join("src-tauri/gen/android/app/build/outputs/apk");
-    let cmd_line = cmd::reveal_on_success("npx tauri android build", &apk_dir, &["apk"], rename.as_deref());
+    let cmd_line = cmd::reveal_on_success(&tauri::command(ctx, "android build"), &apk_dir, &["apk"], rename.as_deref());
 
     cmd::spawn_new_window(
         "Android Build (All)",
