@@ -3,17 +3,19 @@
 
     Devuelve en una única línea, separada por punto y coma:
 
-        <compilar>;<menu Code Runner>;<menu Vibe Coding>
+        <compilar>;<menu CR>;<menu vibe>;<herramientas que faltan>
 
-    con 1 = hay que actuar y 0 = ya está al día.
+    con 1 = hay que actuar y 0 = ya está al día. El cuarto campo es un contador y
+    no una lista: lo usa `install.bat` sólo para decidir si hay que lanzar la
+    tarea que pregunta por las que faltan, y el detalle lo dice esa tarea.
 
     Va en un fichero y no en un one-liner dentro de `for /f` porque las tuberías
     (`|`) son caracteres especiales de `cmd`: rompen el comando del bucle. Y
     además PowerShell 5.1 tarda ~2,5 s en arrancar, así que conviene una sola
-    invocación para las tres comprobaciones en vez de tres.
+    invocación para todas las comprobaciones en vez de varias.
 
-    Ante cualquier error devuelve "1;1;1": es decir, "reinstálalo todo", que es
-    lo seguro. Saltarse una instalación que sí hacía falta deja el sistema
+    Ante cualquier error devuelve "1;1;1;4": es decir, "reinstálalo todo", que
+    es lo seguro. Saltarse una instalación que sí hacía falta deja el sistema
     incoherente; Installerla de más sólo cuesta unos segundos.
 #>
 
@@ -55,4 +57,18 @@ if (Test-Path 'HKCU:\Software\Classes\Directory\ContextMenus\VibeCoding\shell\01
     $menuVibeCoding = 0
 }
 
-Write-Output "$necesitaBuild;$menuCodeRunner;$menuVibeCoding"
+# Herramientas de Vibe Coding ausentes. Se comprueba aquí, y no en un segundo
+# script, por lo caro que es arrancar PowerShell 5.1: ya se está pagando el
+# arranque, así que meter un `Get-Command` por herramienta sale gratis.
+#
+# `agy` y `hermes` necesitan el mismo fallback que `resolve_tool_command()` en
+# Rust: sus instaladores nativos los dejan en `%LOCALAPPDATA%\<tool>\bin`, fuera
+# del PATH, así que `Get-Command` no los ve aunque estén instalados.
+$faltan = 0
+foreach ($herramienta in @('opencode', 'kilo', 'cline', 'agy', 'hermes')) {
+    if (Get-Command -Name $herramienta -ErrorAction SilentlyContinue) { continue }
+    if (Test-Path (Join-Path $env:LOCALAPPDATA "$herramienta\bin\$herramienta.exe")) { continue }
+    $faltan++
+}
+
+Write-Output "$necesitaBuild;$menuCodeRunner;$menuVibeCoding;$faltan"

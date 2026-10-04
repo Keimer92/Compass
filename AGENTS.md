@@ -62,10 +62,10 @@ $XDG_CONFIG_HOME/cosmic/com.system76.CosmicFiles/v1/context_actions
 - `selection`: enum `Any` | `Files` | `Folders`, con alias de serde en minúsculas.
 - `steps`: se parsean con `mime_app::exec_to_command`, o sea **sintaxis `Exec=` de freedesktop**. El `%f` debe ir entrecomillado: se sustituye literalmente, y sin comillas una ruta con espacios rompe el tokenizado.
 - **Un wrapper `vibe-<slug>.sh` por herramienta** en `$XDG_DATA_HOME/code-runner/vibe/`, en vez de incrustar `sh -c "cd %f && …"`. El `cd` y el quoting viven en el archivo (se escapan una vez); el preset sólo invoca el wrapper. ⚠️ El cuerpo del wrapper lo emite `cmd::terminal_launch_shell()`, y su rama de kitty tiene un **doble parseo** documentado en "Bug conocido: doble parseo en la rama kitty-tab".
-- **Limitación: sin submenús anidados.** `ContextActionPreset` sólo tiene `name`, `confirm`, `selection`, `steps` — no hay campo de agrupación. Las 4 entradas quedan **planas**, no en cascada como en Windows. El prefijo `"Vibe Coding: "` las agrupa visualmente y es el criterio que usa `uninstall()` para borrarlas sin tocar las del usuario.
+- **Limitación: sin submenús anidados.** `ContextActionPreset` sólo tiene `name`, `confirm`, `selection`, `steps` — no hay campo de agrupación. Las entradas quedan **planas**, no en cascada como en Windows. El prefijo `"Vibe Coding: "` las agrupa visualmente y es el criterio que usa `uninstall()` para borrarlas sin tocar las del usuario.
 - `install()` hace **merge**: preserva los presets previos del usuario, y sólo reemplaza los que empiezan con el prefijo. Respalda el archivo previo a `context_actions.ron.code-runner-bak` antes de escribir.
 - Requiere cerrar y reabrir COSMIC Files. Sin `cosmic-files` en el PATH, `install()` falla con mensaje explícito.
-- `VIBE_TOOLS` está duplicado (el de `context_menu.rs` usa `key` de registro, que aquí no aplica). Si se unifica, debe subir a un módulo común.
+- `VIBE_TOOLS` está duplicado (el de `context_menu.rs` usa `key` de registro, que aquí no aplica). Si se unifica, debe subir a un módulo común. ⚠️ **Hay que actualizar los dos arrays a la vez**: añadir una herramienta sólo al de Windows deja el menú de COSMIC Files sin ella, sin error ni aviso.
 
 ### Launcher de COSMIC (`.desktop`)
 
@@ -280,7 +280,7 @@ tasks/
   ├─ signer.rs  — create_or_import(), patch_build_gradle()
   ├─ sha1.rs    — show() [huellas SHA-1/SHA-256 debug+release, lee keystore.properties/key.properties]
   ├─ terminal.rs — configure() [perfil PSReadLine según la versión instalada]
-  ├─ context_menu.rs — install/uninstall/toggle para CodeRunner + Vibe Coding (menú cascada con ExtendedSubCommandsKey: OpenCode, Kilo Code, Cline, Antigravity)
+  ├─ context_menu.rs — install/uninstall/toggle para CodeRunner + Vibe Coding (menú cascada con ExtendedSubCommandsKey: OpenCode, Kilo Code, Cline, Antigravity, Hermes)
   ├─ context_menu_cosmic.rs — install/uninstall para COSMIC Files (context_actions, COSMIC ≥ 1.0.10)
   └─ whatsapp.rs — build()
   └─ version.rs — bump() [port de versionar.bat: Tauri/Rust, todo-o-nada]
@@ -318,6 +318,7 @@ tasks/
 | Task | Ruta |
 |------|------|
 | `context-menu` / `opencode` | `context_menu::toggle()` (menú interactivo) |
+| `vibe-setup` | `context_menu::setup()` → `ensure_tools_installed()` (pregunta por las que falten) + `install_vibe_coding()` |
 | `context-menu-install` | `context_menu::install()` |
 | `context-menu-uninstall` | `context_menu::uninstall()` |
 | `opencode-install` | `context_menu::install_opencode()` → `install_vibe_coding()` |
@@ -366,7 +367,7 @@ tasks/
 |---------|---------|----------------|
 | **Code Runner** | `"<exe_path>" "%1"` | `HKCR\Directory\shell\zz_CodeRunner` |
 
-### Vibe Coding (menú cascada: OpenCode + Kilo Code + Cline + Antigravity)
+### Vibe Coding (menú cascada: 5 agentes)
 
 Usa el método **`ExtendedSubCommandsKey`** (el oficial de Windows para menús cascada, mismo que usa Command Prompt y PowerShell).
 
@@ -382,9 +383,10 @@ HKCU\Software\Classes\Directory\ContextMenus\VibeCoding\shell
   02KiloCode     → command
   03Cline        → command
   04Antigravity  → command
+  05Hermes       → command
 ```
 
-**Sub-entradas (en este orden):**
+⚠️ Las sub-entradas **no** cuelgan de `zz_VibeCoding\shell`: cuelgan de `Directory\ContextMenus\VibeCoding\shell` (ruta compartida con `Directory\Background`), y `zz_VibeCoding` sólo lleva el puntero `ExtendedSubCommandsKey`. Buscar en el sitio equivocado es lo que hacía que `install.bat` reinstallara el menú en cada ejecución.
 
 | # | Sub-entrada | Comando | Descripción |
 |---|-------------|---------|-------------|
@@ -392,9 +394,34 @@ HKCU\Software\Classes\Directory\ContextMenus\VibeCoding\shell
 | 02 | **Kilo Code** | `cmd.exe /c start "Kilo Code" /D "%V" cmd.exe /c "kilo"` | Abre Kilo Code en la carpeta |
 | 03 | **Cline** | `cmd.exe /c start "Cline" /D "%V" cmd.exe /c "cline -i"` | Abre Cline (`-i` evita modo headless) |
 | 04 | **Antigravity** | `cmd.exe /c start "Antigravity" /D "%V" cmd.exe /c "agy"` | Abre Antigravity CLI (Google) |
+| 05 | **Hermes** | `cmd.exe /c start "Hermes" /D "%V" cmd.exe /c "hermes"` | Abre Hermes (Nous Research), sin flags: su TUI arranca a pelo |
+
+⚠️ **Hermes y Antigravity no se detectan sólo por el PATH.** Sus instaladores nativos dejan el binario en su propia carpeta (`%LOCALAPPDATA%\hermes\bin`, `%LOCALAPPDATA%\agy\bin`) y no siempre lo agregan al PATH del usuario. Por eso `VibeTool::fallback` declara rutas alternativas con prefijo `LOCALAPPDATA/` o `HOME/`, que `fallback_candidates()` expande. **Los npm globales no necesitan nada de esto** (npm sí modifica el PATH), y hay un test que lo comprueba.
+
+### Instalación de las herramientas (`vibe-setup`)
+
+`ensure_tools_installed()` detecta cuáles de las 5 faltan y **pregunta una por una** antes de instalar. El comando de instalación vive en `VibeTool::install`, verificado en la documentación oficial de cada producto:
+
+| Herramienta | `install` | `install_via` |
+|---|---|---|
+| OpenCode | `npm install -g @opencode/cli` | `Cmd` |
+| Kilo Code | `npm install -g @kilocode/cli` | `Cmd` |
+| Cline | `npm install -g cline` | `Cmd` |
+| Antigravity | `irm https://antigravity.google/cli/install.ps1 \| iex` | `PowerShell` |
+| Hermes | `iex (irm https://hermes-agent.nousresearch.com/install.ps1)` | `PowerShell` |
+
+⚠️ **`install_via` no es cosmético**: en Windows `npm` es `npm.cmd` y su shim `npm.ps1` lo bloquea la ExecutionPolicy por defecto, así que los npm van por `cmd /c`. Y `irm | iex` es sintaxis de PowerShell, que en `cmd` no existe.
+
+⚠️ El default de la pregunta es **no**. `ask_text` imprime el default entre corchetes, así que el prompt no debe llevar su propio `[s/N]`. Con `None` no habría default y Enter devolvería "" (igual de no, pero la pregunta no se responde con la barra espaciadora). `es_si` acepta `s`/`si`/`sí`/`y`/`yes`.
+
+⚠️ **La verificación de "ha instalado" usa `resolve_tool_command()`, no `command_exists()`**: el instalador de Google deja `agy` en `%LOCALAPPDATA%\agy\bin`, fuera del PATH, así que en el proceso actual `Get-Command agy` sigue dando falso y se reportaría como fallo siendo un éxito. Es el mismo fallback que hace que el menú funcione para Antigravity.
+
+`setup()` reinstala el menú al final aunque ya estuviera al día, porque una herramienta recién instalada tiene que aparecer como sub-entrada nueva.
+
+`install.bat` lanza `vibe-setup` cuando el menú falta **o** cuando la sonda detecta herramientas ausentes, así que si instalas Cline a mano y relanzas el instalador aparece sola su sub-entrada.
 
 **Notas técnicas:**
-- **Orden del submenú**: Windows ordena las sub-claves de `shell` **alfabéticamente**. Por eso las claves llevan prefijo numérico (`01OpenCode`, `02KiloCode`, ...) para forzar el orden requerido en `VIBE_TOOLS` (src/tasks/context_menu.rs). Agregar una herramienta = agregar una entrada al final de `VIBE_TOOLS` con prefijo incremental.
+- **Orden del submenú**: Windows ordena las sub-claves de `shell` **alfabéticamente**. Por eso las claves llevan prefijo numérico (`01OpenCode`, `02KiloCode`, ...) para forzar el orden requerido en `VIBE_TOOLS` (src/tasks/context_menu.rs). Agregar una herramienta = agregar una entrada al final de `VIBE_TOOLS` con prefijo incremental. Hay un test que verifica que los prefijos son `01, 02, 03…` sin huecos ni repeticiones y en orden, porque un prefijo duplicado pierde el orden en silencio.
 - `%V` = directorio de la carpeta seleccionada (funciona con `ExtendedSubCommandsKey`; `%1` NO funciona).
 - La entrada padre usa `MUIVerb` en vez de `(default)` para el texto visible.
 - Las sub-entradas están en `Directory\ContextMenus\VibeCoding\shell\` (ruta compartida para `Directory` y `Directory\Background`).
@@ -402,6 +429,7 @@ HKCU\Software\Classes\Directory\ContextMenus\VibeCoding\shell
 - `remove_vibe_ctx_tree()` borra el árbol `ContextMenus\VibeCoding` completo en cada instalación — evita claves huérfanas de versiones previas que alteraban el orden.
 - Se limpian entradas viejas individuales (`zz_OpenCode`, `zz_pCline`, `zz_pKilo`) al instalar.
 - **Antigravity CLI**: binario nativo (no npm) instalado por `irm https://antigravity.google/cli/install.ps1 | iex` → `%LOCALAPPDATA%\agy\bin\agy.exe`. No siempre está en PATH; `resolve_tool_command()` hace fallback a esa ruta si `Get-Command agy` falla.
+- **Hermes CLI** (Nous Research): instalador nativo `iex (irm https://hermes-agent.nousresearch.com/install.ps1)`. En Windows nativo vive bajo `%LOCALAPPDATA%\hermes\bin` (el README lo dice explícitamente), en Linux el `install.sh` lo deja en `~/.local/bin`. Mismo caso de fallback que Antigravity. `hermes` arranca su TUI sin flags; `hermes-acp` es el servidor ACP para editores y no va al menú.
 - `install.bat` instala/actualiza Vibe Coding con detección de "ya instalado".
 - El menú interactivo `toggle()` gestiona Code Runner + Vibe Coding + "Instalar todos" / "Desinstalar todos".
 - **Idempotencia**: `install()` compara tanto el comando (`command_is_current()`) como el texto visible (`label_is()`), así un cambio de nombre fuerza el reinstall aunque el comando ya sea correcto.
@@ -630,8 +658,9 @@ Reinstalar costaba ~30 s en cada ejecución, casi todo en cosas innecesarias. Lo
 | Antes | Ahora | Motivo |
 |---|---|---|
 | `cargo install --path . --force` siempre | sólo si algún archivo de `src/`, `Cargo.toml` o `Cargo.lock` es más nuevo que el `.exe` | el `--force` de cargo no es opcional: sin él se niega a reinstalar la misma versión |
-| 2 sondas de registro en PowerShell | 1 sola, con las tres comprobaciones | PowerShell 5.1 tarda ~2,5 s en arrancar; 3 llamadas son ~7,5 s |
+| 2 sondas de registro en PowerShell | 1 sola, con las cuatro comprobaciones | PowerShell 5.1 tarda ~2,5 s en arrancar; 3 llamadas son ~7,5 s |
 | Menú de Vibe Coding **siempre** reinstallado | sólo si falta | la sonda miraba `zz_VibeCoding\shell\OpenCode\command`, una clave que **no existe**: el padre sólo lleva `ExtendedSubCommandsKey` y las subentradas viven en `Directory\ContextMenus\VibeCoding\shell\` con prefijo numérico (`01OpenCode`) |
+| Sin detección de herramientas ausentes | cuarto campo de la sonda | va en la **misma** invocación de PowerShell, así que no cuesta los ~2,5 s de arranque; avisa en minúscula si falta alguna |
 | `timeout /t 3` al final | eliminado | 3 s de espera muerta |
 
 Medido: **~30 s → ~7 s** sin nada que cambiar, ~19 s cuando hay que recompilar, ~32 s con `--force`. El grosso del coste era `opencode-install`, que tarda **18 s** sólo en detectar las 4 herramientas (un `Get-Command` por herramienta).

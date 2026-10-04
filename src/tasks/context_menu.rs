@@ -1,6 +1,6 @@
 use std::io::{self, Write};
 use anyhow::Result;
-use crate::utils::cmd;
+use crate::utils::{cmd, ui};
 
 fn exe_dir() -> Option<std::path::PathBuf> {
     std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_path_buf()))
@@ -134,16 +134,97 @@ struct VibeTool {
     title: &'static str,
     /// Comando a ejecutar.
     cli: &'static str,
+    /// Comando oficial de instalación por terminal.
+    ///
+    /// Los tres primeros son paquetes npm globales; Antigravity es un
+    /// instalador nativo. De ahí [`InstallVia`]: en Windows `npm` es `npm.cmd`
+    /// y necesita `cmd`, mientras que `irm | iex` es sintaxis de PowerShell y
+    /// en `cmd` no existe.
+    install: &'static str,
+    /// Rutas donde el instalador deja el ejecutable cuando **no** lo agrega al
+    /// PATH. Los npm globales sí lo hacen, así que para ellos va vacía.
+    ///
+    /// Con prefijo `LOCALAPPDATA/` o `HOME/` se expanden; si no, es una ruta
+    /// absoluta. Los instaladores nativos (Antigravity, Hermes) dejan el binario
+    /// en su propia carpeta y no siempre tocan el PATH del usuario.
+    fallback: &'static [&'static str],
+    install_via: InstallVia,
 }
 
-/// Orden solicitado: OpenCode → Kilo Code → Cline → Antigravity.
+/// Shell con el que hay que ejecutar [`VibeTool::install`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum InstallVia {
+    /// `cmd /c …`. Lo que necesitan los `npm install -g`, porque en Windows
+    /// `npm` es `npm.cmd` y PowerShell ejecuta el shim `npm.ps1`, que bloquea
+    /// la ExecutionPolicy por defecto.
+    Cmd,
+    /// `powershell -Command …`. `irm | iex` no existe en `cmd`.
+    PowerShell,
+}
+
+/// Orden solicitado: OpenCode → Kilo Code → Cline → Antigravity → Hermes.
 /// Los prefijos numéricos fuerzan ese orden porque Windows ordena las
-/// sub-claves de `shell` alfabéticamente (A-Z, por tanto 01 < 02 < 03 < 04).
+/// sub-claves de `shell` alfabéticamente (A-Z, por tanto 01 < 02 < 03 < 04 < 05).
+///
+/// Comandos de instalación verificados en la documentación oficial de cada
+/// producto (opencode.ai/download, kilo.ai/docs, docs.cline.bot,
+/// antigravity.google/docs y hermes-agent.nousresearch.com).
 const VIBE_TOOLS: &[VibeTool] = &[
-    VibeTool { key: "01OpenCode", title: "OpenCode", cli: "opencode --auto" },
-    VibeTool { key: "02KiloCode", title: "Kilo Code", cli: "kilo" },
-    VibeTool { key: "03Cline", title: "Cline", cli: "cline -i" },
-    VibeTool { key: "04Antigravity", title: "Antigravity", cli: "agy" },
+    VibeTool {
+        key: "01OpenCode",
+        title: "OpenCode",
+        cli: "opencode --auto",
+        install: "npm install -g @opencode/cli",
+        fallback: &[],
+        install_via: InstallVia::Cmd,
+    },
+    VibeTool {
+        key: "02KiloCode",
+        title: "Kilo Code",
+        cli: "kilo",
+        install: "npm install -g @kilocode/cli",
+        fallback: &[],
+        install_via: InstallVia::Cmd,
+    },
+    VibeTool {
+        key: "03Cline",
+        title: "Cline",
+        cli: "cline -i",
+        install: "npm install -g cline",
+        fallback: &[],
+        install_via: InstallVia::Cmd,
+    },
+    VibeTool {
+        key: "04Antigravity",
+        title: "Antigravity",
+        cli: "agy",
+        install: "irm https://antigravity.google/cli/install.ps1 | iex",
+        // El instalador de Google lo deja en su carpeta propia y no siempre lo
+        // agrega al PATH.
+        fallback: &[
+            "LOCALAPPDATA/agy/bin/agy.exe",
+            "HOME/agy/bin/agy",
+            "HOME/.local/bin/agy",
+            "/usr/local/bin/agy",
+        ],
+        install_via: InstallVia::PowerShell,
+    },
+    VibeTool {
+        key: "05Hermes",
+        title: "Hermes",
+        cli: "hermes",
+        // Hermes arranca su TUI a pelo, sin flags: `hermes` a secas.
+        install: "iex (irm https://hermes-agent.nousresearch.com/install.ps1)",
+        // El README oficial dice que en Windows nativo vive bajo
+        // `%LOCALAPPDATA%\hermes`; en Linux el instalador usa `~/.local/bin`.
+        fallback: &[
+            "LOCALAPPDATA/hermes/bin/hermes.exe",
+            "HOME/.local/bin/hermes",
+            "HOME/.hermes/bin/hermes",
+            "/usr/local/bin/hermes",
+        ],
+        install_via: InstallVia::PowerShell,
+    },
 ];
 
 /// Resuelve el ejecutable real de una herramienta de Vibe Coding.
@@ -163,31 +244,51 @@ fn resolve_tool_command(tool: &VibeTool) -> Option<(String, String)> {
 
     // Fallback: ruta conocida de instalación de Antigravity CLI. En Windows es
     // `%LOCALAPPDATA%\agy\bin\agy.exe`, que no se agrega al PATH por defecto.
-    // En Linux el instalador oficial también deja `agy` fuera del PATH, en
-    // `~/.local/bin` o `/usr/local/bin`, así que se comprueba ahí.
-    if tool.title == "Antigravity" {
-        let mut candidates = Vec::new();
-        if let Ok(local) = std::env::var("LOCALAPPDATA") {
-            candidates.push(
-                std::path::Path::new(&local).join("agy").join("bin").join("agy.exe"),
-            );
-        }
-        if let Some(home) = crate::utils::platform::home_dir() {
-            candidates.push(home.join(".local").join("bin").join("agy"));
-            candidates.push(home.join("agy").join("bin").join("agy"));
-        }
-        candidates.push(std::path::PathBuf::from("/usr/local/bin/agy"));
-
-        for candidate in candidates {
-            if candidate.exists() {
-                if let Some(p) = candidate.to_str() {
-                    return Some((p.to_string(), p.to_string()));
-                }
+    // Segundo intento: la ruta fija donde el instalador deja el ejecutable cuando
+    // no lo mete en el PATH. Se declara por herramienta en vez de codificar el
+    // caso de Antigravity aquí, porque si no cada agente nuevo obliga a tocar
+    // esta función.
+    for candidate in fallback_candidates(tool) {
+        if candidate.exists() {
+            if let Some(p) = candidate.to_str() {
+                return Some((p.to_string(), p.to_string()));
             }
         }
     }
 
     None
+}
+
+/// Rutas donde puede estar el ejecutable de `tool` sin estar en el PATH.
+///
+/// Los prefijos `LOCALAPPDATA/` y `HOME/` se expanden; lo que se escriba es
+/// relativo a esas rutas, y una ruta absoluta se deja tal cual.
+fn fallback_candidates(tool: &VibeTool) -> Vec<std::path::PathBuf> {
+    let mut out = Vec::new();
+
+    for hint in tool.fallback {
+        if let Some(rest) = hint.strip_prefix("LOCALAPPDATA/") {
+            if let Ok(local) = std::env::var("LOCALAPPDATA") {
+                out.push(join_relative(std::path::Path::new(&local), rest));
+            }
+        } else if let Some(rest) = hint.strip_prefix("HOME/") {
+            if let Some(home) = crate::utils::platform::home_dir() {
+                out.push(join_relative(&home, rest));
+            }
+        } else {
+            out.push(std::path::PathBuf::from(hint));
+        }
+    }
+
+    out
+}
+
+/// Junta `base` con una ruta relativa escrita con `/`.
+fn join_relative(base: &std::path::Path, relative: &str) -> std::path::PathBuf {
+    relative
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .fold(base.to_path_buf(), |acc, part| acc.join(part))
 }
 
 /// Instala el menú cascada "Vibe Coding" con las sub-entradas que estén disponibles.
@@ -303,6 +404,268 @@ pub fn uninstall_vibe_coding() -> Result<()> {
 }
 
 pub fn install_opencode() -> Result<()> {
+    install_vibe_coding()
+}
+
+/// Detecta las herramientas de Vibe Coding que faltan y ofrece instalarlas.
+///
+/// Lo llama `install.bat` antes de instalar el menú: si el usuario acaba de
+/// instalar una herramienta a mano, o si la va a instalar, el menú debe reflejar
+/// las cuatro sub-entradas y no sólo las que ya estaban.
+///
+/// Pregunta una por una y **por omisión no instala**: instalar software es la
+/// clase de cosa que no se hace sin consentimiento. El menú se puede instalar
+/// igual sin ninguna de ellas, así que saltarse la instalación nunca bloquea.
+pub fn ensure_tools_installed() -> Result<()> {
+    let faltantes: Vec<&VibeTool> = VIBE_TOOLS
+        .iter()
+        .filter(|t| resolve_tool_command(t).is_none())
+        .collect();
+
+    if faltantes.is_empty() {
+        println!("[OK] Las {} herramientas de Vibe Coding estan instaladas.", VIBE_TOOLS.len());
+        return Ok(());
+    }
+
+    println!();
+    println!("[INFO] Herramientas de Vibe Coding no encontradas: {}", faltantes.len());
+    for tool in &faltantes {
+        println!("       - {}  ({})", tool.title, tool.install);
+    }
+    println!();
+
+    for tool in faltantes {
+        println!("[?] {} no esta instalado.", tool.title);
+        println!("    Comando oficial: {}", tool.install);
+        println!("    (los tres primeros son npm; Antigravity es un instalador nativo de Google)");
+
+        // El prompt no lleva `[s/N]`: `ask_text` ya imprime el default entre
+        // corchetes. Con `None` no habría default, y entonces Enter devuelve ""
+        // y la pregunta tampoco se podría responder con la barra espaciadora.
+        let respuesta = ui::ask_text("    ¿Instalarlo ahora?", Some("n"))?;
+        if !es_si(&respuesta) {
+            println!("    [SKIP] No se instala {}.", tool.title);
+            continue;
+        }
+
+        println!("    Instalando {}...", tool.title);
+        match instalar(tool) {
+            Ok(()) => {
+                // Se comprueba con `resolve_tool_command` y no con
+                // `command_exists` a secas: Antigravity se instala en
+                // `%LOCALAPPDATA%\agy\bin`, fuera del PATH, así que en este
+                // proceso `Get-Command agy` seguiría dando falso y se
+                // reportaría como fallo siendo un éxito.
+                if resolve_tool_command(tool).is_some() {
+                    println!("    [OK] {} instalado.", tool.title);
+                } else {
+                    println!(
+                        "    [WARN] {} se instaló pero su ejecutable no aparece.\n\
+                         [WARN] Si es Antigravity, abre una terminal nueva: el PATH se\n\
+                         [WARN] actualiza al iniciar sesion.",
+                        tool.title
+                    );
+                }
+            }
+            Err(e) => println!("    [ERROR] No se pudo instalar {}: {e}", tool.title),
+        }
+    }
+
+    Ok(())
+}
+
+/// Instala [`VibeTool::install`] con el shell que necesita.
+fn instalar(tool: &VibeTool) -> Result<()> {
+    match tool.install_via {
+        InstallVia::Cmd => cmd::run_in_dir_status("cmd", &["/c", tool.install], &std::path::Path::new(".")),
+        InstallVia::PowerShell => cmd::run_in_dir_status(
+            "powershell",
+            &["-NoProfile", "-Command", tool.install],
+            &std::path::Path::new("."),
+        ),
+    }
+}
+
+/// ¿La respuesta es un sí?
+///
+/// Acepta lo que la gente escribe de verdad: `s`, `si`, `sí`, `y`, `yes`.
+/// Todo lo demás (incluido el default y la cadena vacía) es no.
+fn es_si(respuesta: &str) -> bool {
+    matches!(
+        respuesta.trim().to_lowercase().as_str(),
+        "s" | "si" | "sí" | "y" | "yes"
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Los comandos de instalación están hardcodeados, así que un cambio de
+    /// nombre en el paquete pasaría desapercibido hasta que alguien ejecutase
+    /// el install y viera fallar la instalación. Estos valores son los de la
+    /// documentación oficial de cada producto.
+    #[test]
+    fn install_commands_match_the_official_docs() {
+        let esperado = [
+            ("01OpenCode", "OpenCode", "npm install -g @opencode/cli", InstallVia::Cmd),
+            ("02KiloCode", "Kilo Code", "npm install -g @kilocode/cli", InstallVia::Cmd),
+            ("03Cline", "Cline", "npm install -g cline", InstallVia::Cmd),
+            ("04Antigravity", "Antigravity", "irm https://antigravity.google/cli/install.ps1 | iex", InstallVia::PowerShell),
+            ("05Hermes", "Hermes", "iex (irm https://hermes-agent.nousresearch.com/install.ps1)", InstallVia::PowerShell),
+        ];
+
+        assert_eq!(VIBE_TOOLS.len(), esperado.len(), "añade el test al añadir una herramienta");
+        for (tool, (key, title, install, via)) in VIBE_TOOLS.iter().zip(esperado) {
+            assert_eq!(tool.key, key);
+            assert_eq!(tool.title, title);
+            assert_eq!(tool.install, install);
+            assert_eq!(tool.install_via, via);
+        }
+    }
+
+    /// El prefijo numérico es lo único que fija el orden del submenú, porque
+    /// Windows ordena las sub-claves de `shell` alfabéticamente. Si dos
+    /// herramientas comparten número, el orden pedido se pierde.
+    #[test]
+    fn registry_keys_are_numbered_without_gaps_or_repeats() {
+        let mut claves: Vec<&str> = VIBE_TOOLS.iter().map(|t| t.key).collect();
+        assert_eq!(
+            claves.len(),
+            claves.iter().collect::<std::collections::HashSet<_>>().len(),
+            "hay claves de registro repetidas: {claves:?}"
+        );
+
+        // `01OpenCode` → 1, `02KiloCode` → 2… y tienen que seguir en orden.
+        let numeros: Vec<u32> = claves
+            .iter()
+            .map(|k| k.get(..2).unwrap_or("").parse::<u32>().unwrap_or_else(|_| panic!("{k} no empieza por dos dígitos")))
+            .collect();
+        let mut ordenados = numeros.clone();
+        ordenados.sort_unstable();
+        assert_eq!(numeros, ordenados, "VIBE_TOOLS no está en orden de submenú");
+        assert_eq!(
+            numeros,
+            (1..=numeros.len() as u32).collect::<Vec<_>>(),
+            "los prefijos deben ser 01, 02, 03… sin huecos: {numeros:?}"
+        );
+
+        claves.clear();
+    }
+
+    /// Los instaladores nativos dejan el binario fuera del PATH, y sin este
+    /// fallback su sub-entrada no aparecería nunca en el menú aunque estuviera
+    /// instalado. En Windows el prefijo `LOCALAPPDATA/` es el que importa.
+    #[test]
+    fn native_installers_declare_a_localappdata_fallback() {
+        for tool in VIBE_TOOLS {
+            let es_npm = matches!(tool.install_via, InstallVia::Cmd);
+            if es_npm {
+                assert!(
+                    tool.fallback.is_empty(),
+                    "{} se instala por npm, que sí agrega al PATH",
+                    tool.title
+                );
+                continue;
+            }
+            assert!(
+                tool.fallback.iter().any(|p| p.starts_with("LOCALAPPDATA/")),
+                "{} es un instalador nativo y necesita fallback en %LOCALAPPDATA%: {:?}",
+                tool.title,
+                tool.fallback
+            );
+        }
+    }
+
+    /// `HOME/x` y `LOCALAPPDATA/x` tienen que expandirse; si no, `resolve_tool_command`
+    /// compararía una ruta literal tipo `HOME/.local/bin/hermes` con el disco y
+    /// nunca encontraría nada.
+    #[test]
+    fn fallback_hints_expand_to_real_paths() {
+        let en_windows = VIBE_TOOLS
+            .iter()
+            .flat_map(|t| t.fallback.iter().map(move |p| (t.key, p)))
+            .all(|(_, hint)| {
+                hint.starts_with("LOCALAPPDATA/")
+                    || hint.starts_with("HOME/")
+                    || hint.starts_with('/')
+            });
+        assert!(en_windows, "todo fallback debe llevar prefijo conocido o ser absoluto");
+
+        let candidatas = fallback_candidates(VIBE_TOOLS.iter().find(|t| t.key == "05Hermes").unwrap());
+        assert!(
+            candidatas.iter().all(|p| !p.to_string_lossy().contains("LOCALAPPDATA/")
+                && !p.to_string_lossy().contains("HOME/")),
+            "quedaron prefijos sin expandir: {candidatas:?}"
+        );
+        assert!(
+            candidatas.iter().any(|p| p.ends_with("hermes.exe") || p.ends_with("hermes")),
+            "no se ha derivado ningún camino de hermes: {candidatas:?}"
+        );
+    }
+
+    /// `irm | iex` es PowerShell y no existe en `cmd`; al revés, `npm` en
+    /// Windows es `npm.cmd` y su shim `npm.ps1` lo bloquea la ExecutionPolicy.
+    /// Cada familia de instalador tiene que ir por su shell.
+    #[test]
+    fn every_install_command_uses_a_shell_that_understands_it() {
+        for tool in VIBE_TOOLS {
+            let es_powershell = tool.install.contains("irm ") || tool.install.contains("iex");
+            match tool.install_via {
+                InstallVia::PowerShell => assert!(
+                    es_powershell || !tool.install.contains("npm"),
+                    "{} usa PowerShell pero el comando no lo necesita: {}",
+                    tool.title,
+                    tool.install
+                ),
+                InstallVia::Cmd => assert!(
+                    tool.install.starts_with("npm "),
+                    "{} usa cmd, que sólo entiende bien npm (o winget): {}",
+                    tool.title,
+                    tool.install
+                ),
+            }
+        }
+    }
+
+    /// El nombre del comando que se busca en el PATH debe ser el primer token
+    /// del `cli`: es lo que usa `resolve_tool_command` para detectarlo, así que
+    /// si divergen la herramienta se instala pero el menú no la ofrece.
+    #[test]
+    fn detected_command_matches_the_cli_of_the_menu() {
+        for tool in VIBE_TOOLS {
+            let ejecutable = tool.cli.split_whitespace().next().unwrap_or(tool.cli);
+            assert!(
+                tool.install.contains(ejecutable) || tool.install.contains("install"),
+                "el instalador de {} no menciona {:?}",
+                tool.title,
+                ejecutable
+            );
+            assert!(!ejecutable.is_empty(), "{} no tiene comando", tool.title);
+        }
+    }
+
+    #[test]
+    fn only_yes_answers_are_taken_as_yes() {
+        for afirmativo in ["s", "S", "si", "Sí", "sí", "y", "yes", "YES", " s ", "\tyes\n"] {
+            assert!(es_si(afirmativo), "{afirmativo:?} debería contar como sí");
+        }
+        // El default de `ask_text` es "n", y con el stdin cerrado devuelve "".
+        for negativo in ["", "n", "no", "N", "0", "1", "nop", "cancel", "maybe"] {
+            assert!(!es_si(negativo), "{negativo:?} no debería contar como sí");
+        }
+    }
+}
+
+/// Flujo completo del instalador: preguntar por las que falten y montar el menú.
+///
+/// El menú se reinstala siempre al final, porque una herramienta recién
+/// instalada tiene que aparecer como sub-entrada nueva aunque el menú ya
+/// estuviera al día. `install_vibe_coding` es idempotente y se encarga de
+/// preservar lo que haya.
+pub fn setup() -> Result<()> {
+    ensure_tools_installed()?;
+    println!();
     install_vibe_coding()
 }
 

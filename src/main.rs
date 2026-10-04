@@ -39,6 +39,7 @@ fn main() -> Result<()> {
             || task.starts_with("cline")
             || task.starts_with("kilo")
             || task.starts_with("antigravity")
+            || task.starts_with("vibe")
         {
             return run_global_task(task);
         }
@@ -118,6 +119,7 @@ fn run_global_task(task: &str) -> Result<()> {
         "kilo-uninstall" => tasks::context_menu::uninstall_kilocode(),
         "antigravity-install" => tasks::context_menu::install_antigravity(),
         "antigravity-uninstall" => tasks::context_menu::uninstall_antigravity(),
+        "vibe-setup" => tasks::context_menu::setup(),
         _ => anyhow::bail!("Tarea desconocida: {}", task),
     }
 }

@@ -403,7 +403,7 @@ pub fn install() -> Result<()> {
     if wanted.is_empty() {
         anyhow::bail!(
             "[ERROR] No se encontró ninguna CLI de Vibe Coding en el PATH.\n\
-             Instala al menos una (opencode, kilo, cline o agy) y vuelve a ejecutar\n\
+             Instala al menos una (opencode, kilo, cline, agy o hermes) y vuelve a ejecutar\n\
              'code-runner --task opencode-install'."
         );
     }
@@ -523,6 +523,7 @@ const VIBE_TOOLS: &[VibeToolLinux] = &[
     VibeToolLinux { title: "Kilo Code", cli: "kilo" },
     VibeToolLinux { title: "Cline", cli: "cline -i" },
     VibeToolLinux { title: "Antigravity", cli: "agy" },
+    VibeToolLinux { title: "Hermes", cli: "hermes" },
 ];
 
 struct VibeToolLinux {

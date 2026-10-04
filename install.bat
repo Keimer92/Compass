@@ -63,29 +63,38 @@ REM  Antes eran tres (dos sondas del registro) y ademas la de Vibe Coding
 REM  miraba una clave que no existe, asi que se reinstalaba siempre.
 REM ---------------------------------------------------------------
 set "STATE="
-for /f "tokens=1,2,3 delims=;" %%a in ('powershell -NoProfile -ExecutionPolicy Bypass -File "assets\install-probe.ps1"') do set "STATE=%%a;%%b;%%c"
+for /f "tokens=1,2,3,4 delims=;" %%a in ('powershell -NoProfile -ExecutionPolicy Bypass -File "assets\install-probe.ps1"') do set "STATE=%%a;%%b;%%c;%%d"
 
 if not defined STATE (
     echo [WARN] No se pudo leer el estado del sistema.
     echo [WARN] Se asume que hay que reinstallarlo todo.
-    set "STATE=1;1;1"
+    set "STATE=1;1;1;4"
 )
 
 set "NEED_BUILD="
 set "NEED_CR="
 set "NEED_VIBE="
-for /f "tokens=1,2,3 delims=;" %%a in ("%STATE%") do (
+set "MISSING_TOOLS="
+for /f "tokens=1,2,3,4 delims=;" %%a in ("%STATE%") do (
     set "NEED_BUILD=%%a"
     set "NEED_CR=%%b"
     set "NEED_VIBE=%%c"
+    set "MISSING_TOOLS=%%d"
 )
 if "%FORCE%"=="1" (
     set "NEED_BUILD=1"
     set "NEED_CR=1"
     set "NEED_VIBE=1"
+    set "MISSING_TOOLS=4"
     echo [INFO] Modo --force: se rehace todo aunque ya este al dia.
     echo.
 )
+
+REM La tarea vibe-setup pregunta por las herramientas que falten, asi que hace
+REM falta aunque el menu ya este instalado: si el usuario acaba de instalar
+REM Cline a mano, su sub-entrada todavia no existe en el menu.
+set "NEED_VIBE_SETUP=%NEED_VIBE%"
+if not "%MISSING_TOOLS%"=="0" set "NEED_VIBE_SETUP=1"
 
 REM ---------------------------------------------------------------
 REM  1. Compilar e instalar
@@ -114,6 +123,7 @@ if "%EXIT_CODE%"=="1" (
     echo Se omite la configuracion de menus para no apuntar a un binario roto.
     set "NEED_CR=0"
     set "NEED_VIBE=0"
+    set "NEED_VIBE_SETUP=0"
     echo.
 )
 
@@ -153,18 +163,18 @@ if "%NEED_CR%"=="1" (
 echo.
 
 echo [INFO] Configurando menu contextual de Vibe Coding...
-if "%NEED_VIBE%"=="1" (
-    call "%USERPROFILE%\.cargo\bin\code-runner.exe" --task opencode-install
+if "%NEED_VIBE_SETUP%"=="1" (
+    if not "%MISSING_TOOLS%"=="0" (
+        echo [INFO] ^(Se preguntara por las herramientas de Vibe Coding que falten^)
+    )
+    call "%USERPROFILE%\.cargo\bin\code-runner.exe" --task vibe-setup
     if errorlevel 1 (
         echo [WARN] No se pudo instalar el menu contextual de Vibe Coding.
     ) else (
         echo [OK] Menu contextual de Vibe Coding instalado.
     )
-    echo.
-    echo [INFO] Si has instalado una herramienta de Vibe Coding nueva ^(Cline, Kilo^),
-    echo [INFO] ejecuta install.bat --force para que aparezcan en el menu.
 ) else (
-    echo [SKIP] Menu contextual de Vibe Coding ya instalado.
+    echo [SKIP] Menu contextual de Vibe Coding ya instalado y las herramientas presentes.
 )
 
 echo.
