@@ -61,7 +61,7 @@ $XDG_CONFIG_HOME/cosmic/com.system76.CosmicFiles/v1/context_actions
 
 - `selection`: enum `Any` | `Files` | `Folders`, con alias de serde en minúsculas.
 - `steps`: se parsean con `mime_app::exec_to_command`, o sea **sintaxis `Exec=` de freedesktop**. El `%f` debe ir entrecomillado: se sustituye literalmente, y sin comillas una ruta con espacios rompe el tokenizado.
-- **Un wrapper `vibe-<slug>.sh` por herramienta** en `$XDG_DATA_HOME/code-runner/vibe/`, en vez de incrustar `sh -c "cd %f && …"`. El `cd` y el quoting viven en el archivo (se escapan una vez); el preset sólo invoca el wrapper.
+- **Un wrapper `vibe-<slug>.sh` por herramienta** en `$XDG_DATA_HOME/code-runner/vibe/`, en vez de incrustar `sh -c "cd %f && …"`. El `cd` y el quoting viven en el archivo (se escapan una vez); el preset sólo invoca el wrapper. ⚠️ El cuerpo del wrapper lo emite `cmd::terminal_launch_shell()`, y su rama de kitty tiene un **doble parseo** documentado en "Bug conocido: doble parseo en la rama kitty-tab".
 - **Limitación: sin submenús anidados.** `ContextActionPreset` sólo tiene `name`, `confirm`, `selection`, `steps` — no hay campo de agrupación. Las 4 entradas quedan **planas**, no en cascada como en Windows. El prefijo `"Vibe Coding: "` las agrupa visualmente y es el criterio que usa `uninstall()` para borrarlas sin tocar las del usuario.
 - `install()` hace **merge**: preserva los presets previos del usuario, y sólo reemplaza los que empiezan con el prefijo. Respalda el archivo previo a `context_actions.ron.code-runner-bak` antes de escribir.
 - Requiere cerrar y reabrir COSMIC Files. Sin `cosmic-files` en el PATH, `install()` falla con mensaje explícito.
@@ -188,6 +188,43 @@ hace utilizable la entrada del launcher.
 - **Instalador**: `install.sh` (Linux) reemplaza a `install.bat` (Windows). No instala menús contextuales.
 - **Paridad pendiente** (fuera del MVP): targets Linux de Flutter y Tauri desktop (comandos y `exts` de artefactos), `find_keytool` ya cubre `/usr/lib/jvm` pero `debug()` de Android en Linux usa `chrome://inspect` en vez de `edge://inspect`.
 
+### 🐛 Bug conocido: doble parseo en la rama kitty-tab
+
+**Sin arreglar a propósito.** Está en `terminal_launch_shell` (`src/utils/cmd.rs`), rama `spec.bin == "kitty"`, que es lo que se hornea en los wrappers `vibe-*.sh` de `context_menu_cosmic.rs`. **Sin verificar en Linux**: no hay forma de probarlo sin un `kitty` real en Pop!_OS.
+
+Hoy emite:
+
+```sh
+exec script -qec "kitty @ --to unix:$socket launch --type=tab --title 'X' sh -lc \"$CR_SCRIPT\"" /dev/null
+```
+
+El cuerpo del script **se parsea dos veces**. La primera da un argv con `sh -lc "cd "$target" || exit 1; …"`; el shell intermedio que invoca `script -c` re-parsea esa cadena, y ahí:
+
+- `$target` está **sin definir** en ese shell y **sin comillas** (porque las comillas del nivel anterior ya se consumieron), así que se expande a vacío.
+- La expansión sin comillas **parte por IFS**: `sh -lc` recibe el primer trozo como `-c` y el resto como argumentos sueltos, o sea que el comando se trunca.
+
+Síntoma esperado: la pestaña de kitty se abre pero `cd "$target"` falla o el script se queda en `target: not found`. **La rama de ventana nueva** (`exec kitty --title 'X' -e sh -lc "$CR_SCRIPT"`) sí es correcta: kitty hace `exec` directo de `sh -lc <script>` sin re-parsear, porque `"$CR_SCRIPT"` llega como un único elemento de argv.
+
+**Por qué se llegó aquí**: la versión anterior embebía el script directamente en la cadena de `script -qec`, y `script` abortaba con *"unexpected number of arguments"* al encontrar el `"$target"` o el `read -r` de dentro. Pasarlo por variable de entorno arregla el quoting *de esa* capa, pero no el del shell intermedio.
+
+**Arreglo propuesto** (no aplicado): que sea el shell intermedio el que cite, y que el script llegue a kitty como tres argv distintos en vez de re-parseado. El `export` es lo que hace que el shell intermedio herede las variables:
+
+```sh
+CR_SCRIPT=$(cat <<'CR_EOF'
+{script}
+CR_EOF
+)
+export CR_SCRIPT CR_SOCKET CR_TITLE
+if [ -n "$CR_SOCKET" ]; then
+    exec script -qec 'kitty @ --to "unix:$CR_SOCKET" launch --type=tab --title "$CR_TITLE" sh -lc "$CR_SCRIPT"' /dev/null
+fi
+exec kitty --title "$CR_TITLE" -e sh -lc "$CR_SCRIPT"
+```
+
+Lo de `script -qec '…'` con comillas simples es lo clave: el wrapper no expande nada y el shell intermedio recibe las tres variables ya como argumentos entrecomillados.
+
+**Cómo verificarlo** (Pop!_OS, sin emulador): `ss -xlH | grep kitty-code-runner` debe listar `@kitty-code-runner-<pid>`, que es el requisito para que se pruebe la rama de pestaña en vez de la de ventana. Sin instancia de kitty abierta, la rama con el bug no se ejecuta y el fallo queda oculto.
+
 ## ProjectContext
 
 Estructura inyectada en todas las funciones de tarea:
@@ -242,7 +279,7 @@ tasks/
   ├─ keystore.rs — manage() [Tauri: menú backup/restore]
   ├─ signer.rs  — create_or_import(), patch_build_gradle()
   ├─ sha1.rs    — show() [huellas SHA-1/SHA-256 debug+release, lee keystore.properties/key.properties]
-  ├─ terminal.rs — configure() [PSReadLine profile]
+  ├─ terminal.rs — configure() [perfil PSReadLine según la versión instalada]
   ├─ context_menu.rs — install/uninstall/toggle para CodeRunner + Vibe Coding (menú cascada con ExtendedSubCommandsKey: OpenCode, Kilo Code, Cline, Antigravity)
   ├─ context_menu_cosmic.rs — install/uninstall para COSMIC Files (context_actions, COSMIC ≥ 1.0.10)
   └─ whatsapp.rs — build()
@@ -444,6 +481,38 @@ Un `node_modules` compartido entre Windows y Linux rompe el CLI de Tauri por par
 
 Cubierto por `utils::tauri::tests` (los tres casos: fallback a `npx`, invocación por `node`, y detección del binding de otra plataforma).
 
+### Configurar Terminal (perfil PSReadLine)
+`terminal::configure()` **actualiza PSReadLine si hace falta y después** escribe `Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1`. El perfil depende de la versión instalada, no es un texto fijo:
+
+Orden del flujo: detectar versión → si no hay predictivas, `Install-Module` → volver a detectar → escribir el perfil que corresponda.
+
+| Versión tras el paso anterior | Perfil | Qué da |
+|---------|--------|--------|
+| ≥ 2.2.0 | `PROFILE_PREDICTIVE` | Sugerencias inline (`-PredictionSource History`), Tab acepta sugerencia, → acepta palabra |
+| < 2.2.0 | `PROFILE_LEGACY` | Tab = `MenuComplete`, flechas = búsqueda en historial, sin campana, ToolTips |
+| no instalado | `PROFILE_SIN_MODULO` | Sólo explica cómo instalarlo, sin emitir comandos |
+
+⚠️ **2.2.0 es el corte**: es la primera versión con *predictive intellisense*. Windows PowerShell 5.1 trae la **2.0.0** de serie, que no conoce ni `-PredictionSource` ni las Functions `AcceptSuggestion` / `AcceptNextSuggestionWord`. Emitir el perfil moderno ahí llenaba cada terminal nueva de `NamedParameterNotFound` y `ParameterArgumentValidationError`. La versión se lee con `Get-Module -ListAvailable` en un `powershell -NoProfile`, y se compara como `major*100 + minor`: `2.11.4` (211) es **más nueva** que `2.2.0` (202), cosa que un `>=` sobre el texto daría al revés.
+
+⚠️ **`Get-Module -ListAvailable` se ejecuta SIEMPRE con `powershell` (5.1), nunca con el `pwsh` de pwsh 7**: el `PSModulePath` de los dos no coincide, y una instalación en `CurrentUser` (`Documents\PowerShell\Modules`) puede existir para 5.1 y no aparecer desde pwsh. Diagnosticar con el shell equivocado hace creer que el módulo falta.
+
+### La actualización (`upgrade_psreadline`)
+`Install-Module PSReadLine -Scope CurrentUser -Force -AllowClobber -Confirm:$false`, con tres detalles que hacen falta en 5.1:
+
+- **TLS 1.2** en el mismo `-Command`: PSGallery responde *"Could not create SSL/TLS secure channel"* porque 5.1 negocia TLS 1.0. `SecurityProtocol` es de proceso, así que tiene que ir en la misma invocación.
+- **`-Force -AllowClobber -Confirm:$false`**: sin ellos pregunta por consola al reemplazar la versión instalada.
+- **`cmd::run_timeout`** (stdin a `/dev/null` + techo de 300 s): la primera vez descarga el proveedor NuGet. Con el stdin cerrado, cualquier prompt lee EOF y aborta en vez de colgar la TUI.
+
+Sólo se llama cuando `is_predictive()` es falso, así que en una máquina al día no se toca la red.
+
+⚠️ **`-PredictionSource` va dentro de un `try`/`catch`**. PSReadLine lanza `ArgumentException` si se activa sin consola interactiva con soporte de terminal virtual — o sea, con la salida redirigida (`powershell -Command`, scripts, o cualquier herramienta que lance PowerShell capturando stdout). Como el perfil se carga también en esos casos, sin el `catch` el error reaparece, sólo que cambiado. Verificado: con el `catch`, `powershell -Command 'exit 0'` deja **0 bytes en stderr**.
+
+⚠️ **El perfil se escribe con BOM UTF-8** (`write_utf8_bom`). PS 5.1 lee un `.ps1` sin BOM como ANSI/CP1252, así que cada acento se parte en dos caracteres (`ú` = bytes `C3 BA` → 195 y 186). Hoy son sólo comentarios, pero cualquier ruta con acento en un alias dejaría de funcionar. El BOM forma parte de la comparación de idempotencia: un perfil correcto *sin* BOM tiene que reescribirse.
+
+Antes de sobrescribir se copia el perfil previo a `Microsoft.PowerShell_profile.ps1.code-runner-bak` (mismo convenio que `context_actions.ron.code-runner-bak`). Si el contenido ya coincide, no se toca el archivo.
+
+Cubierto por `tasks::terminal::tests` (8 tests): parseo de versión, decisión de actualizar, elección de perfil, **los nombres del perfil legacy existen todos en la 2.0.0** (lista real sacada con `Get-Command`), ausencia de nombres predictivos, `-PredictionSource` protegido por `try`/`catch`, y BOM (incluido que su presencia forma parte de la comparación).
+
 ### KMP Desktop (Hot Reload)
 `kotlin::run_windows()` ejecuta `:composeApp:run` con Hot Reload incorporado.
 
@@ -547,15 +616,29 @@ Todos preservan: fuente, config, wrapper/scripts, firmas, motor WhatsApp.
 
 Script de instalación para Windows:
 
-1. Compila el proyecto con `cargo install --path .`
-2. **Siempre** copia `assets/icon/Icon.ico` a `%USERPROFILE%\.config\code-runner\Default.ico`
+1. **Salta la compilación si no hace falta** (ver "Saltar lo que ya está al día")
+2. **Siempre** copia `assets/icon/Icon.ico` a `%USERPROFILE%\.cargo\bin\`
 3. **Siempre** copia `assets/icon/opencode.ico` al mismo directorio
-4. Instala los 4 menús contextuales (Code Runner, OpenCode, Cline, Kilo Code) con detección de "ya instalado" para cada uno:
-   - `code-runner --task context-menu-install`
-   - `code-runner --task opencode-install`
-   - `code-runner --task cline-install`
-   - `code-runner --task kilo-install`
-5. Si `cargo install` falla, muestra advertencia pero no detiene la copia de iconos ni la instalación de menús
+4. Instala los menús contextuales (Code Runner y Vibe Coding), cada uno sólo si la sonda dice que falta
+5. Si `cargo install` falla, avisa y **no** configura los menús: apuntar el registro a un binario roto deja el sistema incoherente
+6. `install.bat --force` rehace todo aunque no haga falta
+
+### Saltar lo que ya está al día
+
+Reinstalar costaba ~30 s en cada ejecución, casi todo en cosas innecesarias. Los tres pasos se deciden con una **sola** invocación de PowerShell, `assets/install-probe.ps1`, que devuelve `<compilar>;<menu CR>;<menu vibe>` con 1 = actuar:
+
+| Antes | Ahora | Motivo |
+|---|---|---|
+| `cargo install --path . --force` siempre | sólo si algún archivo de `src/`, `Cargo.toml` o `Cargo.lock` es más nuevo que el `.exe` | el `--force` de cargo no es opcional: sin él se niega a reinstalar la misma versión |
+| 2 sondas de registro en PowerShell | 1 sola, con las tres comprobaciones | PowerShell 5.1 tarda ~2,5 s en arrancar; 3 llamadas son ~7,5 s |
+| Menú de Vibe Coding **siempre** reinstallado | sólo si falta | la sonda miraba `zz_VibeCoding\shell\OpenCode\command`, una clave que **no existe**: el padre sólo lleva `ExtendedSubCommandsKey` y las subentradas viven en `Directory\ContextMenus\VibeCoding\shell\` con prefijo numérico (`01OpenCode`) |
+| `timeout /t 3` al final | eliminado | 3 s de espera muerta |
+
+Medido: **~30 s → ~7 s** sin nada que cambiar, ~19 s cuando hay que recompilar, ~32 s con `--force`. El grosso del coste era `opencode-install`, que tarda **18 s** sólo en detectar las 4 herramientas (un `Get-Command` por herramienta).
+
+⚠️ La sonda vive en un `.ps1` y no en un one-liner dentro de `for /f` porque las tuberías (`|`) son caracteres especiales de `cmd` y rompen el bucle. Y ⚠️ `1` significa **actuar**: leerlo al revés hace reinstallar siempre (que es lo que pasó en la primera versión de este cambio).
+
+⚠️ `install.bat` usa `setlocal EnableDelayedExpansion` y `!errorlevel!` dentro de los bloques: con `%errorlevel%` se evalúa al parsear el `if`, antes de que `cargo` corra, y siempre da 0.
 
 ## install.sh
 
@@ -565,7 +648,10 @@ Script de instalación para Linux (Pop!_OS / Ubuntu). Diferencias con `install.b
    quien lo invocaba, y fallaba con `./ruta/al/proyecto/install.sh`)
 2. Verifica `command -v cargo` en vez de `where cargo`
 3. Cierra instancias con `pkill -x code-runner` en vez de `taskkill`
-4. Compila con `cargo install --path . --force`
+4. Compila con `cargo install --path . --force`, **salvo** que ninguna fuente sea
+   más nueva que el binario instalado (`find … -newer`). `install.sh --force`
+   fuerza la recompilación. La lógica va en `tools/test-skip.sh`, que se puede
+   ejecutar para comprobar los dos casos sin instalar nada
 5. Instala la **entrada del launcher** (`.desktop`) e iconos PNG en hicolor
 6. Comprueba SDK, **JDK** y node/npm por separado: sin `java` no hay `keytool`
    (firmas/huellas), ni `sdkmanager` (NDK), ni Gradle

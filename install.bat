@@ -1,10 +1,19 @@
 @echo off
+setlocal EnableDelayedExpansion
 title Instalando Code Runner...
 echo.
 echo =============================================
 echo   Code Runner for Rust / Tauri - Instalador
 echo =============================================
 echo.
+
+REM ---------------------------------------------------------------
+REM  Flags:  install.bat --force   rehace todo aunque no haga falta
+REM ---------------------------------------------------------------
+set "FORCE=0"
+if /i "%~1"=="--force" set "FORCE=1"
+if /i "%~1"=="-f"     set "FORCE=1"
+
 where cargo >nul 2>nul
 if %errorlevel% neq 0 (
 echo [ERROR] Cargo - Rust no esta instalado.
@@ -25,6 +34,14 @@ echo.
 pause
 exit /b 1
 )
+if not exist "assets\install-probe.ps1" (
+echo [ERROR] No se encuentra assets\install-probe.ps1
+echo No se puede decidir si hay que recompilar.
+echo.
+pause
+exit /b 1
+)
+
 echo.
 tasklist /fi "imagename eq code-runner.exe" 2>nul | find /i "code-runner.exe" >nul
 if not errorlevel 1 (
@@ -35,34 +52,72 @@ if not errorlevel 1 (
     ) else (
         echo [OK] code-runner.exe cerrado.
     )
-    timeout /t 1 /nobreak >nul
+    REM `timeout` protesta si el stdin esta redirigido (ejecucion desde script).
+    REM Es una pausa de un segundo, no importa si se pierde.
+    timeout /t 1 /nobreak >nul 2>nul
 )
-echo.
-echo [INFO] Compilando e instalando...
-cargo install --path . --force
-set "EXIT_CODE=%errorlevel%"
-echo.
-echo [INFO] Compilacion finalizada.
 
-if "%EXIT_CODE%"=="0" (
-echo.
-echo =============================================
-echo     [OK] Instalacion completada!
-echo =============================================
-echo.
-echo Ya puedes usar el comando 'code-runner'
-echo desde cualquier terminal.
+REM ---------------------------------------------------------------
+REM  Estado del sistema, en una sola invocacion de PowerShell.
+REM  Antes eran tres (dos sondas del registro) y ademas la de Vibe Coding
+REM  miraba una clave que no existe, asi que se reinstalaba siempre.
+REM ---------------------------------------------------------------
+set "STATE="
+for /f "tokens=1,2,3 delims=;" %%a in ('powershell -NoProfile -ExecutionPolicy Bypass -File "assets\install-probe.ps1"') do set "STATE=%%a;%%b;%%c"
+
+if not defined STATE (
+    echo [WARN] No se pudo leer el estado del sistema.
+    echo [WARN] Se asume que hay que reinstallarlo todo.
+    set "STATE=1;1;1"
+)
+
+set "NEED_BUILD="
+set "NEED_CR="
+set "NEED_VIBE="
+for /f "tokens=1,2,3 delims=;" %%a in ("%STATE%") do (
+    set "NEED_BUILD=%%a"
+    set "NEED_CR=%%b"
+    set "NEED_VIBE=%%c"
+)
+if "%FORCE%"=="1" (
+    set "NEED_BUILD=1"
+    set "NEED_CR=1"
+    set "NEED_VIBE=1"
+    echo [INFO] Modo --force: se rehace todo aunque ya este al dia.
+    echo.
+)
+
+REM ---------------------------------------------------------------
+REM  1. Compilar e instalar
+REM ---------------------------------------------------------------
+set "EXIT_CODE=0"
+if "%NEED_BUILD%"=="1" (
+    echo [INFO] Compilando e instalando...
+    cargo install --path . --force
+    REM Delayed expansion: sin `!errorlevel!` se evaluaria al parsear el
+    REM bloque, antes de que cargo haya corrido, y siempre daria 0.
+    if !errorlevel! neq 0 set "EXIT_CODE=1"
+    echo.
+    echo [INFO] Compilacion finalizada.
 ) else (
-echo.
-echo =============================================
-echo   [WARN] La compilacion tuvo problemas.
-echo =============================================
-echo.
-echo Se usara la version anterior de code-runner
-echo si esta instalada.
+    echo [SKIP] El binario instalado ya esta al dia ^(no hay fuentes mas nuevas^).
+    echo [INFO] Usa install.bat --force si quieres forzar la recompilacion.
 )
-echo.
 
+if "%EXIT_CODE%"=="1" (
+    echo.
+    echo =============================================
+    echo   [WARN] La compilacion tuvo problemas.
+    echo =============================================
+    echo.
+    echo Se usara la version anterior de code-runner si esta instalada.
+    echo Se omite la configuracion de menus para no apuntar a un binario roto.
+    set "NEED_CR=0"
+    set "NEED_VIBE=0"
+    echo.
+)
+
+echo.
 echo [INFO] Copiando iconos al directorio del binario...
 
 :: icon.ico (Code Runner personalizado) -> Default.ico
@@ -80,36 +135,46 @@ if exist "assets\icon\opencode.ico" (
     echo [OK] opencode.ico copiado
 ) else if exist "assets\icon\Default.ico" (
     copy /Y "assets\icon\Default.ico" "%USERPROFILE%\.cargo\bin\" >nul 2>nul
-    echo [OK] Default.ico copiado (para Vibe Coding)
+    echo [OK] Default.ico copiado ^(para Vibe Coding^)
 )
 echo.
 
 echo [INFO] Configurando menu contextual de Code Runner...
-for /f %%i in ('powershell -NoProfile -Command "$v=(Get-ItemProperty -Path 'HKCU:\Software\Classes\Directory\shell\zz_CodeRunner\command' -ErrorAction SilentlyContinue).'(default)'; if($v -like '*code-runner.exe*'){'1'}else{'0'}"') do set "CR_CURRENT=%%i"
-if "%CR_CURRENT%"=="1" (
-    echo [SKIP] Menu contextual de Code Runner ya instalado.
-) else (
+if "%NEED_CR%"=="1" (
     call "%USERPROFILE%\.cargo\bin\code-runner.exe" --task context-menu-install
     if errorlevel 1 (
         echo [WARN] No se pudo instalar el menu contextual de Code Runner.
     ) else (
         echo [OK] Menu contextual de Code Runner instalado.
     )
+) else (
+    echo [SKIP] Menu contextual de Code Runner ya instalado.
 )
 echo.
 
 echo [INFO] Configurando menu contextual de Vibe Coding...
-for /f %%i in ('powershell -NoProfile -Command "Test-Path 'HKCU:\Software\Classes\Directory\shell\zz_VibeCoding\shell\OpenCode\command'"') do set "VC_CURRENT=%%i"
-if "%VC_CURRENT%"=="True" (
-    echo [SKIP] Menu contextual de Vibe Coding ya instalado.
-) else (
+if "%NEED_VIBE%"=="1" (
     call "%USERPROFILE%\.cargo\bin\code-runner.exe" --task opencode-install
     if errorlevel 1 (
         echo [WARN] No se pudo instalar el menu contextual de Vibe Coding.
     ) else (
         echo [OK] Menu contextual de Vibe Coding instalado.
     )
+    echo.
+    echo [INFO] Si has instalado una herramienta de Vibe Coding nueva ^(Cline, Kilo^),
+    echo [INFO] ejecuta install.bat --force para que aparezcan en el menu.
+) else (
+    echo [SKIP] Menu contextual de Vibe Coding ya instalado.
 )
 
-timeout /t 3 /nobreak >nul
-exit /b %EXIT_CODE%
+echo.
+if "%EXIT_CODE%"=="1" exit /b 1
+
+echo =============================================
+echo   [OK] Instalacion completada
+echo =============================================
+echo.
+echo Si el menu no aparece, reinicia el Explorador:
+echo   taskkill /f /im explorer.exe ^& start explorer.exe
+echo.
+exit /b 0

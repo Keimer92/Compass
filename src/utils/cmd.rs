@@ -51,6 +51,40 @@ pub fn run_in_dir_status(cmd: &str, args: &[&str], dir: &std::path::Path) -> Res
     Ok(())
 }
 
+/// Ejecuta `cmd` esperando como máximo `timeout_secs` y con el **stdin cerrado**.
+///
+/// Existe para los comandos que pueden quedarse esperando una confirmación
+/// interactiva: `Install-Module` pregunta por consola si no confía en el
+/// repositorio, y PSGallery pide aceptar la licencia la primera vez. Con el stdin
+/// a `Stdio::null()` esa pregunta lee EOF y aborta, en vez de dejar la TUI colgada
+/// para siempre; el techo de tiempo cubre el caso de que el hijo se quede
+/// bloqueado por otra razón (la primera descarga del proveedor NuGet).
+///
+/// Devuelve `Ok(false)` si se agotó el tiempo (el proceso se mata), y `Err` si no
+/// se pudo ni arrancar.
+pub fn run_timeout(cmd: &str, args: &[&str], timeout_secs: u64) -> Result<bool> {
+    use std::time::{Duration, Instant};
+
+    let mut child = Command::new(cmd)
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .spawn()
+        .with_context(|| format!("Falló al ejecutar '{}'. Verifica que el programa esté instalado y en el PATH.", cmd))?;
+
+    let limite = Instant::now() + Duration::from_secs(timeout_secs);
+    loop {
+        match child.try_wait()? {
+            Some(status) => return Ok(status.success()),
+            None if Instant::now() >= limite => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Ok(false);
+            }
+            None => std::thread::sleep(Duration::from_millis(150)),
+        }
+    }
+}
+
 /// Ejecuta npm install en un directorio.
 /// En Windows, npm es npm.cmd y requiere cmd.exe para ejecutarse.
 /// Esta función lo resuelve automáticamente.
@@ -237,6 +271,20 @@ fn spawn_kitty_tab(title: &str, script: &str) -> bool {
 /// usuario tendrá kitty abierto: si se hornea el argv con
 /// [`terminal_prefix`], siempre abrirá una ventana nueva. En vez de eso se emite
 /// el condicional y el wrapper decide cuando se ejecuta.
+///
+/// ⚠️ **La rama de la pestaña parsea el script dos veces, y está roto.** El
+/// `script -qec "… sh -lc \"$CR_SCRIPT\""` de abajo llega al shell intermedio
+/// como una cadena con las comillas ya consumidas, así que ese shell vuelve a
+/// parsearla: `$target` sale vacío (no está definido ahí) y la división por IFS
+/// trunca el comando. La rama de ventana nueva sí funciona, porque kitty hace
+/// `exec` directo de `sh -lc <script>` sin re-parsear.
+///
+/// Arreglo propuesto: exportar `CR_SCRIPT`/`CR_SOCKET`/`CR_TITLE` y pasarle a
+/// `script -qec` **un argumento con comillas simples**, para que cite el shell
+/// intermedio. Está sin aplicar porque no se ha podido probar con un kitty real:
+/// hace falta `ss -xlH | grep kitty-code-runner` listando
+/// `@kitty-code-runner-<pid>`, o sea una instancia de kitty ya abierta. Ver
+/// "Bug conocido: doble parseo en la rama kitty-tab" en AGENTS.md.
 ///
 /// Devuelve `None` si no hay ningún emulador instalado.
 #[cfg(not(windows))]

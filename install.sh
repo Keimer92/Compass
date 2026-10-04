@@ -19,16 +19,22 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd -- "$SCRIPT_DIR" || exit 1
 
 WITH_CONTEXT_MENU=0
+FORCE=0
 for arg in "$@"; do
     case "$arg" in
         --with-context-menu) WITH_CONTEXT_MENU=1 ;;
+        --force|-f) FORCE=1 ;;
         -h|--help)
             cat <<'EOF'
-Uso: install.sh [--with-context-menu]
+Uso: install.sh [--with-context-menu] [--force]
 
   --with-context-menu   Instala también las entradas de Vibe Coding en el
                         menú contextual de COSMIC Files (context_actions).
                         Requiere cosmic-files >= 1.0.10.
+
+  --force               Recompila y reinstala aunque las fuentes no sean más
+                        nuevas que el binario instalado (que es lo que se hace
+                        siempre por omisión, y tarda varios minutos).
 EOF
             exit 0
             ;;
@@ -65,11 +71,45 @@ if pgrep -x code-runner >/dev/null 2>&1; then
 fi
 
 # ── 3. Compilar e instalar ────────────────────────────────────────────
-echo "[INFO] Compilando e instalando..."
-cargo install --path . --force
-EXIT_CODE=$?
-echo
-echo "[INFO] Compilación finalizada."
+# Se salta si el binario instalado ya es más nuevo que las fuentes. Es la misma
+# heurística que usa `assets/install-probe.ps1` en Windows, y por el mismo
+# motivo: `cargo install --force` siempre recompila y reinstala, que son varios
+# minutos de reloj. Se salta con `--force` en la línea de comandos.
+#
+# Heurística, y con una limitación: si tocas algo que no esté en la lista
+# (un `build.rs`, un asset que se incruste), el salto se come el cambio. Por eso
+# `install.sh --force` está documentado arriba.
+NEEDS_BUILD=1
+for cand in "$HOME/.cargo/bin/code-runner" /usr/local/bin/code-runner; do
+    if [ -x "$cand" ]; then
+        INSTALLED="$cand"
+        break
+    fi
+done
+if [ "$FORCE" -eq 1 ]; then
+    NEEDS_BUILD=1
+    echo "[INFO] Modo --force: se recompila aunque no haga falta."
+elif [ -n "${INSTALLED:-}" ]; then
+    NEWEST="$(find src Cargo.toml Cargo.lock -type f -newer "$INSTALLED" 2>/dev/null | head -n 1)"
+    # Un `find` que falla también devuelve lista vacía, que es justo lo que
+    # significa "salta". Sin este extra, un repositorio a medio copiar se da
+    # por bueno y no se recompila nada.
+    if [ -z "$NEWEST" ] && [ -d src ] && [ -f Cargo.lock ]; then
+        NEEDS_BUILD=0
+    fi
+fi
+
+EXIT_CODE=0
+if [ "$NEEDS_BUILD" -eq 0 ]; then
+    echo "[SKIP] El binario instalado ya está al día (no hay fuentes más nuevas)."
+    echo "[INFO] Usa install.sh --force si quieres forzar la recompilación."
+else
+    echo "[INFO] Compilando e instalando..."
+    cargo install --path . --force
+    EXIT_CODE=$?
+    echo
+    echo "[INFO] Compilación finalizada."
+fi
 
 if [ "$EXIT_CODE" -ne 0 ]; then
     echo
