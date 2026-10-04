@@ -224,8 +224,9 @@ menu.rs
 
 utils/
   ├─ context.rs — detect(), ProjectType, ProjectContext, whatsapp_path()
-  ├─ platform.rs — helpers de portabilidad: IS_WINDOWS, exe_name(), gradlew_name(), home_dir(), data_dir(), find_gradlew(), NDK_VERSION
+  ├─ platform.rs — helpers de portabilidad: IS_WINDOWS, exe_name(), gradlew_name(), home_dir(), data_dir(), find_gradlew(), NDK_VERSION, tauri_native_pkg()
   ├─ cmd.rs — run*, spawn_new_window, spawn_new_window_autoexit, spawn_new_window_interactive, run_npm_install, clear_screen, remove_dir, reveal_on_success
+  ├─ tauri.rs — command(), ensure(), cli_entry() [CLI sin shim de .bin + reinstalación si falta el binding nativo]
   ├─ ui.rs — ask_text(), ask_password(), success_banner(), info_banner(), pause()
   └─ android.rs — select_device(), wait_for_device_boot(), list_physical_devices() [sólo dispositivos físicos]
 
@@ -426,6 +427,22 @@ falla el parser de Explorer cuando la ruta tiene espacios y abre **Documentos** 
 
 ### Gradle en Windows (KMP)
 Los comandos de Gradle se ejecutan como `cmd /c gradlew.bat <args>` porque PowerShell no puede ejecutar `.bat` directamente.
+
+### CLI de Tauri (`utils/tauri.rs`)
+Un `node_modules` compartido entre Windows y Linux rompe el CLI de Tauri por partida doble, y las dos cosas se evitan así:
+
+| Síntoma | Causa |
+|---------|-------|
+| `'tauri' is not recognized…` | `node_modules/.bin/tauri` es el shim del sistema que hizo el install. En POSIX es un fichero sin extensión; en Windows además salen `tauri.cmd`/`tauri.ps1`. `cmd` sólo resuelve por `PATHEXT`. |
+| `Cannot find native binding` | `@tauri-apps/cli` delega en una *optional dependency* por plataforma. Si el install fue en el otro sistema, la de aquí no está ([npm/cli#4828]). |
+
+- `tauri::command(ctx, args)` emite `node node_modules/@tauri-apps/cli/tauri.js <args>`, nunca `tauri` a secas. Cae a `npx tauri` si el paquete no está.
+- `tauri::ensure(ctx)` llama a `npm install` si falta `node_modules`, el paquete, o el binding de `platform::tauri_native_pkg()`. Se llama **antes** de `command()`.
+- **`npm install` reemplaza** el binding del otro sistema, no lo añade: un `node_modules` en ping-pong entre sistemas pide un install por uso. Inherente al modelo de optional deps.
+
+⚠️ **La ruta va relativa y sin comillas**, y no es estética. Los comandos se lanzan como `cmd /c "title X & <cmd> & pause"`; `cmd` no quita sus comillas cuando el contenido tiene caracteres especiales (`&`), así que unas comillas internas rompen el parseo y `node` recibe la ruta con un `"` pegado (`Cannot find module`). Todos los lanzadores ponen el cwd en la raíz del proyecto, así que la ruta relativa resuelve.
+
+Cubierto por `utils::tauri::tests` (los tres casos: fallback a `npx`, invocación por `node`, y detección del binding de otra plataforma).
 
 ### KMP Desktop (Hot Reload)
 `kotlin::run_windows()` ejecuta `:composeApp:run` con Hot Reload incorporado.
