@@ -304,7 +304,7 @@ fn write_terminal_script(path: &std::path::Path, title: &str, cmd: &str) -> Resu
     // `cmd` va como un solo argumento del shell embebido, no partido en tokens:
     // `opencode --auto` debe llegarle a `sh -lc` como una sola cadena. Por eso
     // se cita en el argv y se deja sin comillas dentro.
-    let script = match crate::utils::cmd::terminal_prefix(
+    let script = match crate::utils::cmd::terminal_launch_shell(
         title,
         &format!(
             r#"cd "$target" || exit 1; {cmd}; rc=$?; echo; \
@@ -312,14 +312,7 @@ fn write_terminal_script(path: &std::path::Path, title: &str, cmd: &str) -> Resu
                read -r"#
         ),
     ) {
-        Some(argv) => {
-            let cmd_line = argv
-                .iter()
-                .map(|a| shell_quote(a))
-                .collect::<Vec<_>>()
-                .join(" ");
-            format!("{WRAPPER_PREAMBLE}exec {cmd_line}\n")
-        }
+        Some(cmd_line) => format!("{WRAPPER_PREAMBLE}{cmd_line}\n"),
         None => format!(
             "{WRAPPER_PREAMBLE}# [WARN] No se encontró emulador de terminal: se lanza sin\n\
              #        tty, así que la TUI no será interactiva.\n\

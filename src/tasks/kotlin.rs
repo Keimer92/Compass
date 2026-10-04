@@ -153,10 +153,12 @@ fn gradlew_cmd(ctx: &ProjectContext, args: &str) -> String {
 
     // Sin bit +x, `./gradlew` da Permission denied. Se corrige en el sitio y se
     // avisa, en vez de fallar con un error poco claro dentro de la ventana.
-    let path = ctx.script_dir.join(&wrapper);
+    // El bloque va tras la rama de Windows, que ya ha salido antes, así que
+    // `path` sólo se usa aquí.
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
+        let path = ctx.script_dir.join(&wrapper);
         if let Ok(meta) = std::fs::metadata(&path) {
             if meta.permissions().mode() & 0o111 == 0 {
                 let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755));
