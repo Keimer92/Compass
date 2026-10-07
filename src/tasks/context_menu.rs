@@ -162,9 +162,13 @@ enum InstallVia {
     PowerShell,
 }
 
-/// Orden solicitado: OpenCode → Kilo Code → Cline → Antigravity → Hermes.
+/// Orden solicitado: OpenCode → Kilo Code → Cline → Antigravity → Kiro CLI → Hermes.
 /// Los prefijos numéricos fuerzan ese orden porque Windows ordena las
-/// sub-claves de `shell` alfabéticamente (A-Z, por tanto 01 < 02 < 03 < 04 < 05).
+/// sub-claves de `shell` alfabéticamente (01 < 02 < 03 < 04 < 05 < 06).
+///
+/// `cli` es lo que se ejecuta al elegir la entrada del menú; el primer token es
+/// el binario que [`resolve_tool_command`] busca en el PATH. Para Kiro CLI ese
+/// token es `kiro-cli`, que es como nombra el ejecutable el instalador.
 ///
 /// Comandos de instalación verificados en la documentación oficial de cada
 /// producto (opencode.ai/download, kilo.ai/docs, docs.cline.bot,
@@ -210,7 +214,19 @@ const VIBE_TOOLS: &[VibeTool] = &[
         install_via: InstallVia::PowerShell,
     },
     VibeTool {
-        key: "05Hermes",
+        key: "05KiroCli",
+        title: "Kiro CLI",
+        cli: "kiro-cli chat",
+        // Se instala con el .exe de `https://kiro.dev` (o `winget`), no hay
+        // comando de terminal: el instalador es un MSI/EXE con GUI. Por eso
+        // `install` está vacío y `ensure_tools_installed()` no ofrece
+        // instalarlo, sólo avisar de que falta.
+        install: "",
+        fallback: &["LOCALAPPDATA/Kiro-Cli/kiro-cli.exe"],
+        install_via: InstallVia::Cmd,
+    },
+    VibeTool {
+        key: "06Hermes",
         title: "Hermes",
         cli: "hermes",
         // Hermes arranca su TUI a pelo, sin flags: `hermes` a secas.
@@ -421,6 +437,7 @@ pub fn ensure_tools_installed() -> Result<()> {
         .iter()
         .filter(|t| resolve_tool_command(t).is_none())
         .collect();
+    let instalables: Vec<&VibeTool> = faltantes.iter().copied().filter(|t| !t.install.is_empty()).collect();
 
     if faltantes.is_empty() {
         println!("[OK] Las {} herramientas de Vibe Coding estan instaladas.", VIBE_TOOLS.len());
@@ -430,14 +447,32 @@ pub fn ensure_tools_installed() -> Result<()> {
     println!();
     println!("[INFO] Herramientas de Vibe Coding no encontradas: {}", faltantes.len());
     for tool in &faltantes {
-        println!("       - {}  ({})", tool.title, tool.install);
+        // Sin comando de instalación se indica el motivo de que no se ofrezca.
+        let detalle = if tool.install.is_empty() {
+            "instalador gráfico, no se instala desde la terminal".to_string()
+        } else {
+            tool.install.to_string()
+        };
+        println!("       - {}  ({})", tool.title, detalle);
+    }
+    if !instalables.is_empty() {
+        println!();
+        println!("[INFO] Se preguntará por {} de ellas.", instalables.len());
     }
     println!();
 
-    for tool in faltantes {
+    for tool in &faltantes {
         println!("[?] {} no esta instalado.", tool.title);
+
+        // Sin comando de instalación no hay nada que ejecutar: se instala a mano
+        // con un instalador gráfico. Se avisa y se sigue.
+        if tool.install.is_empty() {
+            println!("    No se instala desde la terminal: usa su instalador.");
+            continue;
+        }
+
         println!("    Comando oficial: {}", tool.install);
-        println!("    (los tres primeros son npm; Antigravity es un instalador nativo de Google)");
+        println!("    (los tres primeros son npm; Antigravity y Hermes son instaladores nativos)");
 
         // El prompt no lleva `[s/N]`: `ask_text` ya imprime el default entre
         // corchetes. Con `None` no habría default, y entonces Enter devuelve ""
@@ -512,7 +547,8 @@ mod tests {
             ("02KiloCode", "Kilo Code", "npm install -g @kilocode/cli", InstallVia::Cmd),
             ("03Cline", "Cline", "npm install -g cline", InstallVia::Cmd),
             ("04Antigravity", "Antigravity", "irm https://antigravity.google/cli/install.ps1 | iex", InstallVia::PowerShell),
-            ("05Hermes", "Hermes", "iex (irm https://hermes-agent.nousresearch.com/install.ps1)", InstallVia::PowerShell),
+            ("05KiroCli", "Kiro CLI", "", InstallVia::Cmd),
+            ("06Hermes", "Hermes", "iex (irm https://hermes-agent.nousresearch.com/install.ps1)", InstallVia::PowerShell),
         ];
 
         assert_eq!(VIBE_TOOLS.len(), esperado.len(), "añade el test al añadir una herramienta");
@@ -522,6 +558,46 @@ mod tests {
             assert_eq!(tool.install, install);
             assert_eq!(tool.install_via, via);
         }
+    }
+
+    /// Kiro CLI se instala con un `.exe` (o `winget`), no con un comando de
+    /// terminal. Por eso `install` va vacío, y el flujo de instalación **no debe
+    /// preguntar** por él: preguntar algo a lo que no se puede responder con un
+    /// Enter sería un bucle sin salida.
+    #[test]
+    fn a_empty_install_means_detect_only_never_ask() {
+        let kiro = VIBE_TOOLS.iter().find(|t| t.key == "05KiroCli").unwrap();
+        assert!(kiro.install.is_empty(), "Kiro CLI no debe ofrecer comando de instalación");
+        assert!(
+            !kiro.cli.is_empty(),
+            "pero sí debe seguir teniendo un comando que ejecutar en el menú"
+        );
+
+        // Y la regla se sostiene en general: `install` vacío ⇒ no se pregunta.
+        let sin_instalador: Vec<&str> = VIBE_TOOLS
+            .iter()
+            .filter(|t| t.install.is_empty())
+            .map(|t| t.title)
+            .collect();
+        assert_eq!(sin_instalador, vec!["Kiro CLI"], "sólo Kiro CLI va sin instalador");
+    }
+
+    /// El ejecutable de Kiro CLI se llama `kiro-cli.exe`, no `kiro`: es lo que
+    /// deja su instalador en `%LOCALAPPDATA%\Kiro-Cli`, y `resolve_tool_command`
+    /// busca el primer token de `cli`.
+    #[test]
+    fn kiro_binary_name_matches_its_installer() {
+        let kiro = VIBE_TOOLS.iter().find(|t| t.key == "05KiroCli").unwrap();
+        let ejecutable = kiro.cli.split_whitespace().next().unwrap();
+        assert_eq!(ejecutable, "kiro-cli");
+
+        // Y la ruta de fallback tiene que apuntar a la carpeta real, que no
+        // sigue el patrón `LOCALAPPDATA\<tool>\bin` del resto.
+        assert!(
+            kiro.fallback.contains(&"LOCALAPPDATA/Kiro-Cli/kiro-cli.exe"),
+            "fallback de Kiro incorrecto: {:?}",
+            kiro.fallback
+        );
     }
 
     /// El prefijo numérico es lo único que fija el orden del submenú, porque
@@ -559,7 +635,7 @@ mod tests {
     #[test]
     fn native_installers_declare_a_localappdata_fallback() {
         for tool in VIBE_TOOLS {
-            let es_npm = matches!(tool.install_via, InstallVia::Cmd);
+            let es_npm = matches!(tool.install, s if s.starts_with("npm "));
             if es_npm {
                 assert!(
                     tool.fallback.is_empty(),
@@ -592,16 +668,27 @@ mod tests {
             });
         assert!(en_windows, "todo fallback debe llevar prefijo conocido o ser absoluto");
 
-        let candidatas = fallback_candidates(VIBE_TOOLS.iter().find(|t| t.key == "05Hermes").unwrap());
-        assert!(
-            candidatas.iter().all(|p| !p.to_string_lossy().contains("LOCALAPPDATA/")
-                && !p.to_string_lossy().contains("HOME/")),
-            "quedaron prefijos sin expandir: {candidatas:?}"
-        );
-        assert!(
-            candidatas.iter().any(|p| p.ends_with("hermes.exe") || p.ends_with("hermes")),
-            "no se ha derivado ningún camino de hermes: {candidatas:?}"
-        );
+        // Cada herramienta con fallback debe derivar al menos un camino real de
+        // su ejecutable. Se usa `ends_with`, no igualdad, porque en Windows el
+        // el candidato lleva `.exe` y en Linux no.
+        for tool in VIBE_TOOLS.iter().filter(|t| !t.fallback.is_empty()) {
+            let ejecutable = tool.cli.split_whitespace().next().unwrap();
+            let candidatas = fallback_candidates(tool);
+            assert!(
+                candidatas.iter().all(|p| !p.to_string_lossy().contains("LOCALAPPDATA/")
+                    && !p.to_string_lossy().contains("HOME/")),
+                "{}: quedaron prefijos sin expandir: {candidatas:?}",
+                tool.title
+            );
+            assert!(
+                candidatas.iter().any(|p| {
+                    let s = p.to_string_lossy().to_lowercase().replace('\\', "/");
+                    s.ends_with(&format!("{ejecutable}.exe")) || s.ends_with(&format!("/{ejecutable}"))
+                }),
+                "{}: no se ha derivado ningún camino de {ejecutable}: {candidatas:?}",
+                tool.title
+            );
+        }
     }
 
     /// `irm | iex` es PowerShell y no existe en `cmd`; al revés, `npm` en
@@ -610,6 +697,11 @@ mod tests {
     #[test]
     fn every_install_command_uses_a_shell_that_understands_it() {
         for tool in VIBE_TOOLS {
+            // Sin comando de instalación no hay shell que comprobar.
+            if tool.install.is_empty() {
+                continue;
+            }
+
             let es_powershell = tool.install.contains("irm ") || tool.install.contains("iex");
             match tool.install_via {
                 InstallVia::PowerShell => assert!(
@@ -631,17 +723,24 @@ mod tests {
     /// El nombre del comando que se busca en el PATH debe ser el primer token
     /// del `cli`: es lo que usa `resolve_tool_command` para detectarlo, así que
     /// si divergen la herramienta se instala pero el menú no la ofrece.
+    ///
+    /// Sólo se comprueba cuando hay instalador: Kiro CLI no tiene, y su binario
+    /// (`kiro-cli`) no aparece en ningún comando de instalación.
     #[test]
     fn detected_command_matches_the_cli_of_the_menu() {
         for tool in VIBE_TOOLS {
             let ejecutable = tool.cli.split_whitespace().next().unwrap_or(tool.cli);
+            assert!(!ejecutable.is_empty(), "{} no tiene comando", tool.title);
+
+            if tool.install.is_empty() {
+                continue;
+            }
             assert!(
                 tool.install.contains(ejecutable) || tool.install.contains("install"),
                 "el instalador de {} no menciona {:?}",
                 tool.title,
                 ejecutable
             );
-            assert!(!ejecutable.is_empty(), "{} no tiene comando", tool.title);
         }
     }
 

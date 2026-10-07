@@ -64,10 +64,23 @@ if (Test-Path 'HKCU:\Software\Classes\Directory\ContextMenus\VibeCoding\shell\01
 # `agy` y `hermes` necesitan el mismo fallback que `resolve_tool_command()` en
 # Rust: sus instaladores nativos los dejan en `%LOCALAPPDATA%\<tool>\bin`, fuera
 # del PATH, así que `Get-Command` no los ve aunque estén instalados.
+# `kiro-cli` no sigue el patrón `LOCALAPPDATA\<herramienta>\bin`: su instalador
+# lo deja en `LOCALAPPDATA\Kiro-Cli`, plano y con otro nombre de carpeta.
+$nombres = @{
+    'opencode' = 'opencode'
+    'kilo'     = 'kilo'
+    'cline'    = 'cline'
+    'agy'      = 'agy'
+    'hermes'   = 'hermes'
+    'kiro-cli' = 'Kiro-Cli'
+}
+
 $faltan = 0
-foreach ($herramienta in @('opencode', 'kilo', 'cline', 'agy', 'hermes')) {
+foreach ($herramienta in $nombres.Keys) {
     if (Get-Command -Name $herramienta -ErrorAction SilentlyContinue) { continue }
-    if (Test-Path (Join-Path $env:LOCALAPPDATA "$herramienta\bin\$herramienta.exe")) { continue }
+    $carpeta = $nombres[$herramienta]
+    if (Test-Path (Join-Path $env:LOCALAPPDATA "$carpeta\bin\$herramienta.exe")) { continue }
+    if (Test-Path (Join-Path $env:LOCALAPPDATA "$carpeta\$herramienta.exe")) { continue }
     $faltan++
 }
 

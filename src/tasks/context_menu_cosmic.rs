@@ -523,6 +523,7 @@ const VIBE_TOOLS: &[VibeToolLinux] = &[
     VibeToolLinux { title: "Kilo Code", cli: "kilo" },
     VibeToolLinux { title: "Cline", cli: "cline -i" },
     VibeToolLinux { title: "Antigravity", cli: "agy" },
+    VibeToolLinux { title: "Kiro CLI", cli: "kiro-cli chat" },
     VibeToolLinux { title: "Hermes", cli: "hermes" },
 ];
 

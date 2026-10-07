@@ -280,7 +280,7 @@ tasks/
   ├─ signer.rs  — create_or_import(), patch_build_gradle()
   ├─ sha1.rs    — show() [huellas SHA-1/SHA-256 debug+release, lee keystore.properties/key.properties]
   ├─ terminal.rs — configure() [perfil PSReadLine según la versión instalada]
-  ├─ context_menu.rs — install/uninstall/toggle para CodeRunner + Vibe Coding (menú cascada con ExtendedSubCommandsKey: OpenCode, Kilo Code, Cline, Antigravity, Hermes)
+  ├─ context_menu.rs — install/uninstall/toggle para CodeRunner + Vibe Coding (menú cascada con ExtendedSubCommandsKey: OpenCode, Kilo Code, Cline, Antigravity, Kiro CLI, Hermes)
   ├─ context_menu_cosmic.rs — install/uninstall para COSMIC Files (context_actions, COSMIC ≥ 1.0.10)
   └─ whatsapp.rs — build()
   └─ version.rs — bump() [port de versionar.bat: Tauri/Rust, todo-o-nada]
@@ -367,7 +367,7 @@ tasks/
 |---------|---------|----------------|
 | **Code Runner** | `"<exe_path>" "%1"` | `HKCR\Directory\shell\zz_CodeRunner` |
 
-### Vibe Coding (menú cascada: 5 agentes)
+### Vibe Coding (menú cascada: 6 agentes)
 
 Usa el método **`ExtendedSubCommandsKey`** (el oficial de Windows para menús cascada, mismo que usa Command Prompt y PowerShell).
 
@@ -383,7 +383,8 @@ HKCU\Software\Classes\Directory\ContextMenus\VibeCoding\shell
   02KiloCode     → command
   03Cline        → command
   04Antigravity  → command
-  05Hermes       → command
+  05KiroCli      → command
+  06Hermes       → command
 ```
 
 ⚠️ Las sub-entradas **no** cuelgan de `zz_VibeCoding\shell`: cuelgan de `Directory\ContextMenus\VibeCoding\shell` (ruta compartida con `Directory\Background`), y `zz_VibeCoding` sólo lleva el puntero `ExtendedSubCommandsKey`. Buscar en el sitio equivocado es lo que hacía que `install.bat` reinstallara el menú en cada ejecución.
@@ -394,13 +395,18 @@ HKCU\Software\Classes\Directory\ContextMenus\VibeCoding\shell
 | 02 | **Kilo Code** | `cmd.exe /c start "Kilo Code" /D "%V" cmd.exe /c "kilo"` | Abre Kilo Code en la carpeta |
 | 03 | **Cline** | `cmd.exe /c start "Cline" /D "%V" cmd.exe /c "cline -i"` | Abre Cline (`-i` evita modo headless) |
 | 04 | **Antigravity** | `cmd.exe /c start "Antigravity" /D "%V" cmd.exe /c "agy"` | Abre Antigravity CLI (Google) |
-| 05 | **Hermes** | `cmd.exe /c start "Hermes" /D "%V" cmd.exe /c "hermes"` | Abre Hermes (Nous Research), sin flags: su TUI arranca a pelo |
+| 05 | **Kiro CLI** | `cmd.exe /c start "Kiro CLI" /D "%V" cmd.exe /c "kiro-cli chat"` | Abre Kiro CLI. El binario es **`kiro-cli`**, no `kiro` |
+| 06 | **Hermes** | `cmd.exe /c start "Hermes" /D "%V" cmd.exe /c "hermes"` | Abre Hermes (Nous Research), sin flags: su TUI arranca a pelo |
+
+⚠️ **Kiro CLI no tiene comando de instalación**: se instala con su `.exe` (o `winget install Kiro-CLI`), no desde la terminal. Por eso `install` va **vacío** en su entrada de `VIBE_TOOLS`, y eso significa explícitamente **"detectar e instalar el submenú, pero no preguntar por instalarlo"**. `ensure_tools_installed()` salta el bucle de preguntas cuando `install` está vacío y sólo avisa. Preguntar algo a lo que no se puede responder con un Enter sería un bucle sin salida. Cubierto por `a_empty_install_means_detect_only_never_ask`.
+
+⚠️ Kiro rompe el patrón de rutas del resto: su instalador lo deja en `%LOCALAPPDATA%\Kiro-Cli\kiro-cli.exe`, **plano y sin subcarpeta `bin`**, al contrario que `%LOCALAPPDATA%\agy\bin` y `%LOCALAPPDATA%\hermes\bin`. La sonda de `install.bat` lo tiene en un mapa `$nombres` por eso.
 
 ⚠️ **Hermes y Antigravity no se detectan sólo por el PATH.** Sus instaladores nativos dejan el binario en su propia carpeta (`%LOCALAPPDATA%\hermes\bin`, `%LOCALAPPDATA%\agy\bin`) y no siempre lo agregan al PATH del usuario. Por eso `VibeTool::fallback` declara rutas alternativas con prefijo `LOCALAPPDATA/` o `HOME/`, que `fallback_candidates()` expande. **Los npm globales no necesitan nada de esto** (npm sí modifica el PATH), y hay un test que lo comprueba.
 
 ### Instalación de las herramientas (`vibe-setup`)
 
-`ensure_tools_installed()` detecta cuáles de las 5 faltan y **pregunta una por una** antes de instalar. El comando de instalación vive en `VibeTool::install`, verificado en la documentación oficial de cada producto:
+`ensure_tools_installed()` detecta cuáles de las 6 faltan. **Sólo pregunta por las que tienen instalador**: Kiro CLI se avisa pero no se pregunta, porque va con `.exe`. El comando de instalación vive en `VibeTool::install`, verificado en la documentación oficial de cada producto:
 
 | Herramienta | `install` | `install_via` |
 |---|---|---|
@@ -408,6 +414,7 @@ HKCU\Software\Classes\Directory\ContextMenus\VibeCoding\shell
 | Kilo Code | `npm install -g @kilocode/cli` | `Cmd` |
 | Cline | `npm install -g cline` | `Cmd` |
 | Antigravity | `irm https://antigravity.google/cli/install.ps1 \| iex` | `PowerShell` |
+| Kiro CLI | *(ninguno: `.exe`)* | — |
 | Hermes | `iex (irm https://hermes-agent.nousresearch.com/install.ps1)` | `PowerShell` |
 
 ⚠️ **`install_via` no es cosmético**: en Windows `npm` es `npm.cmd` y su shim `npm.ps1` lo bloquea la ExecutionPolicy por defecto, así que los npm van por `cmd /c`. Y `irm | iex` es sintaxis de PowerShell, que en `cmd` no existe.
@@ -430,6 +437,7 @@ HKCU\Software\Classes\Directory\ContextMenus\VibeCoding\shell
 - Se limpian entradas viejas individuales (`zz_OpenCode`, `zz_pCline`, `zz_pKilo`) al instalar.
 - **Antigravity CLI**: binario nativo (no npm) instalado por `irm https://antigravity.google/cli/install.ps1 | iex` → `%LOCALAPPDATA%\agy\bin\agy.exe`. No siempre está en PATH; `resolve_tool_command()` hace fallback a esa ruta si `Get-Command agy` falla.
 - **Hermes CLI** (Nous Research): instalador nativo `iex (irm https://hermes-agent.nousresearch.com/install.ps1)`. En Windows nativo vive bajo `%LOCALAPPDATA%\hermes\bin` (el README lo dice explícitamente), en Linux el `install.sh` lo deja en `~/.local/bin`. Mismo caso de fallback que Antigravity. `hermes` arranca su TUI sin flags; `hermes-acp` es el servidor ACP para editores y no va al menú.
+- **Kiro CLI** (AWS): se instala con su `.exe` (`winget install Kiro-CLI` o el instalador de kiro.dev), **no hay comando de terminal**. El ejecutable queda en `%LOCALAPPDATA%\Kiro-Cli\kiro-cli.exe` — nótese que **no** sigue el patrón `…\<tool>\bin` del resto, por eso la sonda de `install.bat` lo lleva en un mapa. El subcomando para chatear es `kiro-cli chat`; `--tui` fuerza la interfaz nueva y `--legacy-ui` la antigua. `install` va vacío en `VIBE_TOOLS`, que significa "detectar, nunca preguntar por instalarlo".
 - `install.bat` instala/actualiza Vibe Coding con detección de "ya instalado".
 - El menú interactivo `toggle()` gestiona Code Runner + Vibe Coding + "Instalar todos" / "Desinstalar todos".
 - **Idempotencia**: `install()` compara tanto el comando (`command_is_current()`) como el texto visible (`label_is()`), así un cambio de nombre fuerza el reinstall aunque el comando ya sea correcto.
@@ -663,7 +671,7 @@ Reinstalar costaba ~30 s en cada ejecución, casi todo en cosas innecesarias. Lo
 | Sin detección de herramientas ausentes | cuarto campo de la sonda | va en la **misma** invocación de PowerShell, así que no cuesta los ~2,5 s de arranque; avisa en minúscula si falta alguna |
 | `timeout /t 3` al final | eliminado | 3 s de espera muerta |
 
-Medido: **~30 s → ~7 s** sin nada que cambiar, ~19 s cuando hay que recompilar, ~32 s con `--force`. El grosso del coste era `opencode-install`, que tarda **18 s** sólo en detectar las 4 herramientas (un `Get-Command` por herramienta).
+Medido: **~30 s → ~7 s** sin nada que cambiar, ~19 s cuando hay que recompilar, ~32 s con `--force`. El grosso del coste era `opencode-install`, que tardaba **18 s** sólo en detectar las herramientas (un `Get-Command` por herramienta, o sea un arranque de PowerShell cada una). La sonda de `install.bat` hace todas las comprobaciones en **una** invocación, así que añadir herramientas a `VIBE_TOOLS` no encarece el instalador.
 
 ⚠️ La sonda vive en un `.ps1` y no en un one-liner dentro de `for /f` porque las tuberías (`|`) son caracteres especiales de `cmd` y rompen el bucle. Y ⚠️ `1` significa **actuar**: leerlo al revés hace reinstallar siempre (que es lo que pasó en la primera versión de este cambio).
 
