@@ -38,7 +38,7 @@ fn trace_event(msg: &str) {
     if !TRACE.load(Ordering::Relaxed) {
         return;
     }
-    let log = std::env::temp_dir().join("code-runner-tui.log");
+    let log = std::env::temp_dir().join("compass-tui.log");
     if let Ok(mut f) = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -461,10 +461,10 @@ fn render_header(frame: &mut Frame, area: Rect, ctx: &ProjectContext) {
         .unwrap_or(std::borrow::Cow::Borrowed("Proyecto"));
 
     let (emoji, label, badge) = match ctx.project_type {
-        ProjectType::Tauri => ("\u{1f980}", "Code Runner for Rust / Tauri", "TAURI"),
-        ProjectType::Flutter => ("\u{1f3af}", "Code Runner for Dart / Flutter", "FLUTTER"),
-        ProjectType::Kotlin => ("\u{1f537}", "Code Runner for Kotlin / KMP", "KOTLIN"),
-        ProjectType::Rust => ("\u{2699}", "Code Runner for Rust", "RUST"),
+        ProjectType::Tauri => ("\u{1f980}", "Compass for Rust / Tauri", "TAURI"),
+        ProjectType::Flutter => ("\u{1f3af}", "Compass for Dart / Flutter", "FLUTTER"),
+        ProjectType::Kotlin => ("\u{1f537}", "Compass for Kotlin / KMP", "KOTLIN"),
+        ProjectType::Rust => ("\u{2699}", "Compass for Rust", "RUST"),
     };
     let badge_color = match ctx.project_type {
         ProjectType::Tauri => Color::Green,
@@ -787,7 +787,7 @@ fn menu_item_to_task(item: MenuItem, ptype: ProjectType) -> &'static str {
 
 pub fn run(ctx: &ProjectContext) -> anyhow::Result<()> {
     if TRACE.load(Ordering::Relaxed) {
-        let _ = std::fs::File::create(std::env::temp_dir().join("code-runner-tui.log"));
+        let _ = std::fs::File::create(std::env::temp_dir().join("compass-tui.log"));
     }
 
     let mut terminal = setup_terminal()?;
@@ -834,7 +834,7 @@ pub fn run(ctx: &ProjectContext) -> anyhow::Result<()> {
                 };
 
                 cmd::spawn_new_window_autoexit(
-                    &format!("Code Runner - {}", task),
+                    &format!("Compass - {}", task),
                     project_path,
                     &command,
                 )?;

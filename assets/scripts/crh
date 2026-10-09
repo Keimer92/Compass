@@ -1,23 +1,23 @@
 #!/usr/bin/env sh
 #
-# crh — "code runner here": abre la TUI de code-runner en el directorio actual.
+# crh — "code runner here": abre la TUI de compass en el directorio actual.
 #
 # Existe porque las context_actions de cosmic-files sólo aparecen cuando hay
 # algo seleccionado (el clic en el fondo de la carpeta no las muestra nunca).
 # El flujo equivalente es: clic derecho → "Open in Terminal" → `crh`.
 #
-# Atajo de `code-runner-open [RUTA]`, que acepta una ruta explícita.
+# Atajo de `compass-open [RUTA]`, que acepta una ruta explícita.
 #
-# Generado por code-runner. Se reemplaza al reinstalar.
+# Generado por compass. Se reemplaza al reinstalar.
 set -e
 
 CR_BIN="@EXE@"
 
 if [ ! -x "$CR_BIN" ]; then
-    CR_BIN="$(command -v code-runner 2>/dev/null || true)"
+    CR_BIN="$(command -v compass 2>/dev/null || true)"
 fi
 if [ -z "$CR_BIN" ] || [ ! -x "$CR_BIN" ]; then
-    echo "[ERROR] No se encontró code-runner." >&2
+    echo "[ERROR] No se encontró compass." >&2
     echo "        Reinstálalo con ./install.sh" >&2
     exit 1
 fi

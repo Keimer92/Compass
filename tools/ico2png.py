@@ -9,7 +9,7 @@ Pop!_OS no trae ImageMagick ni icoutils, y el launcher de COSMIC necesita PNG
     (bottom-up) para reconstruir la imagen.
   - `Default.ico`: varias entradas ya comprimidas como PNG. Se extraen tal cual.
 
-Salida: assets/icon/code-runner-<size>.png
+Salida: assets/icon/compass-<size>.png
 """
 
 import struct
@@ -120,7 +120,7 @@ def main():
         if payload[:8] == b"\x89PNG\r\n\x1a\n":
             # Extraemos el PNG tal cual y lo reescribimos en los tamaños pedidos
             # usando el mayor disponible como fuente.
-            out_dir.joinpath(f"code-runner-{w}.png").write_bytes(payload)
+            out_dir.joinpath(f"compass-{w}.png").write_bytes(payload)
             print(f"  extraido PNG {w}x{h} (embebido en el .ico)")
             if base_w is None:
                 base_w, base_h = w, h
@@ -135,7 +135,7 @@ def main():
         if size > base_w:
             continue
         out_rows = resize_nearest(rows, base_w, base_h, size, size)
-        path = out_dir / f"code-runner-{size}.png"
+        path = out_dir / f"compass-{size}.png"
         path.write_bytes(encode_png(size, size, out_rows))
         print(f"  escrito {path.name}")
 

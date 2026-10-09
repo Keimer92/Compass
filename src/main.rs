@@ -8,8 +8,8 @@ use anyhow::Result;
 
 #[derive(Parser)]
 #[command(
-    name = "code-runner",
-    about = "Code Runner - Multiplataforma (Tauri/Flutter/KMP)",
+    name = "compass",
+    about = "Compass - Multiplataforma (Tauri/Flutter/KMP)",
     version = "0.1.0",
 )]
 struct Cli {
@@ -26,7 +26,7 @@ struct Cli {
     #[arg(long, help = "Elegir la carpeta del proyecto con un navegador")]
     pick: bool,
 
-    #[arg(long, help = "Registrar eventos del menú TUI en <tmpdir>/code-runner-tui.log")]
+    #[arg(long, help = "Registrar eventos del menú TUI en <tmpdir>/compass-tui.log")]
     trace: bool,
 }
 

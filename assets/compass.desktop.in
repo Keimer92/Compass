@@ -1,11 +1,11 @@
 [Desktop Entry]
 Type=Application
 Version=1.0
-Name=Code Runner
+Name=Compass
 GenericName=Task Runner
 Comment=Ejecuta tareas de desarrollo de Tauri, Flutter, Kotlin y Rust
 Exec=@EXEC_CMD@
-Icon=code-runner
+Icon=compass
 Terminal=false
 StartupNotify=true
 Categories=Development;IDE;

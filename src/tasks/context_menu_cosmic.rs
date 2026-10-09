@@ -73,12 +73,12 @@ const VIBE_PREFIX: &str = "Vibe Coding: ";
 /// Prefijo en tiempo de compilación, para `install`/`uninstall` sin deserializar.
 const VIBE_PREFIX_STR: &str = VIBE_PREFIX;
 
-/// Nombre exacto de la entrada que abre el TUI de code-runner.
+/// Nombre exacto de la entrada que abre el TUI de compass.
 ///
 /// Sin prefijo porque es una entrada única y con nombre reconocible; el
 /// emparejamiento es exacto (ver [`Preset::is_ours`]) para no capturar presets
-/// del usuario que empiecen por "Code Runner".
-const CODE_RUNNER_NAME: &str = "Code Runner";
+/// del usuario que empiecen por "Compass".
+const COMPASS_NAME: &str = "Compass";
 
 /// A qué se aplica el preset.
 ///
@@ -121,15 +121,15 @@ impl Preset {
         .with_selection(Selection::Folders)
     }
 
-    /// Entrada principal: abrir el menú TUI de code-runner en la carpeta.
+    /// Entrada principal: abrir el menú TUI de compass en la carpeta.
     ///
     /// `selection: Any` (no `Folders`) a propósito: el wrapper resuelve un
     /// fichero a su directorio contenedor, así que funciona igual seleccionando
     /// un archivo que una carpeta. En Windows el registro lo limitaba a
     /// `Directory`, lo que hacía inútil la entrada sobre un archivo suelto.
-    fn code_runner(wrapper: &PathBuf) -> Self {
+    fn compass(wrapper: &PathBuf) -> Self {
         Preset {
-            name: CODE_RUNNER_NAME.to_string(),
+            name: COMPASS_NAME.to_string(),
             steps: vec![exec_step(wrapper)],
             ..Default::default()
         }
@@ -143,10 +143,10 @@ impl Preset {
 
     /// ¿Es una entrada instalada por nosotros?
     ///
-    /// Cubre las de Vibe Coding (por prefijo) y la de Code Runner (por nombre
+    /// Cubre las de Vibe Coding (por prefijo) y la de Compass (por nombre
     /// exacto). Se usa en `install`/`uninstall` para preservar las del usuario.
     fn is_ours(&self) -> bool {
-        self.name.starts_with(VIBE_PREFIX_STR) || self.name == CODE_RUNNER_NAME
+        self.name.starts_with(VIBE_PREFIX_STR) || self.name == COMPASS_NAME || self.name == "Code Runner"
     }
 }
 
@@ -167,7 +167,7 @@ fn exec_step(wrapper: &Path) -> String {
 fn wrapper_dir() -> Option<PathBuf> {
     Some(
         platform::data_dir()?
-            .join("code-runner")
+            .join("compass")
             .join("vibe"),
     )
 }
@@ -213,16 +213,16 @@ fn wrapper_name(title: &str) -> String {
     format!("vibe-{slug}.sh")
 }
 
-/// Nombre del wrapper de la entrada principal de Code Runner.
-const CR_WRAPPER: &str = "code-runner-open.sh";
+/// Nombre del wrapper de la entrada principal de Compass.
+const COMPASS_WRAPPER: &str = "compass-open.sh";
 
-/// Ruta del ejecutable de code-runner.
+/// Ruta del ejecutable de compass.
 ///
 /// `current_exe()` es lo correcto porque cosmic-files puede lanzarlo desde
 /// cualquier CWD y sin PATH de sesión (mismo motivo por el que el `.desktop`
 /// lleva la ruta absoluta).
-fn code_runner_exe() -> Result<PathBuf> {
-    std::env::current_exe().context("No se pudo determinar la ruta de code-runner")
+fn compass_exe() -> Result<PathBuf> {
+    std::env::current_exe().context("No se pudo determinar la ruta de compass")
 }
 
 /// Detecta si cosmic-files está instalado (para no escribir config en otra distro).
@@ -254,7 +254,7 @@ fn cli_available(cli: &str) -> bool {
 /// carpeta (según `selection`), así que se normaliza a directorio: sin esto,
 /// `cd` a un fichero falla y el TUI no llega a abrirse.
 const WRAPPER_PREAMBLE: &str = r#"#!/usr/bin/env sh
-# Generado por code-runner. NO editar: se regenera al reinstalar.
+# Generado por compass. NO editar: se regenera al reinstalar.
 # Abre su propia terminal porque cosmic-files no asigna un tty, y sin tty
 # las TUI no son interactivas.
 set -e
@@ -283,19 +283,19 @@ fn write_wrapper(dir: &std::path::Path, title: &str, cli: &str) -> Result<PathBu
     Ok(path)
 }
 
-/// Escribe el wrapper de la entrada principal: abre el TUI de code-runner.
+/// Escribe el wrapper de la entrada principal: abre el TUI de compass.
 ///
 /// No lleva `--pick`: la carpeta viene dada. Si esa carpeta no es la raíz de un
-/// proyecto, `code-runner` cae por su cuenta al selector de proyecto empezando
+/// proyecto, `compass` cae por su cuenta al selector de proyecto empezando
 /// por ella (en `main.rs`, `detect()` falla sin `--task` ⇒ `pick_project_root`).
-fn write_code_runner_wrapper(dir: &std::path::Path) -> Result<PathBuf> {
-    let path = dir.join(CR_WRAPPER);
-    let exe = code_runner_exe()?;
+fn write_compass_wrapper(dir: &std::path::Path) -> Result<PathBuf> {
+    let path = dir.join(COMPASS_WRAPPER);
+    let exe = compass_exe()?;
     // Ruta absoluta entrecomillada con shlex-style simple; se pasa como
     // argumento de `--path` sin quoting POSIX porque ya va dentro de una
     // cadena que `sh -lc` re-evalúa con comillas dobles.
     let cmd = format!("exec {} --path \"$target\"", shell_quote(&exe.display().to_string()));
-    write_terminal_script(&path, CODE_RUNNER_NAME, &cmd)?;
+    write_terminal_script(&path, COMPASS_NAME, &cmd)?;
     Ok(path)
 }
 
@@ -404,7 +404,7 @@ pub fn install() -> Result<()> {
         anyhow::bail!(
             "[ERROR] No se encontró ninguna CLI de Vibe Coding en el PATH.\n\
              Instala al menos una (opencode, kilo, cline, agy o hermes) y vuelve a ejecutar\n\
-             'code-runner --task opencode-install'."
+             'compass --task opencode-install'."
         );
     }
 
@@ -416,13 +416,13 @@ pub fn install() -> Result<()> {
     std::fs::create_dir_all(&dir)
         .with_context(|| format!("No se pudo crear {}", dir.display()))?;
 
-    // 1. Wrappers ejecutables. La entrada de Code Runner va primera: es la
+    // 1. Wrappers ejecutables. La entrada de Compass va primera: es la
     //    principal, y las de Vibe Coding quedan agrupadas debajo por prefijo.
     let mut installed = Vec::new();
 
-    let cr_wrapper = write_code_runner_wrapper(&dir)?;
+    let cr_wrapper = write_compass_wrapper(&dir)?;
     println!("  ✔ wrapper {}", cr_wrapper.display());
-    installed.push(Preset::code_runner(&cr_wrapper));
+    installed.push(Preset::compass(&cr_wrapper));
 
     for (title, cli) in &wanted {
         let p = write_wrapper(&dir, title, cli)?;
@@ -440,7 +440,7 @@ pub fn install() -> Result<()> {
     // Respaldo antes de escribir: si el RON quedó mal, el usuario puede
     // restaurarlo a mano.
     if cfg.exists() {
-        let bak = cfg.with_extension("ron.code-runner-bak");
+        let bak = cfg.with_extension("ron.compass-bak");
         let _ = std::fs::copy(&cfg, &bak);
         println!("[INFO] Respaldo de la config previa: {}", bak.display());
     }
@@ -453,7 +453,7 @@ pub fn install() -> Result<()> {
     println!("  Presets del usuario preservados: {user_count}");
     println!();
     println!("  Entradas (planas, COSMIC no soporta submenús anidados):");
-    println!("    {CODE_RUNNER_NAME}                    ← en carpetas y en archivos");
+    println!("    {COMPASS_NAME}                    ← en carpetas y en archivos");
     for (title, _) in &wanted {
         println!("    {VIBE_PREFIX}{title}");
     }
@@ -480,7 +480,7 @@ pub fn uninstall() -> Result<()> {
     let removed = before - presets.len();
 
     if removed == 0 {
-        println!("[OK] No había entradas de code-runner instaladas.");
+        println!("[OK] No había entradas de compass instaladas.");
         return Ok(());
     }
 
@@ -505,7 +505,7 @@ pub fn is_installed() -> bool {
 
 /// ¿Hay alguna entrada de Vibe Coding instalada?
 ///
-/// Distinto de [`is_installed`], que además cuenta la entrada de Code Runner.
+/// Distinto de [`is_installed`], que además cuenta la entrada de Compass.
 /// El menú interactivo los muestra como dos interruptores separados.
 pub fn has_vibe_entries() -> bool {
     config_path()

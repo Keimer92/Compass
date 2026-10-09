@@ -22,7 +22,7 @@
 $ErrorActionPreference = 'SilentlyContinue'
 
 $necesitaBuild = 1
-$exe = Join-Path $env:USERPROFILE '.cargo\bin\code-runner.exe'
+$exe = Join-Path $env:USERPROFILE '.cargo\bin\compass.exe'
 
 if (Test-Path $exe) {
     # El mtime del binario instalado contra el del archivo más reciente de las
@@ -39,13 +39,13 @@ if (Test-Path $exe) {
     }
 }
 
-# El menú de Code Runner es una entrada simple: `zz_CodeRunner` con el path del
+# El menú de Compass es una entrada simple: `zz_Compass` con el path del
 # ejecutable en `(default)`. Si no está, o apunta a otro sitio, hay que rehacerlo.
-$menuCodeRunner = 1
+$menuCompass = 1
 $comandoCr = (Get-ItemProperty `
-    -Path 'HKCU:\Software\Classes\Directory\shell\zz_CodeRunner\command').'(default)'
-if ($comandoCr -like '*code-runner.exe*') {
-    $menuCodeRunner = 0
+    -Path 'HKCU:\Software\Classes\Directory\shell\zz_Compass\command').'(default)'
+if ($comandoCr -like '*compass.exe*') {
+    $menuCompass = 0
 }
 
 # El de Vibe Coding es cascada: la entrada padre `zz_VibeCoding` sólo lleva
@@ -84,4 +84,4 @@ foreach ($herramienta in $nombres.Keys) {
     $faltan++
 }
 
-Write-Output "$necesitaBuild;$menuCodeRunner;$menuVibeCoding;$faltan"
+Write-Output "$necesitaBuild;$menuCompass;$menuVibeCoding;$faltan"

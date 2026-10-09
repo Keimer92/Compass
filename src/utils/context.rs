@@ -137,7 +137,7 @@ fn detect_project_root() -> Result<(PathBuf, ProjectType)> {
 
     anyhow::bail!(
         "No se encontró un proyecto Tauri, Flutter/Dart, Kotlin Multiplatform o Rust en este directorio ni en sus padres.\n\
-         Usa el selector con 'code-runner --pick' para elegir la carpeta del proyecto."
+         Usa el selector con 'compass --pick' para elegir la carpeta del proyecto."
     );
 }
 
@@ -155,7 +155,7 @@ fn type_label(pt: ProjectType) -> &'static str {
 ///
 /// Hace falta porque desde el launcher de COSMIC el proceso arranca con el
 /// directorio actual en `$HOME`, donde no hay ningún proyecto que detectar.
-/// `code-runner` cae aquí cuando [`detect`] falla y no se pasó `--task`.
+/// `compass` cae aquí cuando [`detect`] falla y no se pasó `--task`.
 ///
 /// contract: devuelve la raíz elegida, o `Ok(None)` si el usuario cancela con Esc.
 pub fn pick_project_root(start: &Path) -> Result<Option<PathBuf>> {

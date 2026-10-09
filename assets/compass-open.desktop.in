@@ -1,11 +1,11 @@
 [Desktop Entry]
 Type=Application
 Version=1.0
-Name=Abrir con Code Runner
+Name=Abrir con Compass
 GenericName=Task Runner
-Comment=Abre el menú de code-runner en la carpeta seleccionada
+Comment=Abre el menú de compass en la carpeta seleccionada
 Exec=@OPEN_CMD@ %f
-Icon=code-runner
+Icon=compass
 Terminal=false
 StartupNotify=true
 NoDisplay=true

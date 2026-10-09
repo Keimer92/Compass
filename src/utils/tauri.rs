@@ -3,7 +3,7 @@
 //! Existe por una razón concreta: el `node_modules` de un proyecto Tauri que se
 //! desarrolla en Windows **y** en Linux sólo puede servir a un sistema, y al
 //! compartirlo (sync de carpeta, git, o simplemente la misma carpeta en una
-//! máquina con los dos sistemas) `code-runner` se encuentra con las dos
+//! máquina con los dos sistemas) `compass` se encuentra con las dos
 //! consecuencias:
 //!
 //! 1. **`node_modules/.bin/tauri` no tiene shim de Windows.** npm genera el shim

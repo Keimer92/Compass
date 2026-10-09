@@ -1,8 +1,8 @@
-# Code Runner — Developer Guide
+# Compass — Developer Guide
 
 ## Overview
 
-`code-runner` es una herramienta CLI/TUI multiplataforma que automatiza tareas de desarrollo, compilación y configuración para proyectos **Tauri (Rust)**, **Flutter (Dart)**, **Kotlin Multiplatform (Compose)** y **Rust puro**. Detecta automáticamente el tipo de proyecto y adapta comandos, rutas y comportamientos.
+`compass` es una herramienta CLI/TUI multiplataforma que automatiza tareas de desarrollo, compilación y configuración para proyectos **Tauri (Rust)**, **Flutter (Dart)**, **Kotlin Multiplatform (Compose)** y **Rust puro**. Detecta automáticamente el tipo de proyecto y adapta comandos, rutas y comportamientos.
 
 ## Project Types
 
@@ -29,7 +29,7 @@ El orden de detección es: **Flutter → Tauri → KMP → Rust**. Si un proyect
 | Flutter **desktop** | ✅ | ✅ `-d linux` / `flutter build linux` |
 | Tauri **desktop** | ✅ (exe/msi) | ✅ AppImage/deb (`platform::desktop_artifact_exts()`) |
 | KMP **desktop** | ✅ (exe) | ✅ binario sin extensión (mismo helper) |
-| Menú contextual Code Runner + Vibe Coding | ✅ registro | ⚠️ COSMIC Files ≥ 1.0.10, entradas **planas** (ver abajo) |
+| Menú contextual Compass + Vibe Coding | ✅ registro | ⚠️ COSMIC Files ≥ 1.0.10, entradas **planas** (ver abajo) |
 | Configurar Terminal (PSReadLine) | ✅ | ❌ oculto (perfil de PowerShell) |
 
 ### Vibe Coding en COSMIC Files (`context_menu_cosmic.rs`)
@@ -61,24 +61,24 @@ $XDG_CONFIG_HOME/cosmic/com.system76.CosmicFiles/v1/context_actions
 
 - `selection`: enum `Any` | `Files` | `Folders`, con alias de serde en minúsculas.
 - `steps`: se parsean con `mime_app::exec_to_command`, o sea **sintaxis `Exec=` de freedesktop**. El `%f` debe ir entrecomillado: se sustituye literalmente, y sin comillas una ruta con espacios rompe el tokenizado.
-- **Un wrapper `vibe-<slug>.sh` por herramienta** en `$XDG_DATA_HOME/code-runner/vibe/`, en vez de incrustar `sh -c "cd %f && …"`. El `cd` y el quoting viven en el archivo (se escapan una vez); el preset sólo invoca el wrapper. ⚠️ El cuerpo del wrapper lo emite `cmd::terminal_launch_shell()`, y su rama de kitty tiene un **doble parseo** documentado en "Bug conocido: doble parseo en la rama kitty-tab".
+- **Un wrapper `vibe-<slug>.sh` por herramienta** en `$XDG_DATA_HOME/compass/vibe/`, en vez de incrustar `sh -c "cd %f && …"`. El `cd` y el quoting viven en el archivo (se escapan una vez); el preset sólo invoca el wrapper. ⚠️ El cuerpo del wrapper lo emite `cmd::terminal_launch_shell()`, y su rama de kitty tiene un **doble parseo** documentado en "Bug conocido: doble parseo en la rama kitty-tab".
 - **Limitación: sin submenús anidados.** `ContextActionPreset` sólo tiene `name`, `confirm`, `selection`, `steps` — no hay campo de agrupación. Las entradas quedan **planas**, no en cascada como en Windows. El prefijo `"Vibe Coding: "` las agrupa visualmente y es el criterio que usa `uninstall()` para borrarlas sin tocar las del usuario.
-- `install()` hace **merge**: preserva los presets previos del usuario, y sólo reemplaza los que empiezan con el prefijo. Respalda el archivo previo a `context_actions.ron.code-runner-bak` antes de escribir.
+- `install()` hace **merge**: preserva los presets previos del usuario, y sólo reemplaza los que empiezan con el prefijo. Respalda el archivo previo a `context_actions.ron.compass-bak` antes de escribir.
 - Requiere cerrar y reabrir COSMIC Files. Sin `cosmic-files` en el PATH, `install()` falla con mensaje explícito.
 - `VIBE_TOOLS` está duplicado (el de `context_menu.rs` usa `key` de registro, que aquí no aplica). Si se unifica, debe subir a un módulo común. ⚠️ **Hay que actualizar los dos arrays a la vez**: añadir una herramienta sólo al de Windows deja el menú de COSMIC Files sin ella, sin error ni aviso.
 
 ### Launcher de COSMIC (`.desktop`)
 
-`install.sh` genera `~/.local/share/applications/code-runner.desktop` e instala los
+`install.sh` genera `~/.local/share/applications/compass.desktop` e instala los
 PNG en `~/.local/share/icons/hicolor/{16,24,32,48,64,128}x*/apps/`.
 
 - **El `.ico` no le sirve al launcher.** Pop!_OS no trae ImageMagick ni
   `icoutils`, así que `tools/ico2png.py` (solo stdlib) decodifica el BMP-DIB de
   32bpp de `Icon.ico` y genera el set de PNG. Ejecuta `python3 tools/ico2png.py`
   tras cambiar el icono original.
-- **`code-runner` es una TUI: el launcher no puede lanzarla directamente** (no
+- **`compass` es una TUI: el launcher no puede lanzarla directamente** (no
   hay tty). El `Exec` envuelve el binario en el emulador detectado:
-  `cosmic-term --title "Code Runner" -e "<exe>" --pick`.
+  `cosmic-term --title "Compass" -e "<exe>" --pick`.
 - **`--pick` es obligatorio en el `.desktop`**: desde el launcher el directorio
   actual es `$HOME`, donde no hay proyecto que autodetectar. Sin `--pick`,
   `detect()` fallaría y la app no abriría.
@@ -90,7 +90,7 @@ PNG en `~/.local/share/icons/hicolor/{16,24,32,48,64,128}x*/apps/`.
 
 ### run-sh: ejecutar `.sh` con doble clic
 
-Utilidad **del sistema**, no de code-runner, pero `install.sh` la instala siempre.
+Utilidad **del sistema**, no de compass, pero `install.sh` la instala siempre.
 
 | Pieza | Ruta |
 |-------|------|
@@ -122,8 +122,8 @@ falso por definición y parece un fallo del runner.
 
 | Script | Qué hace |
 |--------|----------|
-| `crh` | TUI en `$PWD`. Atajo de `code-runner-here`, que se retiró. |
-| `code-runner-open [RUTA]` | TUI en `RUTA`, o en la carpeta de un fichero. Acepta `%f`. |
+| `crh` | TUI en `$PWD`. Atajo de `compass-here`, que se retiró. |
+| `compass-open [RUTA]` | TUI en `RUTA`, o en la carpeta de un fichero. Acepta `%f`. |
 
 Se instalan con `sed s/@EXE@/ruta/g`, igual que el `.desktop`. `install.sh`
 retira los nombres antiguos para no dejar dos comandos haciendo lo mismo.
@@ -223,7 +223,7 @@ exec kitty --title "$CR_TITLE" -e sh -lc "$CR_SCRIPT"
 
 Lo de `script -qec '…'` con comillas simples es lo clave: el wrapper no expande nada y el shell intermedio recibe las tres variables ya como argumentos entrecomillados.
 
-**Cómo verificarlo** (Pop!_OS, sin emulador): `ss -xlH | grep kitty-code-runner` debe listar `@kitty-code-runner-<pid>`, que es el requisito para que se pruebe la rama de pestaña en vez de la de ventana. Sin instancia de kitty abierta, la rama con el bug no se ejecuta y el fallo queda oculto.
+**Cómo verificarlo** (Pop!_OS, sin emulador): `ss -xlH | grep kitty-compass` debe listar `@kitty-compass-<pid>`, que es el requisito para que se pruebe la rama de pestaña en vez de la de ventana. Sin instancia de kitty abierta, la rama con el bug no se ejecuta y el fallo queda oculto.
 
 ## ProjectContext
 
@@ -280,7 +280,7 @@ tasks/
   ├─ signer.rs  — create_or_import(), patch_build_gradle()
   ├─ sha1.rs    — show() [huellas SHA-1/SHA-256 debug+release, lee keystore.properties/key.properties]
   ├─ terminal.rs — configure() [perfil PSReadLine según la versión instalada]
-  ├─ context_menu.rs — install/uninstall/toggle para CodeRunner + Vibe Coding (menú cascada con ExtendedSubCommandsKey: OpenCode, Kilo Code, Cline, Antigravity, Kiro CLI, Hermes)
+  ├─ context_menu.rs — install/uninstall/toggle para Compass + Vibe Coding (menú cascada con ExtendedSubCommandsKey: OpenCode, Kilo Code, Cline, Antigravity, Kiro CLI, Hermes)
   ├─ context_menu_cosmic.rs — install/uninstall para COSMIC Files (context_actions, COSMIC ≥ 1.0.10)
   └─ whatsapp.rs — build()
   └─ version.rs — bump() [port de versionar.bat: Tauri/Rust, todo-o-nada]
@@ -361,11 +361,11 @@ tasks/
 
 ## Context Menu (Windows Registry)
 
-### Code Runner (entrada simple)
+### Compass (entrada simple)
 
 | Entrada | Comando | Clave Registro |
 |---------|---------|----------------|
-| **Code Runner** | `"<exe_path>" "%1"` | `HKCR\Directory\shell\zz_CodeRunner` |
+| **Compass** | `"<exe_path>" "%1"` | `HKCR\Directory\shell\zz_Compass` |
 
 ### Vibe Coding (menú cascada: 6 agentes)
 
@@ -439,7 +439,7 @@ HKCU\Software\Classes\Directory\ContextMenus\VibeCoding\shell
 - **Hermes CLI** (Nous Research): instalador nativo `iex (irm https://hermes-agent.nousresearch.com/install.ps1)`. En Windows nativo vive bajo `%LOCALAPPDATA%\hermes\bin` (el README lo dice explícitamente), en Linux el `install.sh` lo deja en `~/.local/bin`. Mismo caso de fallback que Antigravity. `hermes` arranca su TUI sin flags; `hermes-acp` es el servidor ACP para editores y no va al menú.
 - **Kiro CLI** (AWS): se instala con su `.exe` (`winget install Kiro-CLI` o el instalador de kiro.dev), **no hay comando de terminal**. El ejecutable queda en `%LOCALAPPDATA%\Kiro-Cli\kiro-cli.exe` — nótese que **no** sigue el patrón `…\<tool>\bin` del resto, por eso la sonda de `install.bat` lo lleva en un mapa. El subcomando para chatear es `kiro-cli chat`; `--tui` fuerza la interfaz nueva y `--legacy-ui` la antigua. `install` va vacío en `VIBE_TOOLS`, que significa "detectar, nunca preguntar por instalarlo".
 - `install.bat` instala/actualiza Vibe Coding con detección de "ya instalado".
-- El menú interactivo `toggle()` gestiona Code Runner + Vibe Coding + "Instalar todos" / "Desinstalar todos".
+- El menú interactivo `toggle()` gestiona Compass + Vibe Coding + "Instalar todos" / "Desinstalar todos".
 - **Idempotencia**: `install()` compara tanto el comando (`command_is_current()`) como el texto visible (`label_is()`), así un cambio de nombre fuerza el reinstall aunque el comando ya sea correcto.
 - **Los cambios del registro requieren reiniciar Explorer**: `taskkill /f /im explorer.exe & start explorer.exe`.
 
@@ -462,7 +462,7 @@ encadena `<comando>; if ($?) { ... explorer.exe /select,<artefacto> ...; exit } 
 Al terminar con éxito abre el Explorador resaltando el artefacto más reciente (`exe/msi/apk/aab`)
 dentro de `folder` (ruta absoluta derivada de `ctx.script_dir`) y **la ventana de build se cierra sola** (`exit`).
 Si el build falla, la ventana muestra `[ERROR]` y espera una tecla antes de cerrarse (para poder leer el error).
-Las tareas de build ya no llaman a `pause()`/`ui::pause()`, por lo que la ventana intermedia de `code-runner --task` también se cierra sola.
+Las tareas de build ya no llaman a `pause()`/`ui::pause()`, por lo que la ventana intermedia de `compass --task` también se cierra sola.
 
 | Task | folder | exts |
 |------|--------|------|
@@ -545,7 +545,7 @@ Sólo se llama cuando `is_predictive()` es falso, así que en una máquina al d�
 
 ⚠️ **El perfil se escribe con BOM UTF-8** (`write_utf8_bom`). PS 5.1 lee un `.ps1` sin BOM como ANSI/CP1252, así que cada acento se parte en dos caracteres (`ú` = bytes `C3 BA` → 195 y 186). Hoy son sólo comentarios, pero cualquier ruta con acento en un alias dejaría de funcionar. El BOM forma parte de la comparación de idempotencia: un perfil correcto *sin* BOM tiene que reescribirse.
 
-Antes de sobrescribir se copia el perfil previo a `Microsoft.PowerShell_profile.ps1.code-runner-bak` (mismo convenio que `context_actions.ron.code-runner-bak`). Si el contenido ya coincide, no se toca el archivo.
+Antes de sobrescribir se copia el perfil previo a `Microsoft.PowerShell_profile.ps1.compass-bak` (mismo convenio que `context_actions.ron.compass-bak`). Si el contenido ya coincide, no se toca el archivo.
 
 Cubierto por `tasks::terminal::tests` (8 tests): parseo de versión, decisión de actualizar, elección de perfil, **los nombres del perfil legacy existen todos en la 2.0.0** (lista real sacada con `Get-Command`), ausencia de nombres predictivos, `-PredictionSource` protegido por `try`/`catch`, y BOM (incluido que su presencia forma parte de la comparación).
 
@@ -568,7 +568,7 @@ Para Kotlin release builds (`build_apk`/`build_aab`), el tool también exporta l
 `cmd::remove_dir()` usa `powershell Remove-Item -Recurse -Force` para rutas largas que `std::fs::remove_dir_all` no puede manejar.
 
 ### TUI Menu — Ventana separada
-Todas las tareas del menú TUI se lanzan en una **nueva ventana PowerShell** ejecutando `code-runner --task <task> --path "<proyecto>"`. El menú principal permanece abierto. La ventana secundaria se cierra al presionar Enter.
+Todas las tareas del menú TUI se lanzan en una **nueva ventana PowerShell** ejecutando `compass --task <task> --path "<proyecto>"`. El menú principal permanece abierto. La ventana secundaria se cierra al presionar Enter.
 
 ### Android dev (Tauri)
 `android::dev()` corre `npx tauri android dev` directamente. Antes ejecuta:
@@ -631,10 +631,10 @@ Dos detalles que importan en la práctica:
 
 ### CLI directo (sin TUI)
 ```bash
-code-runner --task windows-dev
-code-runner --path /ruta/proyecto --task sign
-code-runner --task context-menu-install
-code-runner  # abre menú interactivo
+compass --task windows-dev
+compass --path /ruta/proyecto --task sign
+compass --task context-menu-install
+compass  # abre menú interactivo
 ```
 
 ## .gitignore Templates
@@ -655,7 +655,7 @@ Script de instalación para Windows:
 1. **Salta la compilación si no hace falta** (ver "Saltar lo que ya está al día")
 2. **Siempre** copia `assets/icon/Icon.ico` a `%USERPROFILE%\.cargo\bin\`
 3. **Siempre** copia `assets/icon/opencode.ico` al mismo directorio
-4. Instala los menús contextuales (Code Runner y Vibe Coding), cada uno sólo si la sonda dice que falta
+4. Instala los menús contextuales (Compass y Vibe Coding), cada uno sólo si la sonda dice que falta
 5. Si `cargo install` falla, avisa y **no** configura los menús: apuntar el registro a un binario roto deja el sistema incoherente
 6. `install.bat --force` rehace todo aunque no haga falta
 
@@ -684,7 +684,7 @@ Script de instalación para Linux (Pop!_OS / Ubuntu). Diferencias con `install.b
 1. Hace `cd` a su propio directorio (el check de `Cargo.toml` miraba el CWD de
    quien lo invocaba, y fallaba con `./ruta/al/proyecto/install.sh`)
 2. Verifica `command -v cargo` en vez de `where cargo`
-3. Cierra instancias con `pkill -x code-runner` en vez de `taskkill`
+3. Cierra instancias con `pkill -x compass` en vez de `taskkill`
 4. Compila con `cargo install --path . --force`, **salvo** que ninguna fuente sea
    más nueva que el binario instalado (`find … -newer`). `install.sh --force`
    fuerza la recompilación. La lógica va en `tools/test-skip.sh`, que se puede

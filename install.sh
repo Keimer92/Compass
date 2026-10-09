@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Instalador de code-runner para Linux (Pop!_OS / Ubuntu / COSMIC).
+# Instalador de compass para Linux (Pop!_OS / Ubuntu / COSMIC).
 #
 # Instala:
 #   - el binario (cargo install)
@@ -44,7 +44,7 @@ done
 
 echo
 echo "============================================="
-echo "  Code Runner - Instalador para Linux"
+echo "  Compass - Instalador para Linux"
 echo "============================================="
 echo
 
@@ -65,9 +65,9 @@ if [ ! -f "Cargo.toml" ]; then
 fi
 
 # ── 2. Cerrar instancias en ejecución ─────────────────────────────────
-if pgrep -x code-runner >/dev/null 2>&1; then
-    echo "[INFO] Cerrando code-runner en ejecución..."
-    pkill -x code-runner && sleep 1
+if pgrep -x compass >/dev/null 2>&1; then
+    echo "[INFO] Cerrando compass en ejecución..."
+    pkill -x compass && sleep 1
 fi
 
 # ── 3. Compilar e instalar ────────────────────────────────────────────
@@ -80,7 +80,7 @@ fi
 # (un `build.rs`, un asset que se incruste), el salto se come el cambio. Por eso
 # `install.sh --force` está documentado arriba.
 NEEDS_BUILD=1
-for cand in "$HOME/.cargo/bin/code-runner" /usr/local/bin/code-runner; do
+for cand in "$HOME/.cargo/bin/compass" /usr/local/bin/compass; do
     if [ -x "$cand" ]; then
         INSTALLED="$cand"
         break
@@ -116,19 +116,19 @@ if [ "$EXIT_CODE" -ne 0 ]; then
     echo "============================================="
     echo "  [WARN] La compilación tuvo problemas."
     echo "============================================="
-    echo "Se usará la versión anterior de code-runner si está instalada."
+    echo "Se usará la versión anterior de compass si está instalada."
     echo
 fi
 
 # Ruta del binario recién instalado. `command -v` puede devolver un shim de
 # rustup o un alias, así que se busca también en ~/.cargo/bin.
-EXE_BIN="$(command -v code-runner 2>/dev/null || true)"
+EXE_BIN="$(command -v compass 2>/dev/null || true)"
 if [ -z "$EXE_BIN" ] || [ ! -x "$EXE_BIN" ]; then
-    for cand in "$HOME/.cargo/bin/code-runner" /usr/local/bin/code-runner; do
+    for cand in "$HOME/.cargo/bin/compass" /usr/local/bin/compass; do
         [ -x "$cand" ] && EXE_BIN="$cand" && break
     done
 fi
-EXE_BIN="${EXE_BIN:-code-runner}"
+EXE_BIN="${EXE_BIN:-compass}"
 
 # ── 4. Detectar terminal ──────────────────────────────────────────────
 # El orden replica `TERMINALS` en src/utils/cmd.rs: **alacritty** primero.
@@ -138,14 +138,14 @@ echo "[INFO] Comprobando emulador de terminal..."
 FOUND_TERM=""
 FOUND_TERM_ARGS=""
 for entry in \
-    "alacritty:--title \"Code Runner\"" \
-    "cosmic-term:--title \"Code Runner\"" \
-    "gnome-terminal:--title \"Code Runner\"" \
+    "alacritty:--title \"Compass\"" \
+    "cosmic-term:--title \"Compass\"" \
+    "gnome-terminal:--title \"Compass\"" \
     "konsole:--" \
-    "xfce4-terminal:--title \"Code Runner\"" \
-    "kitty:--title \"Code Runner\"" \
+    "xfce4-terminal:--title \"Compass\"" \
+    "kitty:--title \"Compass\"" \
     "wezterm:start --" \
-    "xterm:-T \"Code Runner\""
+    "xterm:-T \"Compass\""
 do
     bin="${entry%%:*}"
     if command -v "$bin" >/dev/null 2>&1; then
@@ -171,7 +171,7 @@ echo
 ICONS_OK=0
 if [ -d "assets/icon" ]; then
     echo "[INFO] Preparando iconos..."
-    if ! ls assets/icon/code-runner-*.png >/dev/null 2>&1; then
+    if ! ls assets/icon/compass-*.png >/dev/null 2>&1; then
         if command -v python3 >/dev/null 2>&1; then
             python3 tools/ico2png.py >/dev/null 2>&1 \
                 && echo "[OK] Iconos convertidos desde assets/icon/Icon.ico" \
@@ -182,54 +182,60 @@ if [ -d "assets/icon" ]; then
     fi
 
     ICON_BASE="$HOME/.local/share/icons/hicolor"
-    for png in assets/icon/code-runner-*.png; do
+    for png in assets/icon/compass-*.png; do
         [ -e "$png" ] || continue
         size="$(basename "$png" .png)"
-        size="${size##*-}"            # code-runner-64 -> 64
+        size="${size##*-}"            # compass-64 -> 64
         dest="$ICON_BASE/${size}x${size}/apps"
         if mkdir -p "$dest" 2>/dev/null \
-            && cp -f "$png" "$dest/code-runner.png" 2>/dev/null; then
+            && cp -f "$png" "$dest/compass.png" 2>/dev/null; then
             ICONS_OK=1
         else
             echo "[WARN] No se pudo escribir el icono en: $dest"
         fi
     done
     [ "$ICONS_OK" -eq 1 ] && echo "[OK] Iconos instalados en ~/.local/share/icons/hicolor"
+    # Limpiar el icono del nombre antiguo para no dejar dos entradas.
+    for old in 16 24 32 48 64 128; do
+        rm -f "$ICON_BASE/${old}x${old}/apps/code-runner.png" 2>/dev/null
+    done
 fi
 echo
 
 # ── 6. Entrada del launcher ────────────────────────────────────────────
-# code-runner es una TUI: el launcher no puede lanzarla directamente (no hay
+# compass es una TUI: el launcher no puede lanzarla directamente (no hay
 # tty), así que la entrada envuelve el binario en un emulador de terminal.
 # `--pick` hace que abra el selector de proyecto, porque desde el launcher el
 # directorio actual es $HOME y no hay nada que autodetectar.
 LAUNCHER_OK=0
-if [ -n "$FOUND_TERM" ] && [ -f "assets/code-runner.desktop.in" ]; then
+if [ -n "$FOUND_TERM" ] && [ -f "assets/compass.desktop.in" ]; then
     APPS_DIR="$HOME/.local/share/applications"
     if mkdir -p "$APPS_DIR" 2>/dev/null; then
+        # Retirar entradas del nombre antiguo para no duplicar launchers.
+        rm -f "$APPS_DIR/code-runner.desktop" "$APPS_DIR/code-runner-pick.desktop" "$APPS_DIR/code-runner-open.desktop" 2>/dev/null
         # El campo Exec de .desktop separa argumentos por espacios; el título va
-        # entrecomillado para que "Code Runner" sea un solo argumento.
+        # entrecomillado para que "Compass" sea un solo argumento.
         EXEC_CMD="$FOUND_TERM $FOUND_TERM_ARGS -e \"$EXE_BIN\" --pick"
         if [ "$FOUND_TERM_ARGS" = "--" ] || [ "$FOUND_TERM_ARGS" = "start --" ]; then
             EXEC_CMD="$FOUND_TERM $FOUND_TERM_ARGS \"$EXE_BIN\" --pick"
         fi
-        if sed "s|@EXEC_CMD@|$EXEC_CMD|" assets/code-runner.desktop.in \
-            > "$APPS_DIR/code-runner.desktop" 2>/dev/null; then
-            chmod +x "$APPS_DIR/code-runner.desktop"
+        if sed "s|@EXEC_CMD@|$EXEC_CMD|" assets/compass.desktop.in \
+            > "$APPS_DIR/compass.desktop" 2>/dev/null; then
+            chmod +x "$APPS_DIR/compass.desktop"
             # Validar antes de darlo por bueno: un .desktop mal formado desaparece
             # del launcher en silencio.
             if command -v desktop-file-validate >/dev/null 2>&1; then
-                if desktop-file-validate "$APPS_DIR/code-runner.desktop" 2>&1; then
+                if desktop-file-validate "$APPS_DIR/compass.desktop" 2>&1; then
                     LAUNCHER_OK=1
                 else
                     echo "[WARN] El .desktop no pasa desktop-file-validate:"
-                    desktop-file-validate "$APPS_DIR/code-runner.desktop" 2>&1 | sed 's/^/       /'
+                    desktop-file-validate "$APPS_DIR/compass.desktop" 2>&1 | sed 's/^/       /'
                 fi
             else
                 LAUNCHER_OK=1
             fi
             if [ "$LAUNCHER_OK" -eq 1 ]; then
-                echo "[OK] Entrada del launcher: $APPS_DIR/code-runner.desktop"
+                echo "[OK] Entrada del launcher: $APPS_DIR/compass.desktop"
                 echo "     Exec: $EXEC_CMD"
             fi
         else
@@ -262,12 +268,12 @@ echo
 # `selected > 0`). Es una limitación de cosmic-files, no de la config.
 #
 # Estos atajos cubren ese caso: desde "Open in Terminal" de cualquier carpeta,
-# con `code-runner-here`.
+# con `crh` (y el alias `compass-open` con ruta explícita).
 BIN_DIR="$HOME/.local/bin"
 mkdir -p "$BIN_DIR" 2>/dev/null || BIN_DIR=""
 
 if [ -n "$BIN_DIR" ] && [ -d "assets/scripts" ]; then
-    for s in crh code-runner-open; do
+    for s in crh compass-open; do
         src="assets/scripts/$s"
         [ -f "$src" ] || continue
         if sed "s|@EXE@|$EXE_BIN|g" "$src" > "$BIN_DIR/$s" 2>/dev/null; then
@@ -278,7 +284,10 @@ if [ -n "$BIN_DIR" ] && [ -d "assets/scripts" ]; then
         fi
     done
     # Nombres antiguos: se retiran para no dejar dos comandos haciendo lo mismo.
-    for old in code-runner-here; do
+    # `code-runner-here` / `code-runner-open` son los nombres del binario viejo:
+    # hay que retirarlos aquí porque al renombrar el proyecto a Compass son ellos
+    # quienes pasan a llamarse `compass-*`.
+    for old in code-runner-here code-runner-open; do
         if [ -e "$BIN_DIR/$old" ]; then
             rm -f "$BIN_DIR/$old" && echo "[OK] Retirado el script antiguo: $old"
         fi
@@ -291,22 +300,22 @@ if [ -n "$FOUND_TERM" ] && [ -n "$BIN_DIR" ]; then
     PICK_CMD="$FOUND_TERM $FOUND_TERM_ARGS -e \"$EXE_BIN\" --pick"
     [ "$FOUND_TERM_ARGS" = "--" ] || [ "$FOUND_TERM_ARGS" = "start --" ] \
         && PICK_CMD="$FOUND_TERM $FOUND_TERM_ARGS \"$EXE_BIN\" --pick"
-    if [ -f "assets/code-runner-pick.desktop.in" ]; then
-        sed "s|@PICK_CMD@|$PICK_CMD|" assets/code-runner-pick.desktop.in \
-            > "$APPS_DIR/code-runner-pick.desktop" 2>/dev/null \
-            && chmod +x "$APPS_DIR/code-runner-pick.desktop" \
-            && echo "[OK] Entrada del launcher: code-runner-pick.desktop"
+    if [ -f "assets/compass-pick.desktop.in" ]; then
+        sed "s|@PICK_CMD@|$PICK_CMD|" assets/compass-pick.desktop.in \
+            > "$APPS_DIR/compass-pick.desktop" 2>/dev/null \
+            && chmod +x "$APPS_DIR/compass-pick.desktop" \
+            && echo "[OK] Entrada del launcher: compass-pick.desktop"
     fi
     # Entrada "Abrir con…" sobre una carpeta. NoDisplay=true: no se quiere ver
     # en el launcher, sólo ofrecerla como destino de apertura.
-    OPEN_CMD="$FOUND_TERM $FOUND_TERM_ARGS -e \"$BIN_DIR/code-runner-open\""
+    OPEN_CMD="$FOUND_TERM $FOUND_TERM_ARGS -e \"$BIN_DIR/compass-open\""
     [ "$FOUND_TERM_ARGS" = "--" ] || [ "$FOUND_TERM_ARGS" = "start --" ] \
-        && OPEN_CMD="$FOUND_TERM $FOUND_TERM_ARGS \"$BIN_DIR/code-runner-open\""
-    if [ -f "assets/code-runner-open.desktop.in" ]; then
-        sed "s|@OPEN_CMD@|$OPEN_CMD|" assets/code-runner-open.desktop.in \
-            > "$APPS_DIR/code-runner-open.desktop" 2>/dev/null \
-            && chmod +x "$APPS_DIR/code-runner-open.desktop" \
-            && echo "[OK] Entrada 'Abrir con…': code-runner-open.desktop"
+        && OPEN_CMD="$FOUND_TERM $FOUND_TERM_ARGS \"$BIN_DIR/compass-open\""
+    if [ -f "assets/compass-open.desktop.in" ]; then
+        sed "s|@OPEN_CMD@|$OPEN_CMD|" assets/compass-open.desktop.in \
+            > "$APPS_DIR/compass-open.desktop" 2>/dev/null \
+            && chmod +x "$APPS_DIR/compass-open.desktop" \
+            && echo "[OK] Entrada 'Abrir con…': compass-open.desktop"
     fi
     command -v update-desktop-database >/dev/null 2>&1 \
         && update-desktop-database "$APPS_DIR" 2>/dev/null
@@ -314,7 +323,7 @@ fi
 echo
 
 # ── 6c. run-sh: ejecutar .sh con doble clic ──────────────────────────
-# Utilidad del sistema, no de code-runner, pero se instala aquí porque comparte
+# Utilidad del sistema, no de compass, pero se instala aquí porque comparte
 # casi toda la maquinaria: wrapper en ~/.local/bin, .desktop con MimeType y
 # actualización de la base de aplicaciones.
 #
@@ -394,8 +403,8 @@ echo
 # ── 7. Menú contextual de COSMIC Files (opcional) ──────────────────────
 if [ "$WITH_CONTEXT_MENU" -eq 1 ]; then
     echo "[INFO] Instalando menú contextual en COSMIC Files..."
-    if command -v code-runner >/dev/null 2>&1; then
-        if code-runner --task opencode-install; then
+    if command -v compass >/dev/null 2>&1; then
+        if compass --task opencode-install; then
             echo "[OK] Menú contextual instalado."
         else
             echo "[WARN] El menú contextual no se pudo instalar."
@@ -484,15 +493,15 @@ fi
 echo "============================================="
 echo
 echo "  Binario      : $EXE_BIN"
-[ "$LAUNCHER_OK" -eq 1 ] && echo "  Launcher     : instalado (búscalo como 'Code Runner')"
+[ "$LAUNCHER_OK" -eq 1 ] && echo "  Launcher     : instalado (búscalo como 'Compass')"
 [ "$ICONS_OK" -eq 1 ] && echo "  Iconos       : instalados"
 echo
 echo "Uso:"
-echo "  code-runner            # abre el menú TUI en el proyecto actual"
-echo "  code-runner --pick     # elige la carpeta del proyecto primero"
-echo "  code-runner --task clean --path /ruta/proyecto"
+echo "  compass            # abre el menú TUI en el proyecto actual"
+echo "  compass --pick     # elige la carpeta del proyecto primero"
+echo "  compass --task clean --path /ruta/proyecto"
 echo "  crh                    # TUI en \$PWD (atajo corto)"
-echo "  code-runner-open RUTA  # TUI en RUTA (o la carpeta de un fichero)"
+echo "  compass-open RUTA  # TUI en RUTA (o la carpeta de un fichero)"
 echo
 echo "Notas para Linux:"
 echo "  - Funcionan: Tauri (dev + Android), Rust, Kotlin/KMP, Android."

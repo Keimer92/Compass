@@ -1,24 +1,24 @@
 #!/usr/bin/env sh
 #
-# code-runner-open [RUTA] — abre la TUI de code-runner en RUTA.
+# compass-open [RUTA] — abre la TUI de compass en RUTA.
 #
 # Sin argumentos usa el directorio actual. Si la ruta es un fichero, se usa su
 # carpeta contenedor, que es lo que hace el preset del menú contextual.
 #
 # Pensado para recibir `%f` desde un .desktop con `MimeType=inode/directory`, de
-# forma que "Code Runner" aparezca en el menú de aplicaciones al abrir con… una
+# forma que "Compass" aparezca en el menú de aplicaciones al abrir con… una
 # carpeta ya seleccionada en el gestor de archivos.
 #
-# Generado por code-runner. Se reemplaza al reinstalar.
+# Generado por compass. Se reemplaza al reinstalar.
 set -e
 
 CR_BIN="@EXE@"
 
 if [ ! -x "$CR_BIN" ]; then
-    CR_BIN="$(command -v code-runner 2>/dev/null || true)"
+    CR_BIN="$(command -v compass 2>/dev/null || true)"
 fi
 if [ -z "$CR_BIN" ] || [ ! -x "$CR_BIN" ]; then
-    echo "[ERROR] No se encontró code-runner." >&2
+    echo "[ERROR] No se encontró compass." >&2
     echo "        Reinstálalo con ./install.sh" >&2
     exit 1
 fi

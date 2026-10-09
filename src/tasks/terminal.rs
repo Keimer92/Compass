@@ -9,7 +9,7 @@ use crate::utils::{cmd, context::ProjectContext};
 /// `AcceptSuggestion` / `AcceptNextSuggestionWord`, que es exactamente lo que
 /// hace que Windows PowerShell 5.1 —que trae la 2.0.0— escupa tres errores en
 /// cada terminal nueva.
-const PROFILE_PREDICTIVE: &str = r#"# --- code-runner: autocompletado (PSReadLine >= 2.2.0) ---
+const PROFILE_PREDICTIVE: &str = r#"# --- compass: autocompletado (PSReadLine >= 2.2.0) ---
 # 1. Autocompletado visual del historial
 #
 # El try/catch no es decorativo: PSReadLine lanza un error si se activa la
@@ -38,7 +38,7 @@ Set-PSReadLineOption -BellStyle None -ShowToolTips
 /// que se emite aquí existe desde 2.0.0 (comprobado con `(Get-Command
 /// Set-PSReadLineOption).Parameters`), de modo que el perfil no puede romper una
 /// instalación antigua.
-const PROFILE_LEGACY: &str = r#"# --- code-runner: autocompletado (PSReadLine anterior a 2.2.0) ---
+const PROFILE_LEGACY: &str = r#"# --- compass: autocompletado (PSReadLine anterior a 2.2.0) ---
 # Este PSReadLine no tiene sugerencias predictivas, así que TAB muestra el menú
 # de completados. Lo que sí es posible aquí:
 #
@@ -66,7 +66,7 @@ Set-PSReadLineOption -BellStyle None -ShowToolTips
 /// Sin este bloque, cualquier `Set-PSReadLine*` en el perfil falla al abrir
 /// terminals que no cargan el módulo (ISE, `powershell -File`, hosts que no lo
 /// auto-cargan) y el usuario ve errores que no ha provocado.
-const PROFILE_SIN_MODULO: &str = r#"# --- code-runner: autocompletado (no configurado) ---
+const PROFILE_SIN_MODULO: &str = r#"# --- compass: autocompletado (no configurado) ---
 # No se encontró PSReadLine instalado para Windows PowerShell, así que no hay
 # nada que configurar. Para instalarlo:
 #
@@ -291,7 +291,7 @@ pub fn configure(_ctx: &ProjectContext) -> Result<()> {
             pause();
             return Ok(());
         }
-        let backup = profile_dir.join("Microsoft.PowerShell_profile.ps1.code-runner-bak");
+        let backup = profile_dir.join("Microsoft.PowerShell_profile.ps1.compass-bak");
         write_utf8_bom(&backup, &previous)?;
         println!("[INFO] Copia del perfil anterior en:");
         println!("  {}", backup.display());

@@ -1,11 +1,11 @@
 [Desktop Entry]
 Type=Application
 Version=1.0
-Name=Code Runner (elegir proyecto)
+Name=Compass (elegir proyecto)
 GenericName=Task Runner
-Comment=Abre code-runner y deja elegir la carpeta del proyecto
+Comment=Abre compass y deja elegir la carpeta del proyecto
 Exec=@PICK_CMD@
-Icon=code-runner
+Icon=compass
 Terminal=false
 StartupNotify=true
 Categories=Development;IDE;

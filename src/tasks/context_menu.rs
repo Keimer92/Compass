@@ -32,23 +32,23 @@ fn opencode_icon() -> String {
     resolve_icon("opencode.ico")
 }
 
-/// Ruta del ejecutable de code-runner.
+/// Ruta del ejecutable de compass.
 ///
 /// En Linux no lleva extensión: el registro de Windows guarda
-/// `"…\code-runner.exe" -p "%1"`, y apuntar a un `.exe` inexistente dejaba la
+/// `"…\compass.exe" -p "%1"`, y apuntar a un `.exe` inexistente dejaba la
 /// entrada del menú apuntando al vacío.
 fn exe_path() -> String {
     let name = if crate::utils::platform::IS_WINDOWS {
-        "code-runner.exe"
+        "compass.exe"
     } else {
-        "code-runner"
+        "compass"
     };
     exe_dir()
         .and_then(|d| d.join(name).to_str().map(|s| s.to_string()))
         .unwrap_or_else(|| name.to_string())
 }
 
-// ── Code Runner (entry principal) ──────────────────────────────────────
+// ── Compass (entry principal) ──────────────────────────────────────
 
 /// Todo este módulo manipula el registro de Windows (`ExtendedSubCommandsKey`
 /// para el menú cascada) en Windows, y la config `context_actions` de
@@ -61,11 +61,18 @@ pub fn install() -> Result<()> {
 
     let exe = exe_path();
 
-    if command_is_current("zz_CodeRunner", &exe) && label_is("zz_CodeRunner", "Code Runner") {
-        println!("[SKIP] Menú contextual Code Runner ya está instalado.");
+    if command_is_current("zz_Compass", &exe) && label_is("zz_Compass", "Compass") {
+        println!("[SKIP] Menú contextual Compass ya está instalado.");
         println!("  Ruta: {exe}");
+        remove_old_code_runner_entry();
         return Ok(());
     }
+
+    // Migración: el binario anterior se llamaba `code-runner` y dejaba en el
+    // registro una entrada `zz_CodeRunner`. Sin borrarla, al instalar Compass
+    // quedarían las dos: la vieja (apuntando al exe posiblemente inexistente) y
+    // la nueva.
+    remove_old_code_runner_entry();
 
     let icon = icon_path();
 
@@ -73,17 +80,17 @@ pub fn install() -> Result<()> {
     println!("[INFO] Icon exists: {}", std::path::Path::new(&icon).exists());
 
     let ps = format!(
-        "New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_CodeRunner' -Force | Out-Null; \
-         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_CodeRunner' -Name '(default)' -Value 'Code Runner'; \
-         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_CodeRunner' -Name 'Icon' -Type String -Value '{icon}'; \
-         New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_CodeRunner\\command' -Force | Out-Null; \
-         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_CodeRunner\\command' -Name '(default)' -Value '\"{exe}\" -p \"%1\"'; \
+        "New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_Compass' -Force | Out-Null; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_Compass' -Name '(default)' -Value 'Compass'; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_Compass' -Name 'Icon' -Type String -Value '{icon}'; \
+         New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_Compass\\command' -Force | Out-Null; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_Compass\\command' -Name '(default)' -Value '\"{exe}\" -p \"%1\"'; \
          \
-         New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_CodeRunner' -Force | Out-Null; \
-         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_CodeRunner' -Name '(default)' -Value 'Code Runner'; \
-         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_CodeRunner' -Name 'Icon' -Type String -Value '{icon}'; \
-         New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_CodeRunner\\command' -Force | Out-Null; \
-         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_CodeRunner\\command' -Name '(default)' -Value '\"{exe}\" -p \"%W\"'"
+         New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_Compass' -Force | Out-Null; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_Compass' -Name '(default)' -Value 'Compass'; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_Compass' -Name 'Icon' -Type String -Value '{icon}'; \
+         New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_Compass\\command' -Force | Out-Null; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_Compass\\command' -Name '(default)' -Value '\"{exe}\" -p \"%W\"'"
     );
 
     let output = cmd::run("powershell", &["-NoProfile", "-Command", &ps])?;
@@ -92,10 +99,10 @@ pub fn install() -> Result<()> {
         anyhow::bail!("Error al instalar menú contextual:\n{}", stderr);
     }
 
-    println!("[OK] Menú contextual Code Runner instalado.");
+    println!("[OK] Menú contextual Compass instalado.");
     println!("  Ruta: {exe}");
     println!("  Icono: {icon}");
-    println!("  Haz clic derecho en una carpeta → 'Code Runner'");
+    println!("  Haz clic derecho en una carpeta → 'Compass'");
     println!();
     println!("[INFO] Si el icono no aparece, intenta:");
     println!("  1. Cerrar sesion y volver a iniciar");
@@ -103,18 +110,31 @@ pub fn install() -> Result<()> {
     Ok(())
 }
 
+fn remove_old_code_runner_entry() {
+    // El binario anterior se llamaba `code-runner` y dejaba esta entrada en el
+    // registro. Se borra en cada instalación/desinstalación de Compass para que
+    // no quede un menú "Code Runner" duplicado y, encima, apuntando a un `.exe`
+    // que puede ya no existir.
+    let ps = "\
+Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_CodeRunner' -Recurse -Force -ErrorAction SilentlyContinue; \
+Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_CodeRunner' -Recurse -Force -ErrorAction SilentlyContinue";
+    let _ = cmd::run("powershell", &["-NoProfile", "-Command", ps]);
+}
+
 pub fn uninstall() -> Result<()> {
     if !crate::utils::platform::IS_WINDOWS {
         return super::context_menu_cosmic::uninstall();
     }
 
+    remove_old_code_runner_entry();
+
     let ps = "\
-Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_CodeRunner' -Recurse -Force -ErrorAction SilentlyContinue; \
-Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_CodeRunner' -Recurse -Force -ErrorAction SilentlyContinue";
+Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_Compass' -Recurse -Force -ErrorAction SilentlyContinue; \
+Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_Compass' -Recurse -Force -ErrorAction SilentlyContinue";
 
     let _ = cmd::run("powershell", &["-NoProfile", "-Command", ps]);
 
-    println!("[OK] Menú contextual Code Runner eliminado.");
+    println!("[OK] Menú contextual Compass eliminado.");
     Ok(())
 }
 
@@ -814,7 +834,7 @@ pub fn toggle() -> Result<()> {
         // En COSMIC, instalar y desinstalar afecta a la misma lista de presets
         // (`context_menu_cosmic`), así que ambas entradas comparten el estado.
         let cr_installed = if crate::utils::platform::IS_WINDOWS {
-            is_installed("zz_CodeRunner")
+            is_installed("zz_Compass")
         } else {
             super::context_menu_cosmic::is_installed()
         };
@@ -825,7 +845,7 @@ pub fn toggle() -> Result<()> {
             super::context_menu_cosmic::has_vibe_entries()
         };
 
-        let cr_label = if cr_installed { "✔ Code Runner" } else { "  Code Runner" };
+        let cr_label = if cr_installed { "✔ Compass" } else { "  Compass" };
         let vc_label = if vc_installed { "✔ Vibe Coding" } else { "  Vibe Coding" };
 
         // `options` y `actions` van en paralelo: el `match` de abajo despacha
@@ -847,7 +867,7 @@ pub fn toggle() -> Result<()> {
                 "1. {cr_label}  [{}]",
                 if cr_installed { "Desinstalar" } else { "Instalar" }
             ),
-            MenuChoice::ToggleCodeRunner,
+            MenuChoice::ToggleCompass,
         );
         push(
             &mut options,
@@ -868,7 +888,7 @@ pub fn toggle() -> Result<()> {
             .raw_prompt()?;
 
         match actions.get(choice.index).copied().unwrap_or(MenuChoice::Back) {
-            MenuChoice::ToggleCodeRunner => {
+            MenuChoice::ToggleCompass => {
                 if cr_installed { uninstall()?; } else { install()?; }
                 pause();
             }
@@ -895,7 +915,7 @@ pub fn toggle() -> Result<()> {
 /// Acción del menú interactivo, emparejada 1:1 con cada opción mostrada.
 #[derive(Debug, Clone, Copy)]
 enum MenuChoice {
-    ToggleCodeRunner,
+    ToggleCompass,
     ToggleVibeCoding,
     InstallAll,
     UninstallAll,
@@ -904,7 +924,7 @@ enum MenuChoice {
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
-/// ¿Está instalada la entrada `name`? `name` es `zz_CodeRunner` o `VIBE_KEY`.
+/// ¿Está instalada la entrada `name`? `name` es `zz_Compass` o `VIBE_KEY`.
 fn is_installed(name: &str) -> bool {
     // En Linux la fuente de verdad es la config de cosmic-files, no el registro.
     if !crate::utils::platform::IS_WINDOWS {

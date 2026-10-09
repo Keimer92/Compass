@@ -190,24 +190,24 @@ fn detect_terminal() -> Option<&'static TerminalSpec> {
 }
 
 /// Base del socket IPC de kitty, tal y como se declara en su `kitty.conf`
-/// (`listen_on unix:@kitty-code-runner`).
+/// (`listen_on unix:@kitty-compass`).
 #[cfg(not(windows))]
-const KITTY_SOCKET_PREFIX: &str = "@kitty-code-runner";
+const KITTY_SOCKET_PREFIX: &str = "@kitty-compass";
 
 /// Dirección del socket IPC de una instancia de kitty viva, si la hay.
 ///
-/// kitty crea el socket a partir de `listen_on unix:@kitty-code-runner` y le
-/// **añade el PID**: `@kitty-code-runner-<pid>`. Por eso no puede usarse una
+/// kitty crea el socket a partir de `listen_on unix:@kitty-compass` y le
+/// **añade el PID**: `@kitty-compass-<pid>`. Por eso no puede usarse una
 /// ruta fija. El nombre va sin barra inicial, o sea que es relativo, y en la
 /// práctica **no aparece como fichero en disco** (se ve en `ss` como
-/// `LISTEN @kitty-code-runner-<pid>`, pero `find -type s` no lo encuentra), así
+/// `LISTEN @kitty-compass-<pid>`, pero `find -type s` no lo encuentra), así
 /// que la única forma fiable de descubrirlo es leer la tabla de sockets.
 ///
 /// Se elige el PID más alto, que es la instancia creada más recientemente: es la
 /// que el usuario tiene delante.
 ///
 /// Devuelve `None` si no hay kitty abierto, que es el caso normal cuando
-/// code-runner se lanza desde el launcher sin ninguna ventana de kitty previa.
+/// compass se lanza desde el launcher sin ninguna ventana de kitty previa.
 #[cfg(not(windows))]
 fn kitty_socket() -> Option<String> {
     let out = Command::new("ss")
@@ -240,7 +240,7 @@ fn kitty_socket() -> Option<String> {
 /// Nota sobre por qué hace falta el socket: `kitty @ launch` busca el socket en
 /// `$KITTY_LISTEN_ON` y, si no lo encuentra, envía el mensaje a la terminal
 /// controladora — o sea, sólo funciona dentro de una ventana de kitty. Como
-/// code-runner se lanza desde un terminal cualquiera (alacritty, cosmic-term), no
+/// compass se lanza desde un terminal cualquiera (alacritty, cosmic-term), no
 /// encontraría nada, de ahí el `--to` explícito.
 #[cfg(not(windows))]
 fn spawn_kitty_tab(title: &str, script: &str) -> bool {
@@ -282,8 +282,8 @@ fn spawn_kitty_tab(title: &str, script: &str) -> bool {
 /// Arreglo propuesto: exportar `CR_SCRIPT`/`CR_SOCKET`/`CR_TITLE` y pasarle a
 /// `script -qec` **un argumento con comillas simples**, para que cite el shell
 /// intermedio. Está sin aplicar porque no se ha podido probar con un kitty real:
-/// hace falta `ss -xlH | grep kitty-code-runner` listando
-/// `@kitty-code-runner-<pid>`, o sea una instancia de kitty ya abierta. Ver
+/// hace falta `ss -xlH | grep kitty-compass` listando
+/// `@kitty-compass-<pid>`, o sea una instancia de kitty ya abierta. Ver
 /// "Bug conocido: doble parseo en la rama kitty-tab" en AGENTS.md.
 ///
 /// Devuelve `None` si no hay ningún emulador instalado.

@@ -1,9 +1,9 @@
 @echo off
 setlocal EnableDelayedExpansion
-title Instalando Code Runner...
+title Instalando Compass...
 echo.
 echo =============================================
-echo   Code Runner for Rust / Tauri - Instalador
+echo   Compass for Rust - Instalador
 echo =============================================
 echo.
 
@@ -29,7 +29,7 @@ exit /b 1
 if not exist "Cargo.toml" (
 echo [ERROR] No se encuentra Cargo.toml.
 echo Asegurate de que install.bat este en la carpeta
-echo raiz del proyecto ^(Code Runner^).
+echo raiz del proyecto ^(Compass^).
 echo.
 pause
 exit /b 1
@@ -43,14 +43,14 @@ exit /b 1
 )
 
 echo.
-tasklist /fi "imagename eq code-runner.exe" 2>nul | find /i "code-runner.exe" >nul
+tasklist /fi "imagename eq compass.exe" 2>nul | find /i "compass.exe" >nul
 if not errorlevel 1 (
-    echo [INFO] Cerrando code-runner.exe en ejecucion...
-    taskkill /f /im code-runner.exe >nul 2>nul
+    echo [INFO] Cerrando compass.exe en ejecucion...
+    taskkill /f /im compass.exe >nul 2>nul
     if errorlevel 1 (
-        echo [WARN] No se pudo cerrar code-runner.exe. Intentando continuar...
+        echo [WARN] No se pudo cerrar compass.exe. Intentando continuar...
     ) else (
-        echo [OK] code-runner.exe cerrado.
+        echo [OK] compass.exe cerrado.
     )
     REM `timeout` protesta si el stdin esta redirigido (ejecucion desde script).
     REM Es una pausa de un segundo, no importa si se pierde.
@@ -119,7 +119,7 @@ if "%EXIT_CODE%"=="1" (
     echo   [WARN] La compilacion tuvo problemas.
     echo =============================================
     echo.
-    echo Se usara la version anterior de code-runner si esta instalada.
+    echo Se usara la version anterior de compass si esta instalada.
     echo Se omite la configuracion de menus para no apuntar a un binario roto.
     set "NEED_CR=0"
     set "NEED_VIBE=0"
@@ -130,7 +130,7 @@ if "%EXIT_CODE%"=="1" (
 echo.
 echo [INFO] Copiando iconos al directorio del binario...
 
-:: icon.ico (Code Runner personalizado) -> Default.ico
+:: icon.ico (Compass personalizado) -> Default.ico
 if exist "assets\icon\icon.ico" (
     copy /Y "assets\icon\icon.ico" "%USERPROFILE%\.cargo\bin\" >nul 2>nul
     echo [OK] icon.ico copiado
@@ -149,16 +149,16 @@ if exist "assets\icon\opencode.ico" (
 )
 echo.
 
-echo [INFO] Configurando menu contextual de Code Runner...
+echo [INFO] Configurando menu contextual de Compass...
 if "%NEED_CR%"=="1" (
-    call "%USERPROFILE%\.cargo\bin\code-runner.exe" --task context-menu-install
+    call "%USERPROFILE%\.cargo\bin\compass.exe" --task context-menu-install
     if errorlevel 1 (
-        echo [WARN] No se pudo instalar el menu contextual de Code Runner.
+        echo [WARN] No se pudo instalar el menu contextual de Compass.
     ) else (
-        echo [OK] Menu contextual de Code Runner instalado.
+        echo [OK] Menu contextual de Compass instalado.
     )
 ) else (
-    echo [SKIP] Menu contextual de Code Runner ya instalado.
+    echo [SKIP] Menu contextual de Compass ya instalado.
 )
 echo.
 
@@ -167,7 +167,7 @@ if "%NEED_VIBE_SETUP%"=="1" (
     if not "%MISSING_TOOLS%"=="0" (
         echo [INFO] ^(Se preguntara por las herramientas de Vibe Coding que falten^)
     )
-    call "%USERPROFILE%\.cargo\bin\code-runner.exe" --task vibe-setup
+    call "%USERPROFILE%\.cargo\bin\compass.exe" --task vibe-setup
     if errorlevel 1 (
         echo [WARN] No se pudo instalar el menu contextual de Vibe Coding.
     ) else (
