@@ -379,32 +379,6 @@ fn clear_arch_env() {
     env::remove_var("ORG_GRADLE_PROJECT_targetList");
 }
 
-/// Detecta la IP LAN real para `TAURI_DEV_HOST`.
-///
-/// Se excluyen loopback (`127.*`) y APIPA (`169.254.*`), que es lo que hacía
-/// que Tauri seleccionara una IP incorrecta. En Windows usa `Get-NetIPAddress`
-/// (solo Windows); en Linux, `hostname -I`.
-fn detect_lan_ip() -> Option<String> {
-    let raw = if platform::IS_WINDOWS {
-        let output = cmd::run("powershell", &[
-            "-NoProfile", "-Command",
-            "(Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' -and $_.PrefixOrigin -ne 'WellKnown' } | Select-Object -First 1).IPAddress"
-        ]).ok()?;
-        String::from_utf8_lossy(&output.stdout).trim().to_string()
-    } else {
-        // `hostname -I` lista todas las IPv4 asignadas; el filtro es el mismo.
-        let output = cmd::run("sh", &["-c", "hostname -I 2>/dev/null"]).ok()?;
-        String::from_utf8_lossy(&output.stdout)
-            .split_whitespace()
-            .find(|ip| !ip.starts_with("127.") && !ip.starts_with("169.254."))
-            .unwrap_or_default()
-            .to_string()
-    };
-
-    let ip = raw.trim().to_string();
-    if ip.is_empty() || ip.contains("Error") { None } else { Some(ip) }
-}
-
 pub fn dev(ctx: &ProjectContext) -> Result<()> {
     tauri::ensure(ctx)?;
     ctx.assert_android_sdk()?;
@@ -423,25 +397,9 @@ pub fn dev(ctx: &ProjectContext) -> Result<()> {
     println!("  Tauri se conectará automáticamente al dispositivo disponible.");
     println!();
 
-    let tauri_dev = tauri::command(ctx, "android dev");
-    let dev_cmd = match detect_lan_ip() {
-        Some(ip) => {
-            println!("[INFO] IP LAN detectada: {}", ip);
-            env::set_var("TAURI_DEV_HOST", &ip);
-            // `spawn_new_window_interactive` ejecuta este fragmento en `cmd` en
-            // Windows y en `sh -lc` en Linux, así que la sintaxis de assignación
-            // del environment es distinta en cada shell.
-            if platform::IS_WINDOWS {
-                format!("set TAURI_DEV_HOST={} & {tauri_dev}", ip)
-            } else {
-                format!("TAURI_DEV_HOST={} {tauri_dev}", ip)
-            }
-        }
-        None => {
-            println!("[WARN] No se detectó IP LAN. Tauri pedirá seleccionar manualmente.");
-            tauri_dev
-        }
-    };
+    let dev_cmd = tauri::command(ctx, "android dev");
+    println!("[INFO] Usando el flujo Android predeterminado de Tauri.");
+    println!("[INFO] URL y adb reverse definidos por tauri.android.conf.json.");
 
     cmd::spawn_new_window_interactive(
         "Tauri Android Dev",
