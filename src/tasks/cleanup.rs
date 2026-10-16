@@ -42,18 +42,6 @@ use crate::utils::{
 // Utilidades
 // ───────────────────────────────────────────────────────────────────────────
 
-fn banner(title: &str) {
-    // Igual que `ui::banner`: se cuenta por caracteres (no bytes) para que el
-    // centrado no se desajuste. Títulos en ASCII ⇒ ancho de columna = nº chars.
-    let width = title.chars().count().max(48);
-    let pad = width - title.chars().count();
-    let left = pad / 2;
-    let right = pad - left;
-    println!("╔{}╗", "═".repeat(width));
-    println!("║{}{}{}║", " ".repeat(left), title, " ".repeat(right));
-    println!("╚{}╝", "═".repeat(width));
-}
-
 fn format_size(bytes: u64) -> String {
     if bytes > 1_000_000_000 {
         format!("{:.2} GB", bytes as f64 / 1_073_741_824.0)
@@ -303,7 +291,7 @@ fn selectable_targets(ctx: &ProjectContext) -> Vec<Candidate> {
 
 fn quick_clean(ctx: &ProjectContext) -> Result<()> {
     cmd::clear_screen();
-    banner("LIMPIEZA RÁPIDA");
+    ui::box_banner("LIMPIEZA RÁPIDA");
     println!();
     println!("Borra builds y caches regenerables; conserva node_modules/ y");
     println!("las dependencias. Nada que tardes minutos en reinstalar.");
@@ -333,7 +321,7 @@ fn full_clean(ctx: &ProjectContext) -> Result<()> {
 
 fn report_sizes(ctx: &ProjectContext) -> Result<()> {
     cmd::clear_screen();
-    banner("ESPACIO QUE SE PUEDE LIBERAR");
+    ui::box_banner("ESPACIO QUE SE PUEDE LIBERAR");
     println!();
     println!("Nada se borra aquí: sólo se mide.\n");
 
@@ -377,7 +365,7 @@ fn report_sizes(ctx: &ProjectContext) -> Result<()> {
 /// y avisa aparte de las dependencias, porque restaurarlas tarda.
 fn choose_and_purge(ctx: &ProjectContext) -> Result<()> {
     cmd::clear_screen();
-    banner("ELEGIR QUÉ BORRAR");
+    ui::box_banner("ELEGIR QUÉ BORRAR");
     println!();
     println!("Marca con Espacio lo que quieras eliminar y confirma con Enter.");
     println!();
@@ -462,7 +450,7 @@ fn choose_and_purge(ctx: &ProjectContext) -> Result<()> {
 pub fn manage(ctx: &ProjectContext) -> Result<()> {
     loop {
         cmd::clear_screen();
-        banner("LIMPIEZA");
+        ui::box_banner("LIMPIEZA");
         println!();
         let options = vec![
             "1. Rápida — borra builds y caches (conserva dependencias)",
@@ -494,7 +482,7 @@ pub fn manage(ctx: &ProjectContext) -> Result<()> {
 /// `gen/android/app/build` una vez.
 fn clean_project(ctx: &ProjectContext) -> Result<()> {
     cmd::clear_screen();
-    banner("LIMPIAR PROYECTO PARA PORTABILIDAD");
+    ui::box_banner("LIMPIAR PROYECTO PARA PORTABILIDAD");
     println!();
     println!("Se eliminarán TODOS los archivos de compilación y dependencias,");
     println!("dejando sólo el código fuente y la configuración.");

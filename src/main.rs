@@ -191,8 +191,9 @@ fn run_task_direct(ctx: &crate::utils::context::ProjectContext, task: &str) -> R
         // verificación de APK). Los nombres antiguos quedan como alias.
         "sign" | "signing" | "sha1" | "keystore" => tasks::signer::manage(ctx),
         "version" => tasks::version::bump(ctx),
-        "gitignore" => tasks::gitignore::create(ctx),
-        "git-init" => tasks::git::init(ctx),
+        // Git: una sola ruta para la tarjeta unificada (`git::manage`): init,
+        // .gitignore y conexión con el remoto. Los nombres antiguos son alias.
+        "git" | "git-init" | "gitignore" => tasks::git::manage(ctx),
         "whatsapp" => tasks::whatsapp::build(ctx),
         "terminal" => tasks::terminal::configure(ctx),
         "flutter-profile" => {

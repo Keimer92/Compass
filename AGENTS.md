@@ -325,8 +325,7 @@ tasks/
   ├─ kotlin.rs  — run_windows() [con hot reload], run_android(), install_debug() (`:<modulo>:installDebug` + lanza con `am start`), build_*(), clean(); deteccion de modulo Gradle `:app`/`:composeApp` via `gradle_module()`; release_signing_env() [exporta RELEASE_* vars, parseando con `signer::Props`]
   ├─ rust.rs    — run(), build(), clean()                [Rust only]
   ├─ cleanup.rs — manage() [submenú unificado: rápida / completa / reporte de tamaños], quick_targets()/full_targets(), clean_project() [Tauri: portabilidad]
-  ├─ git.rs     — init()
-  ├─ gitignore.rs — create() [templates por tipo, incluye Rust]
+  ├─ git.rs     — manage() [submenú unificado: init / .gitignore / conectar con remoto / estado]; templates de .gitignore por tipo
   ├─ signer.rs  — dominio único de firmas: manage() [submenú], android_layout(), detect()/SigningInfo [autodetección], Props (parseo de properties), crear/importar/manual, patch_build_gradle(), huellas (keytool), respaldos, base64 + secretos de GitHub Actions, verify_apk() [apksigner]
   ├─ terminal.rs — configure() [perfil PSReadLine según la versión instalada]
   ├─ context_menu.rs — install/uninstall/toggle para Compass + Vibe Coding (menú cascada con ExtendedSubCommandsKey: OpenCode, Kilo Code, Cline, Antigravity, Kiro CLI, Hermes)
@@ -352,8 +351,7 @@ tasks/
 | DebugAndroid | `android::debug` | mensaje info | mensaje info | oculto |
 | Signing | `signer::manage` | `signer::manage` | `signer::manage` | oculto |
 | Version | `version::bump` (pkg/cargo/tauri) | mensaje info | mensaje info | `version::bump` (Cargo.toml) |
-| CreateGitignore | `gitignore::create` | `gitignore::create` | `gitignore::create` | `gitignore::create` |
-| InitGit | `git::init` | `git::init` | `git::init` | `git::init` |
+| Git | `git::manage` | `git::manage` | `git::manage` | `git::manage` |
 | BuildWhatsApp | `whatsapp::build` | `whatsapp::build` | `whatsapp::build` | `whatsapp::build` |
 | ConfigureTerminal | `terminal::configure` | `terminal::configure` | `terminal::configure` | `terminal::configure` |
 | InstallContextMenu | `context_menu::toggle` | `context_menu::toggle` | `context_menu::toggle` | `context_menu::toggle` |

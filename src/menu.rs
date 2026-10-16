@@ -69,8 +69,9 @@ pub enum MenuItem {
     Signing,
     Version,
     // CFG section
-    CreateGitignore,
-    InitGit,
+    /// Git: init, .gitignore y conexión con el remoto. Absorbe las antiguas
+    /// tarjetas Git Init y .gitignore.
+    Git,
     BuildWhatsApp,
     ConfigureTerminal,
     ContextMenu,
@@ -91,8 +92,7 @@ impl MenuItem {
             Self::DebugAndroid => "\u{1f50d}",
             Self::Signing => "\u{1f511}",
             Self::Version => "\u{1f516}",
-            Self::CreateGitignore => "\u{1f4c4}",
-            Self::InitGit => "\u{1f527}",
+            Self::Git => "\u{1f527}",
             Self::BuildWhatsApp => "\u{1f4ac}",
             Self::ConfigureTerminal => "\u{2699}",
             Self::ContextMenu => "\u{1f4c1}",
@@ -103,7 +103,7 @@ impl MenuItem {
         match self {
             Self::WindowsDev | Self::AndroidDev | Self::WindowsBuild | Self::AndroidBuildArm64 | Self::AndroidBuildArmv7 | Self::AndroidBuildAll | Self::InstallDebug | Self::FlutterProfile => "DEV",
             Self::Clean | Self::DebugAndroid | Self::Signing | Self::Version => "MNT",
-            Self::CreateGitignore | Self::InitGit | Self::BuildWhatsApp | Self::ConfigureTerminal | Self::ContextMenu => "CFG",
+            Self::Git | Self::BuildWhatsApp | Self::ConfigureTerminal | Self::ContextMenu => "CFG",
         }
     }
 
@@ -147,8 +147,7 @@ impl MenuItem {
             Self::DebugAndroid => "Debug Andr",
             Self::Signing => "Signing",
             Self::Version => "Version",
-            Self::CreateGitignore => ".gitignore",
-            Self::InitGit => "Git Init",
+            Self::Git => "Git",
             Self::BuildWhatsApp => "WhatsApp",
             Self::ConfigureTerminal => "Terminal",
             Self::ContextMenu => "Menu Ctx",
@@ -169,8 +168,7 @@ impl MenuItem {
                 Self::DebugAndroid => "",
                 Self::Signing => "",
                 Self::Version => "Actualiza Cargo.toml",
-                Self::CreateGitignore => "Crea .gitignore",
-                Self::InitGit => "Git init + commit",
+                Self::Git => "Init · gitignore · remoto",
                 Self::BuildWhatsApp => "Compila WhatsApp",
                 Self::ConfigureTerminal => "Autocompletado",
                 Self::ContextMenu => "Menu contextual",
@@ -187,8 +185,7 @@ impl MenuItem {
                 Self::Clean => "Limpia builds/deps",
                 Self::DebugAndroid => "Dev + Chrome DevTools",
                 Self::Signing => "Firmas y huellas",
-                Self::CreateGitignore => "Crea .gitignore",
-                Self::InitGit => "Git init + commit",
+                Self::Git => "Init · gitignore · remoto",
                 Self::BuildWhatsApp => "Compila WhatsApp",
                 Self::Version => "Bump pkg/cargo/tauri",
                 Self::ConfigureTerminal => "Autocompletado",
@@ -206,8 +203,7 @@ impl MenuItem {
                 Self::Clean => "Limpia builds/deps",
                 Self::DebugAndroid => "Depurar Android",
                 Self::Signing => "Firmas y huellas",
-                Self::CreateGitignore => "Crea .gitignore",
-                Self::InitGit => "Git init + commit",
+                Self::Git => "Init · gitignore · remoto",
                 Self::BuildWhatsApp => "Compila WhatsApp",
                 Self::Version => "",
                 Self::ConfigureTerminal => "Autocompletado",
@@ -225,8 +221,7 @@ impl MenuItem {
                 Self::Clean => "Limpia builds/deps",
                 Self::DebugAndroid => "Depurar Android",
                 Self::Signing => "Firmas y huellas",
-                Self::CreateGitignore => "Crea .gitignore",
-                Self::InitGit => "Git init + commit",
+                Self::Git => "Init · gitignore · remoto",
                 Self::BuildWhatsApp => "Compila WhatsApp",
                 Self::Version => "",
                 Self::ConfigureTerminal => "Autocompletado",
@@ -276,8 +271,7 @@ impl MenuState {
             MenuItem::DebugAndroid,
             MenuItem::Signing,
             MenuItem::Version,
-            MenuItem::CreateGitignore,
-            MenuItem::InitGit,
+            MenuItem::Git,
             MenuItem::BuildWhatsApp,
             MenuItem::ConfigureTerminal,
             MenuItem::ContextMenu,
@@ -891,8 +885,7 @@ fn menu_item_to_task(item: MenuItem, ptype: ProjectType) -> &'static str {
 
         (MenuItem::Version, _) => "version",
 
-        (MenuItem::CreateGitignore, _) => "gitignore",
-        (MenuItem::InitGit, _) => "git-init",
+        (MenuItem::Git, _) => "git",
 
         (MenuItem::BuildWhatsApp, _) => "whatsapp",
         (MenuItem::ConfigureTerminal, _) => "terminal",

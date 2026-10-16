@@ -101,6 +101,20 @@ pub fn info_banner(title: &str) {
     banner("\u{2139}\u{FE0E}", title);
 }
 
+/// Banner de caja `╔═╗` con el título centrado.
+///
+/// El centrado cuenta **caracteres**, no bytes: así los acentos (á) y los emoji
+/// no desajustan el borde derecho.
+pub fn box_banner(title: &str) {
+    let width = title.chars().count().max(48);
+    let pad = width - title.chars().count();
+    let left = pad / 2;
+    let right = pad - left;
+    println!("\u{2554}{}\u{2557}", "\u{2550}".repeat(width));
+    println!("\u{2551}{}{}{}\u{2551}", " ".repeat(left), title, " ".repeat(right));
+    println!("\u{255A}{}\u{255D}", "\u{2550}".repeat(width));
+}
+
 pub fn pause() {
     print!("  Presiona Enter para continuar...");
     io::stdout().flush().ok();
