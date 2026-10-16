@@ -208,9 +208,9 @@ hace utilizable la entrada del launcher.
 ### Notas de implementación Linux
 
 - **Artefactos de desktop sin extensión**: `platform::desktop_artifact_exts()`
-  devuelve `["exe","msi"]` en Windows y `[]` en Linux. `sh_newest_artifact`
+  devuelve `["exe","msi"]` en Windows y `[]` en Linux. `newest_artifact`
   interpreta la lista vacía como "cualquier archivo regular", no como "nada que
-  buscar": con `["exe"]` en Linux, `reveal_on_success` nunca encontraba el
+  buscar": con `["exe"]` en Linux, `reveal_artifact` nunca encontraba el
   binario (que no lleva extensión) y siempre caía al fallback.
 - **Wrappers de Vibe Coding**: abren su propia terminal. cosmic-files lanza el
   paso sin tty, así que un `exec opencode` directo vuelca secuencias ANSI a un
@@ -222,9 +222,9 @@ hace utilizable la entrada del launcher.
 - **Ejecutables**: `platform::exe_name("adb")` → `adb.exe` en Windows, `adb` en Linux. Lo usan `adb`, `emulator`, `sdkmanager` y `keytool`.
 - **Gradle**: `platform::find_gradlew()` acepta `gradlew` **y** `gradlew.bat`, porque un proyecto KMP clonado entre Windows y Linux conserva sólo uno de los dos wrappers. `ensure_gradle()` abortaba en Linux antes de hacer nada. `gradlew_cmd(ctx, args)` usa el wrapper que exista de verdad (y ejecuta `gradlew.bat` con `sh` si es el único presente); también da `+x` a `gradlew` cuando falta, porque git no siempre lo preserva al clonar entre sistemas.
 - **ANDROID_HOME**: se resuelve por `ANDROID_HOME` → `ANDROID_SDK_ROOT` → `$HOME/Android/Sdk` → `$HOME/android-sdk` → `$XDG_DATA_HOME/Android/Sdk` → `/usr/lib/android-sdk`.
-- **Ventanas**: `spawn_new_window*()` detecta un emulador de terminal (`cosmic-term`, `gnome-terminal`, `konsole`, `xfce4-terminal`, `alacritty`, `kitty`, `wezterm`, `xterm`) y ejecuta el comando con `sh -lc`. Antes, la rama `#[cfg(not(windows))]` seguía invocando `powershell`, lo que dejaba la TUI inutilizable.
-- **Builds**: `reveal_on_success()` genera `sh` en Linux (`find -printf` + `sort -rn` para el artefacto más reciente, `mv` para renombrar, `xdg-open`/`gio open` para revelar). Mantiene la ventana abierta con `read -r` en ambos casos.
-- **Sintaxis de shell embebida**: `TAURI_DEV_HOST`, `export RELEASE_*` y `ANDROID_SERIAL` se emiten con sintaxis `set X=Y &` / `$env:X=` / `$LASTEXITCODE` en Windows y `X=Y` / `export X=` / `$?` en Linux.
+- **Ventanas**: `spawn_new_window_autoexit()`/`spawn_new_window_interactive()` detectan un emulador de terminal (`cosmic-term`, `gnome-terminal`, `konsole`, `xfce4-terminal`, `alacritty`, `kitty`, `wezterm`, `xterm`) y ejecutan el comando con `sh -lc`. Antes, la rama `#[cfg(not(windows))]` seguía invocando `powershell`, lo que dejaba la TUI inutilizable.
+- **Builds**: `cmd::run_build_and_reveal()` ejecuta el build con `sh -lc` en la ventana actual y, si tiene éxito, busca el artefacto más reciente en Rust (`newest_artifact`, recursivo), lo renombra (`rename_artifact`) y lo revela con `xdg-open` (abre la carpeta contenedora, no el binario). Termina con `ui::pause()` para no perder la salida.
+- **Variables de entorno para builds**: `RELEASE_*` (firma Kotlin) y `ANDROID_SERIAL` ya no se prefijan al comando con sintaxis de shell (`set X=Y &` / `$env:X=` / `export X=`). Se inyectan con `Command::env` en `cmd::run_shell_status`, que es la única forma de que el hijo las herede en ambas plataformas.
 - **PowerShell call-operator**: `menu.rs` omite el `&` al construir el comando en Linux (en `sh` sería un error de sintaxis).
 - **Instalador**: `install.sh` (Linux) reemplaza a `install.bat` (Windows). No instala menús contextuales.
 - **Paridad pendiente** (fuera del MVP): targets Linux de Flutter y Tauri desktop (comandos y `exts` de artefactos), `find_keytool` ya cubre `/usr/lib/jvm` pero `debug()` de Android en Linux usa `chrome://inspect` en vez de `edge://inspect`.
@@ -313,7 +313,7 @@ menu.rs
 utils/
   ├─ context.rs — detect(), ProjectType, ProjectContext, whatsapp_path()
   ├─ platform.rs — helpers de portabilidad: IS_WINDOWS, exe_name(), gradlew_name(), home_dir(), data_dir(), find_gradlew(), NDK_VERSION, tauri_native_pkg()
-  ├─ cmd.rs — run*, spawn_new_window, spawn_new_window_autoexit, spawn_new_window_interactive, run_npm_install, clear_screen, remove_dir, reveal_on_success
+  ├─ cmd.rs — run*, spawn_new_window_autoexit, spawn_new_window_interactive, run_build_and_reveal, run_in_current_window, run_shell_status, run_npm_install, clear_screen, remove_dir
   ├─ tauri.rs — command(), ensure(), cli_entry() [CLI sin shim de .bin + reinstalación si falta el binding nativo]
   ├─ ui.rs — ask_text(), ask_password(), success_banner(), info_banner(), pause()
   └─ android.rs — select_device(), wait_for_device_boot(), list_physical_devices() [sólo dispositivos físicos]
@@ -492,43 +492,61 @@ HKCU\Software\Classes\Directory\ContextMenus\VibeCoding\shell
 
 ## Key Patterns
 
-### New window execution
-Tareas largas se lanzan en **nueva ventana** con `CREATE_NEW_CONSOLE`. Tres variantes:
+### Ventanas de terminal
+Dos lanzadores de ventana, ambos con `CREATE_NEW_CONSOLE`:
 
 | Variante | Interno | Uso |
 |----------|---------|-----|
-| `spawn_new_window()` | `powershell -NoExit -Command` | Windows Build (no interactivo, ventana se queda abierta) |
-| `spawn_new_window_autoexit()` | `powershell -Command` | Menú TUI (sin `-NoExit`, ventana se cierra al terminar) |
-| `spawn_new_window_interactive()` | `cmd /c "title & command & pause"` | Dev servers interactivos (`flutter run`, `gradlew :composeApp:run`, `npx tauri android dev`). Usa `cmd` en vez de PowerShell porque este último no reenvía correctamente el teclado a procesos hijo en modo `-Command`. |
+| `spawn_new_window_autoexit()` | `cmd /c "title & command"` | Menú TUI: abre una ventana para `compass --task …` que se cierra al terminar |
+| `spawn_new_window_interactive()` | `cmd /c "title & command & pause"` | Dev servers interactivos (`flutter run`, `gradlew :composeApp:run`, `npx tauri android dev`) |
 
-La TUI retorna inmediatamente en todos los casos.
+Ambos usan `cmd`, **no** PowerShell. PowerShell 5.1 tarda ~2-3 s en arrancar
+(y más con el perfil de PSReadLine predictivo que instala la propia tarjeta
+"Terminal"), y ese era el retardo de apertura de las tarjetas. `cmd` arranca en
+milisegundos.
 
-### Reveal build artifact + auto-close (`cmd::reveal_on_success`)
-Todos los builds **release** envuelven su comando con `cmd::reveal_on_success(command, folder, exts)`:
-encadena `<comando>; if ($?) { ... explorer.exe /select,<artefacto> ...; exit } else { ... Read-Host; exit }`.
-Al terminar con éxito abre el Explorador resaltando el artefacto más reciente (`exe/msi/apk/aab`)
-dentro de `folder` (ruta absoluta derivada de `ctx.script_dir`) y **la ventana de build se cierra sola** (`exit`).
-Si el build falla, la ventana muestra `[ERROR]` y espera una tecla antes de cerrarse (para poder leer el error).
-Las tareas de build ya no llaman a `pause()`/`ui::pause()`, por lo que la ventana intermedia de `compass --task` también se cierra sola.
+⚠️ Hay que pasar el comando con `raw_arg`, no con `.args`: `.args` reescapa las
+comillas dobles a `\"`, que `cmd` no entiende (interpretaría el `\` como parte de
+la ruta). Y en Linux `menu.rs` omite el `&` del call-operator de PowerShell (en
+`sh` sería un error de sintaxis).
+
+### Builds: corren en la ventana actual (`cmd::run_build_and_reveal`)
+Los builds **no abren una segunda ventana**. Llaman a
+`cmd::run_build_and_reveal(command, dir, folder, exts, rename)`:
+
+1. Ejecuta `command` con `cmd /c` (Windows) o `sh -lc` (Linux) heredando
+   stdio, **en la ventana que el TUI ya abrió** (la de `spawn_new_window_autoexit`).
+2. Si termina bien, busca el artefacto más reciente de `folder` en Rust
+   (`newest_artifact`, recursivo y filtrando por extensión), lo renombra a
+   `<rename><ext>` si `rename` viene, y lo abre en el explorador.
+3. Espera un Enter (`ui::pause()`) para que se pueda leer la salida.
+
+Así sólo hay **una** ventana y es la rápida. Antes se generaba un script de
+shell con la lógica de revelado incrustada (PowerShell en Windows, `sh` en
+Linux) y se abría con `powershell -NoExit -Command`: lento y con la lógica de
+"artefacto más reciente" duplicada en dos sintaxis.
+
+`cmd::run_in_current_window(command, dir)` es la variante sin revelado, para
+procesos largos que no producen artefacto (`rust::run` → `cargo run`).
+
+El revelado usa `explorer.exe /select,"<ruta>"` (con `raw_arg`, para que Explorer
+reciba las comillas alrededor de la ruta) en Windows y `xdg-open` sobre la
+carpeta contenedora en Linux. Si no encuentra artefacto, abre `folder`.
 
 | Task | folder | exts |
 |------|--------|------|
-| `windows::build` (Tauri) | `src-tauri/target/release/bundle` | exe, msi |
+| `windows::build` (Tauri) | `src-tauri/target/release/bundle` | `desktop_artifact_exts()` |
 | `android::{build_arm64,build_armv7,build_all}` | `src-tauri/gen/android/app/build/outputs/apk` | apk |
-| `flutter::{build_windows}` | `build/windows/x64/runner/Release` | exe |
-| `flutter::{build_apk}` | `build/app/outputs/flutter-apk` | apk |
-| `flutter::{build_aab}` | `build/app/outputs/bundle/release` | aab |
-| `kotlin::{build_windows}` | `composeApp/build/compose/binaries/main` | exe |
-| `kotlin::{build_apk}` | `<modulo>/build/outputs/apk/release` | apk |
-| `kotlin::{build_aab}` | `<modulo>/build/outputs/bundle/release` | aab |
-| `rust::build` | `target/release` | exe |
-
-El filtrado usa `Get-ChildItem -LiteralPath ... -Recurse -File | Where-Object { $_.Extension -in ... }`
-+ `Sort-Object LastWriteTime -Descending` (robusto a nombres de producto desconocidos y a `[` en rutas).
-Si no encuentra artefacto, abre la carpeta `folder` directamente (en vez de nada).
+| `flutter::build_windows` | `build` | `desktop_artifact_exts()` |
+| `flutter::build_apk` | `build/app/outputs/flutter-apk` | apk |
+| `flutter::build_aab` | `build/app/outputs/bundle/release` | aab |
+| `kotlin::build_windows` | `<modulo>/build/compose/binaries/main` | `desktop_artifact_exts()` |
+| `kotlin::build_apk` | `<modulo>/build/outputs/apk/release` | apk |
+| `kotlin::build_aab` | `<modulo>/build/outputs/bundle/release` | aab |
+| `rust::build` | `target/release` | `desktop_artifact_exts()` |
 
 ### Rename build artifact (nombre + versión)
-Todos los builds **release** de Android (APK/AAB) renombran el artefacto resultante a `<AppName>-v<version>.<ext>` usando `reveal_on_success(..., Some("AppName-v1.0.0"))`.
+Todos los builds **release** de Android (APK/AAB) renombran el artefacto resultante a `<AppName>-v<version>.<ext>` usando `run_build_and_reveal(..., Some("AppName-v1.0.0"))`.
 
 | Fuente | Nombre | Versión | Ejemplo |
 |--------|--------|---------|---------|
@@ -881,6 +899,6 @@ Script de instalación para Linux (Pop!_OS / Ubuntu). Diferencias con `install.b
 ## Testing
 
 `cargo test` cubre el renderizado de las cards del menú (ver "Estados visuales
-de una card"). El resto —detección de proyectos, `reveal_on_success`, wrappers
+de una card"). El resto —detección de proyectos, `newest_artifact`, wrappers
 del menú contextual, generación del `.desktop`— se verifica con compilación
 (`cargo build`) y pruebas manuales en la máquina de destino.

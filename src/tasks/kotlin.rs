@@ -2,7 +2,7 @@ use std::io::{self, Write};
 use anyhow::Result;
 use indicatif::{ProgressBar, ProgressStyle};
 
-use crate::utils::{android as android_utils, cmd, context::{kotlin_android_dir, ProjectContext}, platform};
+use crate::utils::{android as android_utils, cmd, context::{kotlin_android_dir, ProjectContext}, platform, ui};
 
 fn sanitize_app_name(name: &str) -> String {
     name.chars()
@@ -79,7 +79,7 @@ fn read_kotlin_app_meta(ctx: &ProjectContext) -> Option<(String, String)> {
     Some((sanitize_app_name(&name), version))
 }
 
-fn release_signing_env(ctx: &ProjectContext) -> Option<String> {
+fn release_signing_env(ctx: &ProjectContext) -> Option<Vec<(String, String)>> {
     let android_dir = kotlin_android_dir(ctx);
     let props_path = android_dir.join("keystore.properties");
     // Un único parser de properties para todo el crate (`signer::Props`), en
@@ -93,19 +93,15 @@ fn release_signing_env(ctx: &ProjectContext) -> Option<String> {
     let store_pass = props.store_password.unwrap_or_default();
     let key_pass = props.key_password.unwrap_or_else(|| store_pass.clone());
     let key_alias = props.key_alias?;
-    // Gradle lee estas variables del entorno. La sintaxis de assignación
-    // difiere: PowerShell usa `$env:X=`, `sh` usa `export X=`.
-    if platform::IS_WINDOWS {
-        Some(format!(
-            "$env:RELEASE_STORE_FILE='{}'; $env:RELEASE_STORE_PASSWORD='{}'; $env:RELEASE_KEY_ALIAS='{}'; $env:RELEASE_KEY_PASSWORD='{}'",
-            store_path.display(), store_pass, key_alias, key_pass
-        ))
-    } else {
-        Some(format!(
-            "export RELEASE_STORE_FILE='{}'; export RELEASE_STORE_PASSWORD='{}'; export RELEASE_KEY_ALIAS='{}'; export RELEASE_KEY_PASSWORD='{}'",
-            store_path.display(), store_pass, key_alias, key_pass
-        ))
-    }
+    // Gradle lee estas variables del entorno. Se inyectan con `Command::env`
+    // (ver `cmd::run_shell_status`), no prefijando el comando con `$env:…;`
+    // (PowerShell) o `export …;` (sh), porque el build corre en la ventana actual.
+    Some(vec![
+        ("RELEASE_STORE_FILE".to_string(), store_path.display().to_string()),
+        ("RELEASE_STORE_PASSWORD".to_string(), store_pass),
+        ("RELEASE_KEY_ALIAS".to_string(), key_alias),
+        ("RELEASE_KEY_PASSWORD".to_string(), key_pass),
+    ])
 }
 
 /// Comando para invocar el wrapper de Gradle en la raíz del proyecto.
@@ -248,9 +244,11 @@ fn extract_main_activity_package(ctx: &ProjectContext) -> Option<String> {
     None
 }
 
-/// Construye el comando PowerShell que instala la app de debug y la lanza
-/// (compila + instala + abre en el dispositivo).
-fn install_and_launch_cmd(ctx: &ProjectContext, serial: &str) -> String {
+/// Instala la app de debug en el dispositivo y la lanza (compila + instala + abre).
+///
+/// Corre en la ventana actual en vez de abrir otra con PowerShell: el `am start`
+/// solo se ejecuta si la instalación tuvo éxito.
+fn install_and_launch(ctx: &ProjectContext, serial: &str) -> Result<()> {
     let adb_path = ctx
         .adb_path
         .as_ref()
@@ -264,52 +262,32 @@ fn install_and_launch_cmd(ctx: &ProjectContext, serial: &str) -> String {
         .map(|p| format!("{}.MainActivity", p))
         .unwrap_or_else(|| format!("{}.MainActivity", namespace));
 
-    if platform::IS_WINDOWS {
-        // PowerShell: `$env:X=`, `$LASTEXITCODE`, call-operator `&`.
-        format!(
-            "$env:ANDROID_SERIAL='{}'; \
-             {}; \
-             if ($LASTEXITCODE -eq 0) {{ \
-                 Write-Host '[OK] Abriendo aplicacion...'; \
-                 & '{}' shell am start -n '{}/{}' \
-             }}",
-            serial,
-            gradlew_cmd(ctx, &format!("{}:installDebug", gradle_module(ctx))),
-            adb_path,
-            namespace,
-            activity,
-        )
-    } else {
-        // `sh`: `export X=`, `$?`, y sin call-operator.
-        format!(
-            "export ANDROID_SERIAL='{}'; \
-             {}; \
-             if [ $? -eq 0 ]; then \
-                 echo '[OK] Abriendo aplicacion...'; \
-                 '{}' shell am start -n '{}/{}' \
-             fi",
-            serial,
-            gradlew_cmd(ctx, &format!("{}:installDebug", gradle_module(ctx))),
-            adb_path,
-            namespace,
-            activity,
-        )
+    let gradle = gradlew_cmd(ctx, &format!("{}:installDebug", gradle_module(ctx)));
+    let envs = vec![("ANDROID_SERIAL".to_string(), serial.to_string())];
+
+    println!();
+    println!("[INFO] Ejecutando: {gradle}");
+    println!();
+    if cmd::run_shell_status(&gradle, &ctx.script_dir, &envs)? {
+        println!();
+        println!("[OK] Abriendo aplicacion...");
+        let _ = cmd::run_shell_status(
+            &format!("\"{}\" shell am start -n {}/{}", adb_path, namespace, activity),
+            &ctx.script_dir,
+            &[],
+        )?;
     }
+
+    println!();
+    ui::pause();
+    Ok(())
 }
 
 pub fn run_android(ctx: &ProjectContext) -> Result<()> {
     ensure_gradle(ctx)?;
 
     let device = android_utils::select_device(ctx)?;
-    let serial = &device.serial;
-
-    let cmd = install_and_launch_cmd(ctx, &serial);
-
-    cmd::spawn_new_window(
-        "KMP Android (Run)",
-        &ctx.script_dir,
-        &cmd,
-    )?;
+    install_and_launch(ctx, &device.serial)?;
 
     Ok(())
 }
@@ -318,15 +296,7 @@ pub fn install_debug(ctx: &ProjectContext) -> Result<()> {
     ensure_gradle(ctx)?;
 
     let device = android_utils::select_device(ctx)?;
-    let serial = &device.serial;
-
-    let cmd = install_and_launch_cmd(ctx, &serial);
-
-    cmd::spawn_new_window(
-        "KMP Android Install (Debug)",
-        &ctx.script_dir,
-        &cmd,
-    )?;
+    install_and_launch(ctx, &device.serial)?;
 
     Ok(())
 }
@@ -337,19 +307,14 @@ pub fn build_windows(ctx: &ProjectContext) -> Result<()> {
     ensure_whatsapp_npm(ctx)?;
 
     let dist_dir = kotlin_android_dir(ctx).join("build").join("compose").join("binaries").join("main");
-    let cmd_line = cmd::reveal_on_success(
+    cmd::run_build_and_reveal(
         &gradlew_cmd(ctx, &format!("{}:packageDistributionForCurrentOS", gradle_module(ctx))),
+        &ctx.script_dir,
         &dist_dir,
         // KMP genera un binario sin extensión en Linux; con la lista de Windows
-        // ("exe") el find no encontraba nada y nunca se revelaba el artefacto.
+        // ("exe") no encontraría nada y nunca se revelaría el artefacto.
         platform::desktop_artifact_exts(),
         None,
-    );
-
-    cmd::spawn_new_window(
-        "KMP Desktop Build",
-        &ctx.script_dir,
-        &cmd_line,
     )?;
 
     Ok(())
@@ -360,26 +325,17 @@ pub fn build_apk(ctx: &ProjectContext) -> Result<()> {
     ensure_gradle(ctx)?;
 
     let android_dir = kotlin_android_dir(ctx);
-    let mut gradle = gradlew_cmd(ctx, &format!("{}:assembleRelease", gradle_module(ctx)));
-    if let Some(env) = release_signing_env(ctx) {
-        gradle = format!("{}; {}", env, gradle);
-    } else {
-        println!("[WARN] No se encontro keystore.properties de release; el build release podria fallar. Usa la tarjeta Keystore para configurar la firma.");
-    }
+    let gradle = gradlew_cmd(ctx, &format!("{}:assembleRelease", gradle_module(ctx)));
+    let envs = match release_signing_env(ctx) {
+        Some(envs) => envs,
+        None => {
+            println!("[WARN] No se encontro keystore.properties de release; el build release podria fallar. Usa la tarjeta Keystore para configurar la firma.");
+            Vec::new()
+        }
+    };
     let rename = read_kotlin_app_meta(ctx).map(|(name, ver)| format!("{}-v{}", name, ver));
     let apk_dir = android_dir.join("build").join("outputs").join("apk").join("release");
-    let cmd_line = cmd::reveal_on_success(
-        &gradle,
-        &apk_dir,
-        &["apk"],
-        rename.as_deref(),
-    );
-
-    cmd::spawn_new_window(
-        "KMP Android APK",
-        &ctx.script_dir,
-        &cmd_line,
-    )?;
+    cmd::run_build_and_reveal_with_env(&gradle, &ctx.script_dir, &apk_dir, &["apk"], rename.as_deref(), &envs)?;
 
     Ok(())
 }
@@ -389,26 +345,17 @@ pub fn build_aab(ctx: &ProjectContext) -> Result<()> {
     ensure_gradle(ctx)?;
 
     let android_dir = kotlin_android_dir(ctx);
-    let mut gradle = gradlew_cmd(ctx, &format!("{}:bundleRelease", gradle_module(ctx)));
-    if let Some(env) = release_signing_env(ctx) {
-        gradle = format!("{}; {}", env, gradle);
-    } else {
-        println!("[WARN] No se encontro keystore.properties de release; el build release podria fallar. Usa la tarjeta Keystore para configurar la firma.");
-    }
+    let gradle = gradlew_cmd(ctx, &format!("{}:bundleRelease", gradle_module(ctx)));
+    let envs = match release_signing_env(ctx) {
+        Some(envs) => envs,
+        None => {
+            println!("[WARN] No se encontro keystore.properties de release; el build release podria fallar. Usa la tarjeta Keystore para configurar la firma.");
+            Vec::new()
+        }
+    };
     let rename = read_kotlin_app_meta(ctx).map(|(name, ver)| format!("{}-v{}", name, ver));
     let aab_dir = android_dir.join("build").join("outputs").join("bundle").join("release");
-    let cmd_line = cmd::reveal_on_success(
-        &gradle,
-        &aab_dir,
-        &["aab"],
-        rename.as_deref(),
-    );
-
-    cmd::spawn_new_window(
-        "KMP Android AAB",
-        &ctx.script_dir,
-        &cmd_line,
-    )?;
+    cmd::run_build_and_reveal_with_env(&gradle, &ctx.script_dir, &aab_dir, &["aab"], rename.as_deref(), &envs)?;
 
     Ok(())
 }

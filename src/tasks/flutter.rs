@@ -119,17 +119,12 @@ pub fn build_windows(ctx: &ProjectContext) -> Result<()> {
     // Flutter no escribe los artefactos en una ruta fija por plataforma, así que
     // se busca de forma recursiva bajo build/ en vez de hardcodear la de Windows.
     let release_dir = ctx.script_dir.join("build");
-    let cmd_line = cmd::reveal_on_success(
+    cmd::run_build_and_reveal(
         &format!("flutter build {target} --release"),
+        &ctx.script_dir,
         &release_dir,
         crate::utils::platform::desktop_artifact_exts(),
         None,
-    );
-
-    cmd::spawn_new_window(
-        "Flutter Desktop Build (Release)",
-        &ctx.script_dir,
-        &cmd_line,
     )?;
 
     Ok(())
@@ -141,12 +136,12 @@ pub fn build_apk(ctx: &ProjectContext) -> Result<()> {
 
     let rename = read_flutter_app_meta(ctx).map(|(name, ver)| format!("{}-v{}", name, ver));
     let apk_dir = ctx.script_dir.join("build/app/outputs/flutter-apk");
-    let cmd_line = cmd::reveal_on_success("flutter build apk --release", &apk_dir, &["apk"], rename.as_deref());
-
-    cmd::spawn_new_window(
-        "Flutter APK Build",
+    cmd::run_build_and_reveal(
+        "flutter build apk --release",
         &ctx.script_dir,
-        &cmd_line,
+        &apk_dir,
+        &["apk"],
+        rename.as_deref(),
     )?;
 
     Ok(())
@@ -158,12 +153,12 @@ pub fn build_aab(ctx: &ProjectContext) -> Result<()> {
 
     let rename = read_flutter_app_meta(ctx).map(|(name, ver)| format!("{}-v{}", name, ver));
     let aab_dir = ctx.script_dir.join("build/app/outputs/bundle/release");
-    let cmd_line = cmd::reveal_on_success("flutter build appbundle --release", &aab_dir, &["aab"], rename.as_deref());
-
-    cmd::spawn_new_window(
-        "Flutter AAB Build",
+    cmd::run_build_and_reveal(
+        "flutter build appbundle --release",
         &ctx.script_dir,
-        &cmd_line,
+        &aab_dir,
+        &["aab"],
+        rename.as_deref(),
     )?;
 
     Ok(())

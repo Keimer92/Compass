@@ -641,9 +641,9 @@ pub fn debug(ctx: &ProjectContext) -> Result<()> {
     println!("[INFO] Abriendo {}://inspect/#devices ...", if platform::IS_WINDOWS { "edge" } else { "chrome" });
 
     if platform::IS_WINDOWS {
-        let _ = cmd::run("powershell", &[
-            "-Command", "Set-Clipboard", url
-        ]);
+        // `clip` en vez de `powershell Set-Clipboard`: PowerShell tarda ~2-3 s
+        // en arrancar y esto se ejecuta en la tarjeta "Debug Android".
+        let _ = cmd::run("cmd", &["/c", &format!("echo {url} | clip")]);
         let _ = cmd::run("cmd", &["/c", "start", "msedge", url]);
     } else {
         // Copiar al portapapeles vía wl-copy/xclip/xsel (Wayland o X11) y abrir

@@ -447,7 +447,7 @@ pub fn run_build_and_reveal_with_env(
     println!();
     println!("[INFO] Ejecutando: {command}");
     println!();
-    if shell_status(command, dir, envs)?.success() {
+    if run_shell_status(command, dir, envs)? {
         reveal_artifact(folder, exts, rename_to);
     } else {
         println!();
@@ -464,7 +464,7 @@ pub fn run_in_current_window(command: &str, dir: &std::path::Path) -> Result<()>
     println!();
     println!("[INFO] Ejecutando: {command}");
     println!();
-    if !shell_status(command, dir, &[])?.success() {
+    if !run_shell_status(command, dir, &[])? {
         println!();
         println!("[ERROR] El comando fallo.");
     }
@@ -498,6 +498,18 @@ fn shell_status(
     }
     c.status()
         .with_context(|| format!("No se pudo ejecutar: {command}"))
+}
+
+/// Ejecuta `command` en un shell heredando stdio y devuelve si tuvo éxito.
+///
+/// Se usa fuera de `cmd.rs` para secuencias de más de un paso (p. ej. instalar
+/// el APK de debug y, solo si eso funcionó, lanzarlo con `am start`).
+pub fn run_shell_status(
+    command: &str,
+    dir: &Path,
+    envs: &[(String, String)],
+) -> Result<bool> {
+    Ok(shell_status(command, dir, envs)?.success())
 }
 
 /// Abre una ventana de terminal que **se cierra** al terminar el comando.
@@ -714,5 +726,71 @@ pub fn clear_screen() {
     #[cfg(not(windows))]
     {
         print!("\x1B[2J\x1B[1;1H");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::File;
+    use std::time::Duration;
+
+    fn temp_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("compass-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn touch(path: &Path, when: SystemTime) {
+        std::fs::write(path, b"x").unwrap();
+        File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(when)
+            .unwrap();
+    }
+
+    #[test]
+    fn newest_artifact_filters_by_extension_and_picks_most_recent() {
+        let dir = temp_dir("newest");
+        let now = SystemTime::now();
+        let sub = dir.join("sub");
+        std::fs::create_dir_all(&sub).unwrap();
+        let exe = dir.join("old.exe");
+        let apk = sub.join("new.apk");
+        let txt = sub.join("skip.txt");
+        touch(&exe, now - Duration::from_secs(30));
+        touch(&apk, now);
+        touch(&txt, now + Duration::from_secs(5));
+
+        assert_eq!(newest_artifact(&dir, &["apk"]), Some(apk.clone()));
+        assert_eq!(newest_artifact(&dir, &["exe"]), Some(exe.clone()));
+        assert_eq!(newest_artifact(&dir, &["msi"]), None);
+        // Sin filtro: el más reciente entre todos los archivos (incluido el .txt).
+        assert_eq!(newest_artifact(&dir, &[]), Some(txt.clone()));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn newest_artifact_missing_folder_is_none() {
+        assert_eq!(
+            newest_artifact(Path::new("no-existe-compass"), &["apk"]),
+            None
+        );
+    }
+
+    #[test]
+    fn rename_artifact_keeps_extension() {
+        let dir = temp_dir("rename");
+        let path = dir.join("app-v1.apk");
+        std::fs::write(&path, b"x").unwrap();
+        let renamed = rename_artifact(&path, "App-v2.0.0").unwrap();
+        assert_eq!(renamed, dir.join("App-v2.0.0.apk"));
+        assert!(renamed.exists());
+        assert!(!path.exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
