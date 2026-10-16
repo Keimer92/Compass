@@ -167,7 +167,10 @@ fn run_task_direct(ctx: &crate::utils::context::ProjectContext, task: &str) -> R
             crate::utils::context::ProjectType::Kotlin => tasks::kotlin::install_debug(ctx),
             _ => anyhow::bail!("No aplicable a proyectos Kotlin (solo Gradle)"),
         },
-        "clean-cache" => tasks::cleanup::clean_cache(ctx),
+        // Limpieza: una sola ruta para el menú unificado de `cleanup` (rápida,
+        // completa y reporte de tamaños). Los nombres antiguos siguen valiendo
+        // como alias.
+        "clean" | "clean-cache" | "clean-project" => tasks::cleanup::manage(ctx),
         "debug-android" => match ctx.project_type {
             crate::utils::context::ProjectType::Tauri => tasks::android::debug(ctx),
             crate::utils::context::ProjectType::Flutter => {
@@ -187,12 +190,6 @@ fn run_task_direct(ctx: &crate::utils::context::ProjectContext, task: &str) -> R
         // (crear/importar/manual, estado, huellas, respaldos, secretos de CI y
         // verificación de APK). Los nombres antiguos quedan como alias.
         "sign" | "signing" | "sha1" | "keystore" => tasks::signer::manage(ctx),
-        "clean-project" => match ctx.project_type {
-            crate::utils::context::ProjectType::Tauri => tasks::cleanup::clean_project(ctx),
-            crate::utils::context::ProjectType::Flutter => tasks::flutter::clean(ctx),
-            crate::utils::context::ProjectType::Kotlin => tasks::kotlin::clean(ctx),
-            crate::utils::context::ProjectType::Rust => tasks::rust::clean(ctx),
-        },
         "version" => tasks::version::bump(ctx),
         "gitignore" => tasks::gitignore::create(ctx),
         "git-init" => tasks::git::init(ctx),

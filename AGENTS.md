@@ -324,7 +324,7 @@ tasks/
   ├─ flutter.rs — run_windows(), run_android(), profile_windows(), profile_android(), build_*(), clean()
   ├─ kotlin.rs  — run_windows() [con hot reload], run_android(), install_debug() (`:<modulo>:installDebug` + lanza con `am start`), build_*(), clean(); deteccion de modulo Gradle `:app`/`:composeApp` via `gradle_module()`; release_signing_env() [exporta RELEASE_* vars, parseando con `signer::Props`]
   ├─ rust.rs    — run(), build(), clean()                [Rust only]
-  ├─ cleanup.rs — clean_cache() [multi-type], clean_project() [Tauri only]
+  ├─ cleanup.rs — manage() [submenú unificado: rápida / completa / reporte de tamaños], quick_targets()/full_targets(), clean_project() [Tauri: portabilidad]
   ├─ git.rs     — init()
   ├─ gitignore.rs — create() [templates por tipo, incluye Rust]
   ├─ signer.rs  — dominio único de firmas: manage() [submenú], android_layout(), detect()/SigningInfo [autodetección], Props (parseo de properties), crear/importar/manual, patch_build_gradle(), huellas (keytool), respaldos, base64 + secretos de GitHub Actions, verify_apk() [apksigner]
@@ -348,11 +348,10 @@ tasks/
 | AndroidBuildArm64 | `android::build_arm64` | `flutter::build_apk` | `kotlin::build_apk` (assembleRelease) | oculto |
 | AndroidBuildAll | `android::build_all` | `flutter::build_aab` | `kotlin::build_aab` (bundleRelease) | oculto |
 | InstallDebug | oculto | oculto | `kotlin::install_debug` (`:<modulo>:installDebug` + lanza) | oculto |
-| CleanCache | `cleanup::clean_cache` | `cleanup::clean_cache` | `cleanup::clean_cache` | `cleanup::clean_cache` |
+| Clean | `cleanup::manage` | `cleanup::manage` | `cleanup::manage` | `cleanup::manage` |
 | DebugAndroid | `android::debug` | mensaje info | mensaje info | oculto |
 | Signing | `signer::manage` | `signer::manage` | `signer::manage` | oculto |
 | Version | `version::bump` (pkg/cargo/tauri) | mensaje info | mensaje info | `version::bump` (Cargo.toml) |
-| CleanProject | `cleanup::clean_project` | `flutter::clean` | `kotlin::clean` | `rust::clean` |
 | CreateGitignore | `gitignore::create` | `gitignore::create` | `gitignore::create` | `gitignore::create` |
 | InitGit | `git::init` | `git::init` | `git::init` | `git::init` |
 | BuildWhatsApp | `whatsapp::build` | `whatsapp::build` | `whatsapp::build` | `whatsapp::build` |
@@ -652,6 +651,46 @@ menciona, lo añade para no commitearlo por accidente.
 Para Kotlin release builds (`build_apk`/`build_aab`), el tool también exporta las variables de entorno `RELEASE_*` que many `build.gradle.kts` usan en su `signingConfigs`, permitiendo que la firma funcione sin modificar el archivo del proyecto.
 
 CLI: `--task sign` (y los alias `signing`/`sha1`/`keystore`) abren el mismo submenú.
+
+### Limpieza — tarjeta unificada (`cleanup.rs`)
+
+Las tarjetas **Clean Cache** y **Clean Project** se solapaban: la segunda era la
+variante "agresiva" de la primera y en Flutter/KMP borraban casi lo mismo. Al
+auditarlas aparecieron fallos de verdad:
+
+- La "agresiva" de **Kotlin** borraba **menos** que la rápida (no tocaba
+  `build/`, `<módulo>/build/` ni `.kotlin/`).
+- La "agresiva" de **Rust** no hacía nada extra: borraba `target/` y luego
+  lanzaba `cargo clean`, ya vacío.
+- `clean_project` tenía **pasos muertos por orden**: borraba `target/` y luego
+  `target/.cargo-lock`; `node_modules/` y luego `node_modules/.vite`; y
+  `gen/android/app/build` en el paso 2 para re-borrarlo en el paso 8 (el
+  `ProgressBar` contaba 8 cuando sólo 5 hacían algo). El tamaño de `gen/` no se
+  sumaba al total liberado.
+- `remove_dir(...).ok()` se tragaba los errores: un `target/` en uso (típico en
+  Windows) salía como `[OK]` sin haber borrado nada.
+
+Ahora hay **una tarjeta Clean** con un submenú:
+
+| Opción | Qué hace |
+|--------|----------|
+| 1. Rápida | Borra builds y caches baratos (`quick_targets`); **conserva** `node_modules/` y el `target/` completo |
+| 2. Completa | Delega en el clean por tipo (`clean_project` / `flutter::clean` / `kotlin::clean` / `rust::clean`); borra dependencias |
+| 3. Ver tamaños | Mide lo que liberaría cada opción sin borrar nada |
+
+- `quick_targets(ctx)` / `full_targets(ctx)` son la **única** lista de "qué se
+  borra"; el reporte y la rápida salen de ahí, así que no se desincronizan.
+- La **completa reutiliza** los `clean()` por tipo, no reimplementa el borrado.
+- `purge(label, path)` centraliza el borrado y **reporta el fallo** en vez de
+  silenciarlo.
+- Se eliminó `npm cache clean --force`: limpiaba la caché **global** de npm (de
+  toda la máquina), no la del proyecto, y sólo servía para que el siguiente
+  `npm install` fuese más lento. Ninguno de los `clean()` por tipo lo hacía.
+- ⚠️ La rápida **nunca** debe incluir `node_modules/` ni el `target/` completo:
+  cubierto por `quick_clean_never_removes_installed_dependencies`.
+
+CLI: `--task clean` (y los alias `clean-cache`/`clean-project`) abren el mismo
+submenú.
 
 ### PowerShell registry (PS v5.1)
 - Usar `-Type` en lugar de `-PropertyType` (este último solo funciona en PowerShell Core).

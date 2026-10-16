@@ -62,12 +62,11 @@ pub enum MenuItem {
     InstallDebug,
     FlutterProfile,
     // MNT section
-    CleanCache,
+    Clean,
     DebugAndroid,
     /// Firmas: keystore, huellas, respaldos, secretos de CI y verificación de
     /// APK. Absorbe las antiguas tarjetas Configure + Keystore + SHA1.
     Signing,
-    CleanProject,
     Version,
     // CFG section
     CreateGitignore,
@@ -88,10 +87,9 @@ impl MenuItem {
             Self::AndroidBuildAll => "\u{1f680}",
             Self::InstallDebug => "\u{1f4e6}",
             Self::FlutterProfile => "\u{1f3af}",
-            Self::CleanCache => "\u{1f9f9}",
+            Self::Clean => "\u{1f9f9}",
             Self::DebugAndroid => "\u{1f50d}",
             Self::Signing => "\u{1f511}",
-            Self::CleanProject => "\u{1f9fc}",
             Self::Version => "\u{1f516}",
             Self::CreateGitignore => "\u{1f4c4}",
             Self::InitGit => "\u{1f527}",
@@ -104,7 +102,7 @@ impl MenuItem {
     fn section(&self) -> &str {
         match self {
             Self::WindowsDev | Self::AndroidDev | Self::WindowsBuild | Self::AndroidBuildArm64 | Self::AndroidBuildArmv7 | Self::AndroidBuildAll | Self::InstallDebug | Self::FlutterProfile => "DEV",
-            Self::CleanCache | Self::DebugAndroid | Self::Signing | Self::CleanProject | Self::Version => "MNT",
+            Self::Clean | Self::DebugAndroid | Self::Signing | Self::Version => "MNT",
             Self::CreateGitignore | Self::InitGit | Self::BuildWhatsApp | Self::ConfigureTerminal | Self::ContextMenu => "CFG",
         }
     }
@@ -145,10 +143,9 @@ impl MenuItem {
             },
             Self::InstallDebug => "Install",
             Self::FlutterProfile => "Profile",
-            Self::CleanCache => "Clean Cache",
+            Self::Clean => "Clean",
             Self::DebugAndroid => "Debug Andr",
             Self::Signing => "Signing",
-            Self::CleanProject => "Clean Proj",
             Self::Version => "Version",
             Self::CreateGitignore => ".gitignore",
             Self::InitGit => "Git Init",
@@ -168,10 +165,9 @@ impl MenuItem {
                 Self::AndroidBuildArmv7 => "",
                 Self::AndroidBuildAll => "",
                 Self::InstallDebug => "",
-                Self::CleanCache => "Limpia target/ y cache",
+                Self::Clean => "Limpia target/ y cache",
                 Self::DebugAndroid => "",
                 Self::Signing => "",
-                Self::CleanProject => "cargo clean",
                 Self::Version => "Actualiza Cargo.toml",
                 Self::CreateGitignore => "Crea .gitignore",
                 Self::InitGit => "Git init + commit",
@@ -188,10 +184,9 @@ impl MenuItem {
                 Self::AndroidBuildArmv7 => "Compila APK armv7",
                 Self::AndroidBuildAll => "Compila todas las APK",
                 Self::InstallDebug => "",
-                Self::CleanCache => "Limpia cache y npm",
+                Self::Clean => "Limpia builds/deps",
                 Self::DebugAndroid => "Dev + Chrome DevTools",
                 Self::Signing => "Firmas y huellas",
-                Self::CleanProject => "Limpia proyecto",
                 Self::CreateGitignore => "Crea .gitignore",
                 Self::InitGit => "Git init + commit",
                 Self::BuildWhatsApp => "Compila WhatsApp",
@@ -208,10 +203,9 @@ impl MenuItem {
                 Self::AndroidBuildArmv7 => "",
                 Self::AndroidBuildAll => "flutter build appbundle",
                 Self::InstallDebug => "",
-                Self::CleanCache => "Limpia cache Flutter",
+                Self::Clean => "Limpia builds/deps",
                 Self::DebugAndroid => "Depurar Android",
                 Self::Signing => "Firmas y huellas",
-                Self::CleanProject => "Limpia proyecto",
                 Self::CreateGitignore => "Crea .gitignore",
                 Self::InitGit => "Git init + commit",
                 Self::BuildWhatsApp => "Compila WhatsApp",
@@ -228,10 +222,9 @@ impl MenuItem {
                 Self::AndroidBuildArmv7 => "",
                 Self::AndroidBuildAll => "gradlew :bundleRelease",
                 Self::InstallDebug => "gradlew :installDebug",
-                Self::CleanCache => "Limpia Gradle/Kotlin",
+                Self::Clean => "Limpia builds/deps",
                 Self::DebugAndroid => "Depurar Android",
                 Self::Signing => "Firmas y huellas",
-                Self::CleanProject => "Limpia proyecto",
                 Self::CreateGitignore => "Crea .gitignore",
                 Self::InitGit => "Git init + commit",
                 Self::BuildWhatsApp => "Compila WhatsApp",
@@ -279,10 +272,9 @@ impl MenuState {
             MenuItem::AndroidBuildAll,
             MenuItem::InstallDebug,
             MenuItem::FlutterProfile,
-            MenuItem::CleanCache,
+            MenuItem::Clean,
             MenuItem::DebugAndroid,
             MenuItem::Signing,
-            MenuItem::CleanProject,
             MenuItem::Version,
             MenuItem::CreateGitignore,
             MenuItem::InitGit,
@@ -891,13 +883,11 @@ fn menu_item_to_task(item: MenuItem, ptype: ProjectType) -> &'static str {
 
         (MenuItem::FlutterProfile, ProjectType::Flutter) => "flutter-profile",
 
-        (MenuItem::CleanCache, _) => "clean-cache",
+        (MenuItem::Clean, _) => "clean",
 
         (MenuItem::DebugAndroid, _) => "debug-android",
 
         (MenuItem::Signing, _) => "signing",
-
-        (MenuItem::CleanProject, _) => "clean-project",
 
         (MenuItem::Version, _) => "version",
 
