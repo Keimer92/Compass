@@ -125,7 +125,14 @@ fn create_repo(ctx: &ProjectContext) -> Result<bool> {
         {
             println!("[INFO] No había cambios que commitear.");
         }
-        Err(e) => eprintln!("[WARN] git commit: {e}"),
+        Err(e) => {
+            eprintln!("[WARN] git commit: {e}");
+            if e.contains("who you are") || e.contains("user.email") || e.contains("user.name") {
+                println!("       Configura tu identidad de git:");
+                println!("         git config --global user.name \"Tu Nombre\"");
+                println!("         git config --global user.email \"tu@email.com\"");
+            }
+        }
     }
 
     Ok(has_commits(ctx))
@@ -143,7 +150,9 @@ fn init(ctx: &ProjectContext) -> Result<()> {
         return Ok(());
     }
 
-    create_repo(ctx)?;
+    if !create_repo(ctx)? {
+        println!("[WARN] El repositorio quedó sin commits; revisa la configuración de git.");
+    }
     println!();
     ui::pause();
     Ok(())

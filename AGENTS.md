@@ -696,6 +696,46 @@ Ahora hay **una tarjeta Clean** con un submenú:
 CLI: `--task clean` (y los alias `clean-cache`/`clean-project`) abren el mismo
 submenú.
 
+### Git — tarjeta unificada (`git.rs`)
+
+`Git Init` y `.gitignore` eran dos pasos del mismo flujo (creas el repo y
+necesitas excluir `target/`, `node_modules/` y artefactos). Ahora hay **una
+tarjeta Git** con submenú; `gitignore.rs` desapareció y sus plantillas viven en
+`git.rs`:
+
+| Opción | Qué hace |
+|--------|----------|
+| 1. Inicializar | `create_repo()`: `git init` + rama `main` + primer commit. Idempotente (si ya hay commits no toca nada) |
+| 2. Crear/actualizar .gitignore | Escribe la plantilla del tipo de proyecto |
+| 3. Conectar con remoto | `connect_remote()`: prepara el repo si falta y lo enlaza con GitHub |
+| 4. Ver estado | Rama, remoto `origin` y cambios sin commitear |
+
+**Conexión al remoto** (`connect_remote`), que es la opción nueva:
+
+- Si el proyecto aún no es repo (o no tiene commits), ofrece inicializarlo antes
+  reutilizando `create_repo()`.
+- Detecta si ya existe `origin`: si es la misma URL no hace nada; si cambia,
+  `set-url`; si no existe, `add`.
+- Si `gh` está instalado, ofrece **crear el repo en GitHub** en un paso
+  (`gh repo create <nombre> --source=. --remote=origin --push [--private|--public]`),
+  con nombre por defecto = carpeta del proyecto y visibilidad a elegir.
+- Sube la rama actual con `git push -u origin <rama>` y, si falla, imprime el
+  error **con pistas** (auth, `gh auth login`, repo con contenido previo).
+- `web_url()` convierte el remoto a URL navegable (`git@host:path` → `https://host/path`).
+
+Detalles:
+
+- `run_capture(program, args, dir)` es el único punto que lanza procesos (git y
+  gh) y devuelve el error combinado stdout+stderr para mostrarlo; `git_capture` es
+  el atajo para `git`.
+- `looks_like_git_url()` **avisa pero no bloquea**: si la URL no parece de git se
+  usa igual (por si es un host raro) en vez de impedir la conexión.
+- Los tests cubren las partes puras (verificables sin red ni git real):
+  `gitignore_never_ignores_sources`, `looks_like_git_url_accepts_https_and_ssh`
+  y `web_url_normalizes_ssh_and_strips_git_suffix`.
+
+CLI: `--task git` (y los alias `git-init`/`gitignore`) abren el mismo submenú.
+
 ### PowerShell registry (PS v5.1)
 - Usar `-Type` en lugar de `-PropertyType` (este último solo funciona en PowerShell Core).
 - `Test-Path -PathType Leaf` no funciona en claves de registro; se omite.
