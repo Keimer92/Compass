@@ -443,20 +443,26 @@ pub fn spawn_new_window(title: &str, dir: &std::path::Path, command: &str) -> Re
 }
 
 /// Abre una ventana de terminal que **se cierra** al terminar el comando.
+///
+/// En Windows usa `cmd /c`, **no** PowerShell: PowerShell 5.1 tarda ~2-3 s en
+/// arrancar (y más con un perfil de PSReadLine predictivo, que instala la propia
+/// tarjeta "Terminal"), lo que se veía como una consola en blanco durante unos
+/// segundos en las tarjetas interactivas (Git, Signing, Clean). `cmd` arranca en
+/// milisegundos y el comando es una simple invocación de `compass.exe`, así que
+/// no se necesita nada de PowerShell.
 pub fn spawn_new_window_autoexit(title: &str, dir: &std::path::Path, command: &str) -> Result<()> {
     #[cfg(windows)]
     {
-        let ps_command = format!(
-            "$host.UI.RawUI.WindowTitle = '{}'; Set-Location '{}'; {}",
-            title,
-            dir.display(),
-            command
-        );
-        Command::new("powershell")
+        // `raw_arg` y no `.args`: `.args` reescapa las comillas dobles del
+        // comando (`"C:\...\compass.exe"` → `\"C:\...\compass.exe\"`), y cmd no
+        // entiende `\"`, así que interpretaría el `\` como parte de la ruta.
+        let cmd_line = format!("/c title {} & {}", title, command);
+        Command::new("cmd")
             .creation_flags(CREATE_NEW_CONSOLE)
-            .args(["-Command", &ps_command])
+            .current_dir(dir)
+            .raw_arg(&cmd_line)
             .spawn()
-            .context("No se pudo abrir nueva ventana de PowerShell")?;
+            .context("No se pudo abrir nueva ventana de CMD")?;
         Ok(())
     }
     #[cfg(not(windows))]
@@ -478,11 +484,14 @@ pub fn spawn_new_window_autoexit(title: &str, dir: &std::path::Path, command: &s
 pub fn spawn_new_window_interactive(title: &str, dir: &std::path::Path, command: &str) -> Result<()> {
     #[cfg(windows)]
     {
-        let cmd_line = format!("title {} & {} & pause", title, command);
+        // `raw_arg` por el mismo motivo que en `spawn_new_window_autoexit`: si el
+        // comando lleva comillas dobles (rutas con espacios), `.args` las
+        // reescaparía a `\"` y cmd no las entendería.
+        let cmd_line = format!("/c title {} & {} & pause", title, command);
         Command::new("cmd")
             .creation_flags(CREATE_NEW_CONSOLE)
             .current_dir(dir)
-            .args(["/c", &cmd_line])
+            .raw_arg(&cmd_line)
             .spawn()
             .context("No se pudo abrir nueva ventana de CMD")?;
         Ok(())

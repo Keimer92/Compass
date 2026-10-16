@@ -923,13 +923,14 @@ pub fn run(ctx: &ProjectContext) -> anyhow::Result<()> {
             }
             MenuAction::Run(item) => {
                 let task = menu_item_to_task(item, ctx.project_type);
-                // En Windows el comando se ejecuta en PowerShell, donde `&`
-                // es el call-operator necesario para rutas entrecomilladas.
-                // En Linux el script corre en `sh`, donde `&` sería un error
-                // de sintaxis (background job), así que se omite.
+                // En Windows el comando lo ejecuta `cmd /c` (ver
+                // `spawn_new_window_autoexit`), donde las comillas son dobles y
+                // `&` no es el call-operator de PowerShell. En Linux el script
+                // corre en `sh`, donde las comillas simples sí valen y `&` sería
+                // un error de sintaxis (background job), así que se omite.
                 let command = if cfg!(windows) {
                     format!(
-                        "& '{}' --task {} --path '{}'",
+                        "\"{}\" --task {} --path \"{}\"",
                         exe_path.display(),
                         task,
                         project_path.display(),
