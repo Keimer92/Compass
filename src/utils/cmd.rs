@@ -689,14 +689,20 @@ fn open_folder(folder: &Path) {
 }
 
 /// Elimina un directorio recursivamente manejando rutas largas en Windows.
-/// En Windows usa PowerShell (Remove-Item -LiteralPath -Recurse -Force)
-/// que soporta rutas de más de 260 caracteres.
+///
+/// `std::fs::remove_dir_all` es instantáneo y cubre la inmensa mayoría de los
+/// casos; PowerShell se reserva para lo único que no puede: rutas de más de 260
+/// caracteres. Llamar a PowerShell **siempre** costaba ~2-3 s por directorio, y
+/// una limpieza completa lanza una decena de ellos.
 pub fn remove_dir(path: &std::path::Path) -> Result<()> {
     if !path.exists() {
         return Ok(());
     }
     #[cfg(windows)]
     {
+        if std::fs::remove_dir_all(path).is_ok() {
+            return Ok(());
+        }
         let ps = format!(
             "Remove-Item -LiteralPath '{}' -Recurse -Force",
             path.display().to_string().replace('\'', "''")
