@@ -676,11 +676,17 @@ Ahora hay **una tarjeta Clean** con un submenú:
 |--------|----------|
 | 1. Rápida | Borra builds y caches baratos (`quick_targets`); **conserva** `node_modules/` y el `target/` completo |
 | 2. Completa | Delega en el clean por tipo (`clean_project` / `flutter::clean` / `kotlin::clean` / `rust::clean`); borra dependencias |
-| 3. Ver tamaños | Mide lo que liberaría cada opción sin borrar nada |
+| 3. Elegir qué borrar | **Dry-run interactivo**: lista lo que existe y deja marcar con `MultiSelect`; pide confirmación extra si hay dependencias |
+| 4. Ver tamaños | Mide lo que liberaría cada opción sin borrar nada |
 
 - `quick_targets(ctx)` / `full_targets(ctx)` son la **única** lista de "qué se
   borra"; el reporte y la rápida salen de ahí, así que no se desincronizan.
 - La **completa reutiliza** los `clean()` por tipo, no reimplementa el borrado.
+- `selectable_targets(ctx)` alimenta el modo interactivo con **candidatos sin
+  solapamiento** (para no contar dos veces un tamaño): ofrece el `target/` entero
+  en vez de `debug`+`release`, y no lista subcarpetas de `node_modules/`.
+  `Candidate.deps` marca lo caro de restaurar. Cubierto por
+  `interactive_candidates_do_not_overlap` y `dependency_candidates_are_flagged`.
 - `purge(label, path)` centraliza el borrado y **reporta el fallo** en vez de
   silenciarlo.
 - Se eliminó `npm cache clean --force`: limpiaba la caché **global** de npm (de
