@@ -4,8 +4,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use anyhow::Context;
 use crossterm::{
     event::{
-        DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, MouseButton,
-        MouseEventKind,
+        DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, KeyModifiers,
+        MouseButton, MouseEventKind,
     },
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
@@ -15,10 +15,11 @@ use ratatui::{
     layout::{Alignment, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Block, BorderType, Borders, Paragraph},
+    widgets::{Block, BorderType, Borders, Clear, Paragraph},
     Frame, Terminal,
 };
 
+use crate::theme::{self, Theme};
 use crate::utils::cmd;
 use crate::utils::context::{ProjectContext, ProjectType};
 use crate::utils::platform;
@@ -63,14 +64,14 @@ pub enum MenuItem {
     // MNT section
     CleanCache,
     DebugAndroid,
-    ConfigureSigning,
-    Sha1,
+    /// Firmas: keystore, huellas, respaldos, secretos de CI y verificación de
+    /// APK. Absorbe las antiguas tarjetas Configure + Keystore + SHA1.
+    Signing,
     CleanProject,
     Version,
     // CFG section
     CreateGitignore,
     InitGit,
-    ManageKeystore,
     BuildWhatsApp,
     ConfigureTerminal,
     ContextMenu,
@@ -89,13 +90,11 @@ impl MenuItem {
             Self::FlutterProfile => "\u{1f3af}",
             Self::CleanCache => "\u{1f9f9}",
             Self::DebugAndroid => "\u{1f50d}",
-            Self::ConfigureSigning => "\u{1f511}",
-            Self::Sha1 => "\u{1f194}",
+            Self::Signing => "\u{1f511}",
             Self::CleanProject => "\u{1f9fc}",
             Self::Version => "\u{1f516}",
             Self::CreateGitignore => "\u{1f4c4}",
             Self::InitGit => "\u{1f527}",
-            Self::ManageKeystore => "\u{1f5dd}",
             Self::BuildWhatsApp => "\u{1f4ac}",
             Self::ConfigureTerminal => "\u{2699}",
             Self::ContextMenu => "\u{1f4c1}",
@@ -105,8 +104,8 @@ impl MenuItem {
     fn section(&self) -> &str {
         match self {
             Self::WindowsDev | Self::AndroidDev | Self::WindowsBuild | Self::AndroidBuildArm64 | Self::AndroidBuildArmv7 | Self::AndroidBuildAll | Self::InstallDebug | Self::FlutterProfile => "DEV",
-            Self::CleanCache | Self::DebugAndroid | Self::ConfigureSigning | Self::Sha1 | Self::CleanProject | Self::Version => "MNT",
-            Self::CreateGitignore | Self::InitGit | Self::ManageKeystore | Self::BuildWhatsApp | Self::ConfigureTerminal | Self::ContextMenu => "CFG",
+            Self::CleanCache | Self::DebugAndroid | Self::Signing | Self::CleanProject | Self::Version => "MNT",
+            Self::CreateGitignore | Self::InitGit | Self::BuildWhatsApp | Self::ConfigureTerminal | Self::ContextMenu => "CFG",
         }
     }
 
@@ -148,25 +147,14 @@ impl MenuItem {
             Self::FlutterProfile => "Profile",
             Self::CleanCache => "Clean Cache",
             Self::DebugAndroid => "Debug Andr",
-            Self::ConfigureSigning => "Configure",
-            Self::Sha1 => "SHA1",
+            Self::Signing => "Signing",
             Self::CleanProject => "Clean Proj",
             Self::Version => "Version",
             Self::CreateGitignore => ".gitignore",
             Self::InitGit => "Git Init",
-            Self::ManageKeystore => "Keystore",
             Self::BuildWhatsApp => "WhatsApp",
             Self::ConfigureTerminal => "Terminal",
             Self::ContextMenu => "Menu Ctx",
-        }
-    }
-
-    fn section_color(&self) -> Color {
-        match self.section() {
-            "DEV" => Color::Cyan,
-            "MNT" => Color::Yellow,
-            "CFG" => Color::Magenta,
-            _ => Color::White,
         }
     }
 
@@ -182,13 +170,11 @@ impl MenuItem {
                 Self::InstallDebug => "",
                 Self::CleanCache => "Limpia target/ y cache",
                 Self::DebugAndroid => "",
-                Self::ConfigureSigning => "",
-                Self::Sha1 => "",
+                Self::Signing => "",
                 Self::CleanProject => "cargo clean",
                 Self::Version => "Actualiza Cargo.toml",
                 Self::CreateGitignore => "Crea .gitignore",
                 Self::InitGit => "Git init + commit",
-                Self::ManageKeystore => "",
                 Self::BuildWhatsApp => "Compila WhatsApp",
                 Self::ConfigureTerminal => "Autocompletado",
                 Self::ContextMenu => "Menu contextual",
@@ -203,13 +189,11 @@ impl MenuItem {
                 Self::AndroidBuildAll => "Compila todas las APK",
                 Self::InstallDebug => "",
                 Self::CleanCache => "Limpia cache y npm",
-                Self::DebugAndroid => "Chrome DevTools",
-                Self::ConfigureSigning => "Configura firma",
-                Self::Sha1 => "SHA1 debug/release",
+                Self::DebugAndroid => "Dev + Chrome DevTools",
+                Self::Signing => "Firmas y huellas",
                 Self::CleanProject => "Limpia proyecto",
                 Self::CreateGitignore => "Crea .gitignore",
                 Self::InitGit => "Git init + commit",
-                Self::ManageKeystore => "Administra llaves",
                 Self::BuildWhatsApp => "Compila WhatsApp",
                 Self::Version => "Bump pkg/cargo/tauri",
                 Self::ConfigureTerminal => "Autocompletado",
@@ -226,12 +210,10 @@ impl MenuItem {
                 Self::InstallDebug => "",
                 Self::CleanCache => "Limpia cache Flutter",
                 Self::DebugAndroid => "Depurar Android",
-                Self::ConfigureSigning => "Configurar firma",
-                Self::Sha1 => "SHA1 debug/release",
+                Self::Signing => "Firmas y huellas",
                 Self::CleanProject => "Limpia proyecto",
                 Self::CreateGitignore => "Crea .gitignore",
                 Self::InitGit => "Git init + commit",
-                Self::ManageKeystore => "Administrar firmas",
                 Self::BuildWhatsApp => "Compila WhatsApp",
                 Self::Version => "",
                 Self::ConfigureTerminal => "Autocompletado",
@@ -248,12 +230,10 @@ impl MenuItem {
                 Self::InstallDebug => "gradlew :installDebug",
                 Self::CleanCache => "Limpia Gradle/Kotlin",
                 Self::DebugAndroid => "Depurar Android",
-                Self::ConfigureSigning => "Configurar firma",
-                Self::Sha1 => "SHA1 debug/release",
+                Self::Signing => "Firmas y huellas",
                 Self::CleanProject => "Limpia proyecto",
                 Self::CreateGitignore => "Crea .gitignore",
                 Self::InitGit => "Git init + commit",
-                Self::ManageKeystore => "Administrar firmas",
                 Self::BuildWhatsApp => "Compila WhatsApp",
                 Self::Version => "",
                 Self::ConfigureTerminal => "Autocompletado",
@@ -271,10 +251,25 @@ struct MenuState {
     hover: Option<usize>,
     area_width: u16,
     header_height: u16,
+    /// Tema activo. `&'static` porque los temas viven en `theme::THEMES`.
+    theme: &'static Theme,
+    /// Selector de tema abierto (`Ctrl+T`). `None` = menú normal.
+    picker: Option<ThemePicker>,
+}
+
+/// Estado del modal de temas.
+///
+/// `index` apunta a `theme::THEMES`; `original` es el tema que estaba activo al
+/// abrirse, para poder **revertir** con `Esc`. Mientras el modal está abierto el
+/// menú de detrás se repinta con el tema resaltado: esa es la vista previa.
+#[derive(Debug, Clone, Copy)]
+struct ThemePicker {
+    index: usize,
+    original: &'static Theme,
 }
 
 impl MenuState {
-    fn new(project_type: ProjectType) -> Self {
+    fn new(project_type: ProjectType, theme: &'static Theme) -> Self {
         let base = vec![
             MenuItem::WindowsDev,
             MenuItem::AndroidDev,
@@ -286,13 +281,11 @@ impl MenuState {
             MenuItem::FlutterProfile,
             MenuItem::CleanCache,
             MenuItem::DebugAndroid,
-            MenuItem::ConfigureSigning,
-            MenuItem::Sha1,
+            MenuItem::Signing,
             MenuItem::CleanProject,
             MenuItem::Version,
             MenuItem::CreateGitignore,
             MenuItem::InitGit,
-            MenuItem::ManageKeystore,
             MenuItem::BuildWhatsApp,
             MenuItem::ConfigureTerminal,
             MenuItem::ContextMenu,
@@ -307,9 +300,7 @@ impl MenuState {
                     | MenuItem::AndroidBuildAll
                     | MenuItem::InstallDebug
                     | MenuItem::DebugAndroid
-                    | MenuItem::ConfigureSigning
-                    | MenuItem::Sha1
-                    | MenuItem::ManageKeystore
+                    | MenuItem::Signing
                     | MenuItem::FlutterProfile
                 ),
                 ProjectType::Tauri => !matches!(item, MenuItem::InstallDebug | MenuItem::FlutterProfile),
@@ -330,7 +321,25 @@ impl MenuState {
             hover: None,
             area_width: 0,
             header_height: 2,
+            theme,
+            picker: None,
         }
+    }
+
+    /// Abre el modal de temas situándolo en el tema activo.
+    fn open_picker(&mut self) {
+        self.picker = Some(ThemePicker {
+            index: theme::index_of(self.theme.name),
+            original: self.theme,
+        });
+    }
+
+    /// Mueve el resaltado del modal a `t` y aplica la vista previa.
+    fn preview_theme(&mut self, t: &'static Theme) {
+        if let Some(p) = self.picker.as_mut() {
+            p.index = theme::index_of(t.name);
+        }
+        self.theme = t;
     }
 }
 
@@ -353,7 +362,7 @@ fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io
     Ok(())
 }
 
-fn calc_group_sizes(items: &[MenuItem]) -> Vec<(String, Color, Vec<MenuItem>)> {
+fn calc_group_sizes(items: &[MenuItem], theme: &Theme) -> Vec<(String, Color, Vec<MenuItem>)> {
     let mut dev = Vec::new();
     let mut mnt = Vec::new();
     let mut cfg = Vec::new();
@@ -367,16 +376,16 @@ fn calc_group_sizes(items: &[MenuItem]) -> Vec<(String, Color, Vec<MenuItem>)> {
     }
 
     let mut groups = Vec::new();
-    if !dev.is_empty() { groups.push(("DESARROLLO".to_string(), Color::Cyan, dev)); }
-    if !mnt.is_empty() { groups.push(("MANTENIMIENTO".to_string(), Color::Yellow, mnt)); }
-    if !cfg.is_empty() { groups.push(("CONFIGURACION".to_string(), Color::Magenta, cfg)); }
+    if !dev.is_empty() { groups.push(("DESARROLLO".to_string(), theme.dev, dev)); }
+    if !mnt.is_empty() { groups.push(("MANTENIMIENTO".to_string(), theme.mnt, mnt)); }
+    if !cfg.is_empty() { groups.push(("CONFIGURACION".to_string(), theme.cfg, cfg)); }
     groups
 }
 
-fn calc_total_height(ctx: &ProjectContext, items: &[MenuItem]) -> u16 {
+fn calc_total_height(ctx: &ProjectContext, items: &[MenuItem], theme: &Theme) -> u16 {
     let warn = ctx.android_home.is_none();
     let header_h: u16 = if warn { 3 } else { 2 };
-    let groups = calc_group_sizes(items);
+    let groups = calc_group_sizes(items, theme);
     let sec_h: u16 = groups.len() as u16;
     let cards_h: u16 = groups.iter().map(|(_, _, items)| {
         let rows = (items.len() + COLS - 1) / COLS;
@@ -387,17 +396,18 @@ fn calc_total_height(ctx: &ProjectContext, items: &[MenuItem]) -> u16 {
 
 fn draw_menu(frame: &mut Frame, state: &mut MenuState, ctx: &ProjectContext) {
     let area = frame.area();
-    let total_h = calc_total_height(ctx, &state.items);
+    let theme = state.theme;
+    let total_h = calc_total_height(ctx, &state.items, theme);
 
     if area.height < total_h {
         let msg = Paragraph::new(Text::from(vec![
             Line::from(vec![Span::styled(
                 " Terminal demasiado pequena.",
-                Style::default().fg(Color::Yellow),
+                Style::default().fg(theme.warning),
             )]),
             Line::from(vec![Span::styled(
                 format!(" Necesita al menos {} lineas.", total_h),
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(theme.muted),
             )]),
             Line::from(vec![Span::styled(
                 if cfg!(windows) {
@@ -405,7 +415,7 @@ fn draw_menu(frame: &mut Frame, state: &mut MenuState, ctx: &ProjectContext) {
                 } else {
                     " Maximiza la ventana (Shift+Ctrl+Mas o F11) y presiona una tecla."
                 },
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(theme.muted),
             )]),
         ]))
         .alignment(Alignment::Center);
@@ -418,13 +428,13 @@ fn draw_menu(frame: &mut Frame, state: &mut MenuState, ctx: &ProjectContext) {
     let mut y = area.y;
     let header_h: u16 = if ctx.android_home.is_none() { 3 } else { 2 };
 
-    render_header(frame, Rect { x: area.x, y, width: area.width, height: header_h }, ctx);
+    render_header(frame, Rect { x: area.x, y, width: area.width, height: header_h }, ctx, theme);
     y += header_h;
 
     state.header_height = header_h;
     state.area_width = area.width;
 
-    let groups = calc_group_sizes(&state.items);
+    let groups = calc_group_sizes(&state.items, theme);
     for (name, color, items) in &groups {
         let rect = Rect { x: area.x, y, width: area.width, height: 1 };
         let text = Text::from(vec![Line::from(vec![Span::styled(
@@ -438,7 +448,7 @@ fn draw_menu(frame: &mut Frame, state: &mut MenuState, ctx: &ProjectContext) {
         let cards_h = rows as u16 * CARD_H;
         let start_idx = state.items.iter().position(|i| *i == items[0]).unwrap_or(0);
         state.groups.push((name.clone(), *color, items.clone()));
-        render_group_cards(frame, Rect { x: area.x, y, width: area.width, height: cards_h }, state, items, start_idx, ctx.project_type);
+        render_group_cards(frame, Rect { x: area.x, y, width: area.width, height: cards_h }, state, items, start_idx, ctx.project_type, theme);
         y += cards_h;
     }
 
@@ -450,10 +460,78 @@ fn draw_menu(frame: &mut Frame, state: &mut MenuState, ctx: &ProjectContext) {
             width: area.width,
             height: FOOTER_H,
         },
+        theme,
     );
+
+    // El modal va al final para quedar por encima de todo lo demás.
+    if let Some(picker) = state.picker {
+        render_theme_picker(frame, area, theme, picker);
+    }
 }
 
-fn render_header(frame: &mut Frame, area: Rect, ctx: &ProjectContext) {
+/// Dibuja el modal de selección de tema.
+///
+/// Se centra en la pantalla y se limpia su rect con [`Clear`] porque es una capa
+/// opaca sobre el menú; el menú de detrás ya se ha repintado con el tema en
+/// vista previa (lo aplica [`MenuState::preview_theme`]).
+fn render_theme_picker(frame: &mut Frame, area: Rect, theme: &Theme, picker: ThemePicker) {
+    let count = theme::THEMES.len();
+    // Ancho fijo holgado (nombre de 12 + marca + muestras). Alto = filas + bordes.
+    let w = 44u16.min(area.width);
+    let h = (count as u16 + 2).min(area.height);
+    let x = area.x + (area.width.saturating_sub(w)) / 2;
+    let y = area.y + (area.height.saturating_sub(h)) / 2;
+    let rect = Rect { x, y, width: w, height: h };
+
+    frame.render_widget(Clear, rect);
+
+    let mut lines: Vec<Line> = Vec::with_capacity(count);
+    for (i, t) in theme::THEMES.iter().enumerate() {
+        let selected = i == picker.index;
+        let marker = if selected { "\u{25b8} " } else { "  " };
+        let mut line = Line::from(vec![
+            Span::styled(
+                format!(" {marker}"),
+                Style::default().fg(if selected { theme.brand } else { theme.muted }),
+            ),
+            Span::styled(
+                format!("{:<12}", t.name),
+                Style::default().fg(if selected { theme.text } else { theme.muted }),
+            ),
+            Span::raw("  "),
+            // Muestras de la propia paleta de cada tema (DEV/MNT/CFG), para
+            // reconocerlos de un vistazo sin aplicarlos.
+            Span::styled("\u{2588}\u{2588}", Style::default().fg(t.dev)),
+            Span::styled("\u{2588}\u{2588}", Style::default().fg(t.mnt)),
+            Span::styled("\u{2588}\u{2588}", Style::default().fg(t.cfg)),
+        ]);
+        if selected {
+            line = line.style(Style::default().bg(theme.hover_bg).add_modifier(Modifier::BOLD));
+        }
+        lines.push(line);
+    }
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(theme.brand))
+        .title(Span::styled(
+            " Temas ",
+            Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
+        ))
+        .title_bottom(Line::from(vec![
+            Span::styled(" \u{2191}\u{2193} ", Style::default().fg(theme.text)),
+            Span::styled("elegir  ", Style::default().fg(theme.muted)),
+            Span::styled("Enter ", Style::default().fg(theme.text)),
+            Span::styled("aplicar  ", Style::default().fg(theme.muted)),
+            Span::styled("Esc ", Style::default().fg(theme.text)),
+            Span::styled("cancelar ", Style::default().fg(theme.muted)),
+        ]));
+
+    frame.render_widget(Paragraph::new(Text::from(lines)).block(block), rect);
+}
+
+fn render_header(frame: &mut Frame, area: Rect, ctx: &ProjectContext, theme: &Theme) {
     let project_name = ctx
         .script_dir
         .file_name()
@@ -467,20 +545,20 @@ fn render_header(frame: &mut Frame, area: Rect, ctx: &ProjectContext) {
         ProjectType::Rust => ("\u{2699}", "Compass for Rust", "RUST"),
     };
     let badge_color = match ctx.project_type {
-        ProjectType::Tauri => Color::Green,
-        ProjectType::Flutter => Color::Cyan,
-        ProjectType::Kotlin => Color::Magenta,
-        ProjectType::Rust => Color::Yellow,
+        ProjectType::Tauri => theme.success,
+        ProjectType::Flutter => theme.info,
+        ProjectType::Kotlin => theme.accent,
+        ProjectType::Rust => theme.warning,
     };
 
     let mut lines = vec![
         Line::from(vec![
-            Span::styled(format!("  {}  {}  v", emoji, label), Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-            Span::styled("0.1.0", Style::default().fg(Color::DarkGray)),
+            Span::styled(format!("  {}  {}  v", emoji, label), Style::default().fg(theme.brand).add_modifier(Modifier::BOLD)),
+            Span::styled("0.1.0", Style::default().fg(theme.muted)),
         ]),
         Line::from(vec![
-            Span::styled("     Proyecto: ", Style::default().fg(Color::DarkGray)),
-            Span::styled(project_name.to_string(), Style::default().fg(Color::White)),
+            Span::styled("     Proyecto: ", Style::default().fg(theme.muted)),
+            Span::styled(project_name.to_string(), Style::default().fg(theme.text)),
             Span::styled("  ", Style::default()),
             Span::styled(
                 format!(" {} ", badge),
@@ -491,14 +569,14 @@ fn render_header(frame: &mut Frame, area: Rect, ctx: &ProjectContext) {
 
     if ctx.android_home.is_none() {
         lines.push(Line::from(vec![
-            Span::styled("    \u{26a0} ANDROID_HOME no configurada", Style::default().fg(Color::Yellow)),
+            Span::styled("    \u{26a0} ANDROID_HOME no configurada", Style::default().fg(theme.warning)),
         ]));
     }
 
     frame.render_widget(Paragraph::new(Text::from(lines)), area);
 }
 
-fn render_group_cards(frame: &mut Frame, area: Rect, state: &MenuState, items: &[MenuItem], start_global_idx: usize, project_type: ProjectType) {
+fn render_group_cards(frame: &mut Frame, area: Rect, state: &MenuState, items: &[MenuItem], start_global_idx: usize, project_type: ProjectType, theme: &Theme) {
     let total_grid_w = COLS as u16 * CARD_W;
     let grid_start_x = area.x + (area.width.saturating_sub(total_grid_w)) / 2;
 
@@ -514,50 +592,42 @@ fn render_group_cards(frame: &mut Frame, area: Rect, state: &MenuState, items: &
 
         let is_selected = state.selected == idx;
         let is_hovered = state.hover == Some(idx);
-        let card = create_card(&items[rel_idx], is_selected, is_hovered, project_type);
+        let card = create_card(&items[rel_idx], is_selected, is_hovered, project_type, theme);
         frame.render_widget(card, rect);
     }
 }
 
-fn render_footer(frame: &mut Frame, area: Rect) {
-    let line = Line::from(vec![
-        Span::styled("  \u{2191}\u{2193}\u{2190}\u{2192}", Style::default().fg(Color::White)),
-        Span::styled(" navegar   ", Style::default().fg(Color::DarkGray)),
-        Span::styled("Enter", Style::default().fg(Color::White)),
-        Span::styled(" ejecutar   ", Style::default().fg(Color::DarkGray)),
-        Span::styled("Esc", Style::default().fg(Color::White)),
-        Span::styled(" salir      ", Style::default().fg(Color::DarkGray)),
-        Span::styled("\u{25cf} DEV ", Style::default().fg(Color::Cyan)),
-        Span::styled("\u{25cf} MNT ", Style::default().fg(Color::Yellow)),
-        Span::styled("\u{25cf} CFG", Style::default().fg(Color::Magenta)),
+fn render_footer(frame: &mut Frame, area: Rect, theme: &Theme) {
+    // El indicador de tema va alineado a la derecha, en su propio rect: así en
+    // una terminal de 80 columnas lo que se recorta (si acaso) son los puntos de
+    // sección de la izquierda, nunca el nombre del tema activo.
+    let right = format!("Ctrl+T temas: {} ", theme.name);
+    let right_w = right.chars().count() as u16;
+    let left_w = area.width.saturating_sub(right_w);
+
+    let left = Line::from(vec![
+        Span::styled("  \u{2191}\u{2193}\u{2190}\u{2192}", Style::default().fg(theme.text)),
+        Span::styled(" navegar   ", Style::default().fg(theme.muted)),
+        Span::styled("Enter", Style::default().fg(theme.text)),
+        Span::styled(" ejecutar   ", Style::default().fg(theme.muted)),
+        Span::styled("Esc", Style::default().fg(theme.text)),
+        Span::styled(" salir      ", Style::default().fg(theme.muted)),
+        Span::styled("\u{25cf} DEV ", Style::default().fg(theme.dev)),
+        Span::styled("\u{25cf} MNT ", Style::default().fg(theme.mnt)),
+        Span::styled("\u{25cf} CFG", Style::default().fg(theme.cfg)),
     ]);
-    frame.render_widget(Paragraph::new(line), area);
-}
-
-/// Tinte translúcido para simular vidrio esmerilado: el color de la sección
-/// oscurecido y desaturado hacia el negro del fondo de la terminal.
-///
-/// Se usa para la card **seleccionada**.
-fn glass_tint(color: Color) -> Color {
-    match color {
-        Color::Cyan => Color::Rgb(22, 52, 68),
-        Color::Yellow => Color::Rgb(68, 58, 22),
-        Color::Magenta => Color::Rgb(60, 28, 72),
-        _ => Color::Rgb(36, 36, 40),
-    }
-}
-
-/// Fondo de la card **hovereada**: neutro, no teñido.
-///
-/// A propósito no comparte tinte con la seleccionada. Antes hover y selección
-/// usaban el mismo `glass_tint` y sólo se distinguían por el `BOLD` del borde,
-/// una diferencia tan leve que el hover parecía no funcionar: el mismo cursor
-/// nunca daba la sensación de "esto es a lo que voy a clickear".
-///
-/// Neutro + borde blanco deja el hover como un contorno claro sobre una card
-/// sin color, distinguible tanto del estado normal como de la selección.
-fn hover_tint() -> Color {
-    Color::Rgb(30, 30, 36)
+    frame.render_widget(
+        Paragraph::new(left),
+        Rect { width: left_w, ..area },
+    );
+    frame.render_widget(
+        Paragraph::new(Line::from(Span::styled(
+            right,
+            Style::default().fg(theme.brand),
+        )))
+        .alignment(Alignment::Right),
+        Rect { x: area.x + left_w, width: right_w, ..area },
+    );
 }
 
 /// ⚠️ El hover **no funciona en cosmic-term**, y no es culpa de este código.
@@ -580,18 +650,26 @@ fn hover_tint() -> Color {
 /// nunca cambia de `None`. Los colores de hover de aquí sí son correctos y se
 /// aplican en terminales que sí implementen 1003 (alacritty, kitty,
 /// gnome-terminal, wezterm, foot).
-fn create_card(item: &MenuItem, is_selected: bool, is_hovered: bool, project_type: ProjectType) -> Paragraph<'static> {
+///
+/// La card **seleccionada** usa el tinte del tema (`theme.selected_bg`, teñido
+/// con el acento de su sección) y la **hovereada** el fondo neutro
+/// (`theme.hover_bg`). A propósito no comparten tinte: antes usaban el mismo
+/// `glass_tint` y sólo se distinguían por el `BOLD` del borde, una diferencia
+/// tan leve que el hover parecía no funcionar. Que no colisionen en ningún tema
+/// lo cubren `theme::tests::hover_is_distinct_from_every_selection` y
+/// `tests::hover_is_visually_distinct_from_selected`.
+fn create_card(item: &MenuItem, is_selected: bool, is_hovered: bool, project_type: ProjectType, theme: &Theme) -> Paragraph<'static> {
     let section = item.section();
-    let section_color = item.section_color();
+    let section_color = theme.section(section);
 
     // Tres estados bien separados. Si una card está seleccionada y además
     // hovereada, manda la selección: es la que Enter ejecutaría.
     let border = if is_selected {
         Style::default().fg(section_color).add_modifier(Modifier::BOLD)
     } else if is_hovered {
-        Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
+        Style::default().fg(theme.text).add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(Color::DarkGray)
+        Style::default().fg(theme.border)
     };
 
     let icon = item.icon();
@@ -608,7 +686,7 @@ fn create_card(item: &MenuItem, is_selected: bool, is_hovered: bool, project_typ
     let (label_color, bold) = if is_selected {
         (section_color, true)
     } else if is_hovered {
-        (Color::White, true)
+        (theme.text, true)
     } else {
         (section_color, false)
     };
@@ -617,18 +695,18 @@ fn create_card(item: &MenuItem, is_selected: bool, is_hovered: bool, project_typ
         line1_style = line1_style.add_modifier(Modifier::BOLD);
     }
 
-    // La descripción se aclara en hover: en el estado normal es DarkGray, que
-    // sobre el panel neutro del hover queda casi ilegible.
-    let desc_color = if is_hovered { Color::Gray } else { Color::DarkGray };
+    // La descripción se aclara en hover: en reposo es `muted`, que sobre el
+    // panel neutro del hover queda casi ilegible, así que sube a `text`.
+    let desc_color = if is_hovered { theme.text } else { theme.muted };
 
     let mut block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(border);
     if is_selected {
-        block = block.style(Style::default().bg(glass_tint(section_color)));
+        block = block.style(Style::default().bg(theme.selected_bg(section)));
     } else if is_hovered {
-        block = block.style(Style::default().bg(hover_tint()));
+        block = block.style(Style::default().bg(theme.hover_bg));
     }
 
     Paragraph::new(Text::from(vec![
@@ -645,7 +723,7 @@ fn card_at(col: u16, row: u16, state: &MenuState, ctx: &ProjectContext) -> Optio
     let header_h: u16 = if ctx.android_home.is_none() { 3 } else { 2 };
     let mut y_cursor = header_h;
 
-    let groups = calc_group_sizes(&state.items);
+    let groups = calc_group_sizes(&state.items, state.theme);
     for (_, _color, items) in &groups {
         y_cursor += 1;
 
@@ -679,9 +757,62 @@ fn handle_event(state: &mut MenuState, ctx: &ProjectContext) -> anyhow::Result<M
     let evt = crossterm::event::read()?;
     trace_event(&format!("EVENT: {:?}", evt));
 
+    // Con el modal de temas abierto, el teclado le pertenece por completo: el
+    // menú de detrás no debe reaccionar (nada de Enter ejecutando una tarea).
+    if state.picker.is_some() {
+        if let Event::Key(key) = evt {
+            if key.kind == KeyEventKind::Press {
+                let Some(picker) = state.picker else {
+                    return Ok(MenuAction::Continue);
+                };
+                match key.code {
+                    KeyCode::Esc => {
+                        // Cancelar: se vuelve al tema que estaba activo al abrir.
+                        state.theme = picker.original;
+                        state.picker = None;
+                    }
+                    KeyCode::Enter => {
+                        // Aplicar: persiste el resaltado. Best-effort.
+                        theme::save(&theme::THEMES[picker.index]);
+                        state.picker = None;
+                    }
+                    KeyCode::Up | KeyCode::Left => {
+                        state.preview_theme(theme::prev(state.theme.name));
+                    }
+                    KeyCode::Down | KeyCode::Right => {
+                        state.preview_theme(theme::next(state.theme.name));
+                    }
+                    // Ctrl+T también cierra, sin aplicar (como Esc).
+                    KeyCode::Char(c)
+                        if c.eq_ignore_ascii_case(&'t')
+                            && key.modifiers.contains(KeyModifiers::CONTROL) =>
+                    {
+                        state.theme = picker.original;
+                        state.picker = None;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        return Ok(MenuAction::Continue);
+    }
+
     match evt {
         Event::Key(key) if key.kind == KeyEventKind::Press => {
             state.hover = None;
+
+            // Ctrl+T abre el modal de temas (no cicla directamente). Se resuelve
+            // antes del `match key.code` porque, si no, la `t` caería en el brazo
+            // `_` y no haría nada.
+            if key.modifiers.contains(KeyModifiers::CONTROL) {
+                if let KeyCode::Char(c) = key.code {
+                    if c.eq_ignore_ascii_case(&'t') {
+                        state.open_picker();
+                        return Ok(MenuAction::Continue);
+                    }
+                }
+            }
+
             match key.code {
                 KeyCode::Esc => return Ok(MenuAction::Quit),
                 KeyCode::Enter => return Ok(MenuAction::Run(state.items[state.selected])),
@@ -764,9 +895,7 @@ fn menu_item_to_task(item: MenuItem, ptype: ProjectType) -> &'static str {
 
         (MenuItem::DebugAndroid, _) => "debug-android",
 
-        (MenuItem::ConfigureSigning, _) => "sign",
-
-        (MenuItem::Sha1, _) => "sha1",
+        (MenuItem::Signing, _) => "signing",
 
         (MenuItem::CleanProject, _) => "clean-project",
 
@@ -774,8 +903,6 @@ fn menu_item_to_task(item: MenuItem, ptype: ProjectType) -> &'static str {
 
         (MenuItem::CreateGitignore, _) => "gitignore",
         (MenuItem::InitGit, _) => "git-init",
-
-        (MenuItem::ManageKeystore, _) => "keystore",
 
         (MenuItem::BuildWhatsApp, _) => "whatsapp",
         (MenuItem::ConfigureTerminal, _) => "terminal",
@@ -791,7 +918,7 @@ pub fn run(ctx: &ProjectContext) -> anyhow::Result<()> {
     }
 
     let mut terminal = setup_terminal()?;
-    let mut state = MenuState::new(ctx.project_type);
+    let mut state = MenuState::new(ctx.project_type, theme::load());
 
     trace_event(&format!(
         "TERMINAL SIZE: {:?} | project: {}",
@@ -857,7 +984,7 @@ mod tests {
     fn card_style(is_selected: bool, is_hovered: bool) -> (Option<Color>, Option<Color>) {
         let area = Rect::new(0, 0, CARD_W, CARD_H);
         let mut buf = Buffer::empty(area);
-        create_card(&MenuItem::WindowsBuild, is_selected, is_hovered, ProjectType::Rust)
+        create_card(&MenuItem::WindowsBuild, is_selected, is_hovered, ProjectType::Rust, crate::theme::DEFAULT)
             .render(area, &mut buf);
         // (1, 1) es la esquina superior izquierda interior: siempre parte de la
         // card, nunca borde.
@@ -884,9 +1011,23 @@ mod tests {
 
     #[test]
     fn selected_keeps_the_section_tint() {
-        // `WindowsBuild` está en DEV ⇒ Cyan ⇒ Rgb(22, 52, 68).
+        // `WindowsBuild` está en DEV ⇒ usa `dev_bg` del tema por defecto.
         let (_, bg) = card_style(true, false);
-        assert_eq!(bg, Some(glass_tint(Color::Cyan)));
+        assert_eq!(bg, Some(crate::theme::DEFAULT.selected_bg("DEV")));
+    }
+
+    /// El fondo seleccionado debe salir del tema activo, no de una tabla fija:
+    /// con otro tema, la misma card cambia de color.
+    #[test]
+    fn selected_background_follows_the_active_theme() {
+        let area = Rect::new(0, 0, CARD_W, CARD_H);
+        let mut buf = Buffer::empty(area);
+        let dracula = crate::theme::by_name("Dracula").unwrap();
+        create_card(&MenuItem::WindowsBuild, true, false, ProjectType::Rust, dracula)
+            .render(area, &mut buf);
+        let bg = buf[(1, 1)].style().bg;
+        assert_eq!(bg, Some(dracula.selected_bg("DEV")));
+        assert_ne!(bg, Some(crate::theme::DEFAULT.selected_bg("DEV")));
     }
 
     #[test]
@@ -909,5 +1050,38 @@ mod tests {
             card_style(true, false),
             "seleccionada+hovereada debe pintarse como seleccionada"
         );
+    }
+
+    /// Abrir el modal resalta el tema activo y permite previsualizar otro sin
+    /// persistirlo.
+    #[test]
+    fn picker_opens_on_the_active_theme_and_previews() {
+        let mut state = MenuState::new(ProjectType::Rust, crate::theme::DEFAULT);
+        state.open_picker();
+
+        let picker = state.picker.expect("el modal debe quedar abierto");
+        assert_eq!(picker.index, crate::theme::index_of(crate::theme::DEFAULT.name));
+        assert_eq!(picker.original.name, crate::theme::DEFAULT.name);
+
+        // Vista previa: cambia el tema y el resaltado, sin cerrar el modal.
+        let next = crate::theme::next(crate::theme::DEFAULT.name);
+        state.preview_theme(next);
+        assert!(state.picker.is_some(), "la vista previa no debe cerrar el modal");
+        assert_eq!(state.theme.name, next.name);
+        assert_eq!(state.picker.unwrap().index, crate::theme::index_of(next.name));
+    }
+
+    /// `Esc` debe poder volver al tema con el que se abrió el modal.
+    #[test]
+    fn picker_keeps_the_original_theme_for_cancel() {
+        let mut state = MenuState::new(ProjectType::Rust, crate::theme::DEFAULT);
+        state.open_picker();
+        state.preview_theme(crate::theme::next(crate::theme::DEFAULT.name));
+
+        let original = state.picker.unwrap().original;
+        state.theme = original;
+        state.picker = None;
+        assert_eq!(state.theme.name, crate::theme::DEFAULT.name);
+        assert!(state.picker.is_none());
     }
 }

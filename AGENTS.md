@@ -134,21 +134,62 @@ puede lanzar nada. El flujo equivalente es "Open in Terminal" → `crh`.
 
 ### Estados visuales de una card (`menu.rs::create_card`)
 
-Tres estados, deliberadamente distintos entre sí:
+Tres estados, deliberadamente distintos entre sí. Los colores salen del **tema
+activo** (`theme.rs`), no de literales:
 
 | Estado | Borde | Fondo |
 |--------|-------|-------|
-| reposo | `DarkGray` | ninguno |
-| hover | `White` + BOLD | `hover_tint()` = `Rgb(30,30,36)` neutro |
-| seleccionado | color de sección + BOLD | `glass_tint(sección)` teñido |
+| reposo | `theme.border` | ninguno |
+| hover | `theme.text` + BOLD | `theme.hover_bg` neutro |
+| seleccionado | acento de sección + BOLD | `theme.selected_bg(sección)` teñido |
 
 ⚠️ Antes hover y selección compartían `glass_tint` y sólo se diferenciaban por el
 `BOLD` del borde: el hover pasaba desapercibido. Cubierto por
 `menu::tests::hover_is_visually_distinct_from_selected`; si el tint vuelve a
-compartirse, el test falla.
+compartirse, el test falla. Además, `theme::tests::hover_is_distinct_from_every_selection`
+verifica que en **ningún** tema el `hover_bg` colisiona con un `*_bg`.
 
 Si una card está seleccionada **y** hovereada, manda la selección: es la que
 Enter ejecutaría.
+
+### Temas del TUI (`Ctrl+T`)
+
+`Ctrl+T` abre un **modal** con la lista de temas. Dentro del modal:
+
+| Tecla | Acción |
+|-------|--------|
+| `↑` `↓` (o `←` `→`) | mover el resaltado; el menú de detrás se repinta con ese tema (**vista previa**) |
+| `Enter` | aplicar y **persistir** el tema resaltado |
+| `Esc` (o `Ctrl+T`) | cancelar y volver al tema que estaba activo al abrir |
+
+Mientras el modal está abierto el teclado le pertenece por completo: el menú de
+detrás no reacciona (ni `Enter` ejecuta una tarea). Cada fila muestra el nombre y
+tres muestras de color de su propia paleta (DEV/MNT/CFG), para reconocer el tema
+sin aplicarlo. El modal se dibuja con `Clear` encima del menú, y el nombre del
+tema activo se muestra en el pie (`Ctrl+T temas: <nombre>`, en color `brand`).
+
+Estado: `MenuState.picker: Option<ThemePicker>` (`index` en `theme::THEMES` +
+`original`, para el cancelar). `MenuState::preview_theme()` mueve el resaltado y
+aplica el tema; `render_theme_picker()` dibuja la capa.
+
+- Los temas están **basados en OpenCode** (`packages/tui/src/theme/assets/*.json`
+  del repo de OpenCode). El por defecto, `Compass`, reproduce el aspecto previo
+  (Cyan/Yellow/Magenta + el tinte de vidrio original) para no cambiar nada a
+  quien no toque el tema.
+- Un `Theme` son **roles semánticos**, no colores: `menu.rs` no tiene un solo
+  literal de color. La sección DEV usa `dev`, MNT `mnt`, CFG `cfg`; los fondos de
+  la card seleccionada son `dev_bg`/`mnt_bg`/`cfg_bg`, y el hover `hover_bg`.
+  Los badges de tipo de proyecto se mapean a `success`/`info`/`accent`/`warning`.
+- `dev_bg`/`mnt_bg`/`cfg_bg`/`hover_bg` van **explícitos por tema** (no se derivan)
+  porque el "vidrio esmerilado" es una decisión estética. El helper `const fn dark()`
+  evita tener que calcular los tintes a mano.
+- **Persistencia**: el tema elegido se guarda como una línea de texto en
+  `<data_dir>/compass/theme` (`%LOCALAPPDATA%\compass\theme` en Windows,
+  `~/.local/share/compass/theme` en Linux) con `theme::save()`, y se recupera en
+  `menu::run` con `theme::load()`. Un fichero ausente o con un nombre desconocido
+  cae al tema por defecto sin error.
+- Añadir un tema = añadir una entrada a `theme::THEMES`. `next()`/`prev()` operan
+  sobre el índice, así que no hay que tocar nada más.
 
 ### Selector de proyecto (`context::pick_project_root`)
 
@@ -251,10 +292,20 @@ main.rs
       └─ con args → run_task_direct() dispatches by task name
           └─ run_global_task() para context-menu y opencode
 
+theme.rs
+  ├─ Theme — roles semánticos (text/muted/border/brand, dev/mnt/cfg + *_bg,
+  │          hover_bg, success/info/accent/warning). Ningún literal de color
+  │          en menu.rs: cambiar de tema sólo cambia esta tabla.
+  ├─ THEMES — 14 temas basados en OpenCode (Compass, OpenCode, Tokyo Night,
+  │           Catppuccin, Dracula, Gruvbox, Nord, One Dark, Monokai, Rosé Pine,
+  │           Kanagawa, Matrix, Synthwave 84, Solarized)
+  ├─ next()/prev()/by_name() — ciclo de Ctrl+T
+  └─ load()/save() — persiste el nombre en <data_dir>/compass/theme
+
 menu.rs
-  ├─ MenuItem (20 variants: WindowsDev, AndroidDev, ..., InstallDebug, Sha1, Version, ContextMenu)
+  ├─ MenuItem (18 variants: WindowsDev, AndroidDev, ..., InstallDebug, Signing, Version, ContextMenu)
   ├─ ratatui TUI con cards en grilla 3-columnas, 3 secciones (DEV/MNT/CFG)
-  ├─ Filtro por tipo de proyecto (Rust oculta Android/Signing/Keystore)
+  ├─ Filtro por tipo de proyecto (Rust oculta Android/Signing)
   ├─ handle_event(): devuelve MenuAction (Run | Quit); teclado + mouse (grid matemático)
   ├─ Sin botón Salir: `Esc` cierra el programa (`MenuAction::Quit`)
   └─ run(): loop: draw → handle → restore → execute → re-enter
@@ -269,16 +320,14 @@ utils/
 
 tasks/
   ├─ windows.rs — dev(), build()                         [Tauri only]
-  ├─ android.rs — dev(), build_arm64(), build_all(), debug(), configure_signing(), ensure_package_consistent() [verifica identifier vs directorio paquete Android]
+  ├─ android.rs — dev(), build_arm64(), build_all(), debug(), ensure_package_consistent() [verifica identifier vs directorio paquete Android]
   ├─ flutter.rs — run_windows(), run_android(), profile_windows(), profile_android(), build_*(), clean()
-  ├─ kotlin.rs  — run_windows() [con hot reload], run_android(), install_debug() (`:<modulo>:installDebug` + lanza con `am start`), build_*(), clean(); deteccion de modulo Gradle `:app`/`:composeApp` via `gradle_module()`; release_signing_env() [exporta RELEASE_* vars para Gradle]
+  ├─ kotlin.rs  — run_windows() [con hot reload], run_android(), install_debug() (`:<modulo>:installDebug` + lanza con `am start`), build_*(), clean(); deteccion de modulo Gradle `:app`/`:composeApp` via `gradle_module()`; release_signing_env() [exporta RELEASE_* vars, parseando con `signer::Props`]
   ├─ rust.rs    — run(), build(), clean()                [Rust only]
   ├─ cleanup.rs — clean_cache() [multi-type], clean_project() [Tauri only]
   ├─ git.rs     — init()
   ├─ gitignore.rs — create() [templates por tipo, incluye Rust]
-  ├─ keystore.rs — manage() [Tauri: menú backup/restore]
-  ├─ signer.rs  — create_or_import(), patch_build_gradle()
-  ├─ sha1.rs    — show() [huellas SHA-1/SHA-256 debug+release, lee keystore.properties/key.properties]
+  ├─ signer.rs  — dominio único de firmas: manage() [submenú], android_layout(), detect()/SigningInfo [autodetección], Props (parseo de properties), crear/importar/manual, patch_build_gradle(), huellas (keytool), respaldos, base64 + secretos de GitHub Actions, verify_apk() [apksigner]
   ├─ terminal.rs — configure() [perfil PSReadLine según la versión instalada]
   ├─ context_menu.rs — install/uninstall/toggle para Compass + Vibe Coding (menú cascada con ExtendedSubCommandsKey: OpenCode, Kilo Code, Cline, Antigravity, Kiro CLI, Hermes)
   ├─ context_menu_cosmic.rs — install/uninstall para COSMIC Files (context_actions, COSMIC ≥ 1.0.10)
@@ -301,13 +350,11 @@ tasks/
 | InstallDebug | oculto | oculto | `kotlin::install_debug` (`:<modulo>:installDebug` + lanza) | oculto |
 | CleanCache | `cleanup::clean_cache` | `cleanup::clean_cache` | `cleanup::clean_cache` | `cleanup::clean_cache` |
 | DebugAndroid | `android::debug` | mensaje info | mensaje info | oculto |
-| ConfigureSigning | `android::configure_signing` | `android::configure_signing` | `android::configure_signing` | oculto |
-| Sha1 | `sha1::show` | `sha1::show` | `sha1::show` | oculto |
+| Signing | `signer::manage` | `signer::manage` | `signer::manage` | oculto |
 | Version | `version::bump` (pkg/cargo/tauri) | mensaje info | mensaje info | `version::bump` (Cargo.toml) |
 | CleanProject | `cleanup::clean_project` | `flutter::clean` | `kotlin::clean` | `rust::clean` |
 | CreateGitignore | `gitignore::create` | `gitignore::create` | `gitignore::create` | `gitignore::create` |
 | InitGit | `git::init` | `git::init` | `git::init` | `git::init` |
-| ManageKeystore | `keystore::manage` | `android::configure_signing` | `android::configure_signing` | oculto |
 | BuildWhatsApp | `whatsapp::build` | `whatsapp::build` | `whatsapp::build` | `whatsapp::build` |
 | ConfigureTerminal | `terminal::configure` | `terminal::configure` | `terminal::configure` | `terminal::configure` |
 | InstallContextMenu | `context_menu::toggle` | `context_menu::toggle` | `context_menu::toggle` | `context_menu::toggle` |
@@ -340,6 +387,9 @@ tasks/
 | Flutter | `android/app/` | `key.properties` |
 | Kotlin | `app/` o `composeApp/` (detección automática) | `keystore.properties` |
 | Rust | N/A | N/A |
+
+`signer::android_layout()` es el **único** sitio que consume esta tabla; ningún otro
+módulo recalcula estas rutas (antes estaban copiadas en cuatro sitios).
 
 ### WhatsApp engine
 
@@ -552,13 +602,56 @@ Cubierto por `tasks::terminal::tests` (8 tests): parseo de versión, decisión d
 ### KMP Desktop (Hot Reload)
 `kotlin::run_windows()` ejecuta `:composeApp:run` con Hot Reload incorporado.
 
-### Android signing
-`signer::patch_build_gradle()` soporta tanto `build.gradle.kts` (Kotlin Script) como `build.gradle` (Groovy), inyectando:
+### Firmas Android — tarjeta unificada (`signer.rs`)
+
+Las antiguas tarjetas **Configure** + **Keystore** + **SHA1** eran tres vistas del
+mismo dominio: el layout del módulo Android estaba calculado en **cuatro** sitios y
+el parseo de `.properties` duplicado en dos. En **Flutter/KMP** además "Configure" y
+"Keystore" llamaban a la **misma** función, y `keystore.rs` asumía `composeApp/` para
+Kotlin (el respaldo miraba en la carpeta equivocada en un KMP con módulo `app/`).
+Todo eso vive ahora en **`signer.rs`**, con una sola tarjeta **Signing** y un submenú:
+
+| Opción | Qué hace |
+|--------|----------|
+| 1. Estado de la firma | **Autodetección**: módulo, `.properties`, keystore (existe/tamaño), alias, si el Gradle está parcheado y las huellas debug+release |
+| 2/3/4. Crear / usar / manual | Crean el keystore, escriben el `.properties` y parchean Gradle |
+| 5. Huellas | SHA-1/SHA-256/MD5 de debug y release (`keytool -list -v`) |
+| 6. Secretos de GitHub Actions | Escanea `.github/workflows/**/*.yml` buscando `secrets.NOMBRE` y propone cada valor; ofrece guardar el reporte |
+| 7/8/9. Respaldar / restaurar / listar | Copia keystore + `.properties` a `keystore-backups/<timestamp>/` |
+| 10. Verificar APK | `apksigner verify --print-certs` del APK más reciente, comparado con el keystore configurado |
+
+**Piezas clave** (todas `pub` en `signer.rs`, que es la fuente de verdad):
+
+- `android_layout(ctx) -> Option<AndroidLayout>` — **único** sitio que conoce
+  `android/app` (Flutter), `src-tauri/gen/android/app` (Tauri) y `kotlin_android_dir`
+  (KMP, distingue `app`/`composeApp`). Reemplaza las cuatro copias previas.
+- `Props::parse`/`render`/`read` — parser tolerante de `storeFile`/`storePassword`/
+  `keyPassword`/`keyAlias` y sus alias (`storepass`/`keypass`/`alias`). Lo comparte
+  `kotlin::release_signing_env`.
+- `detect(ctx) -> Option<SigningInfo>` y `gradle_signing_status(dir)` —
+  autodetección; `resolve_keystore` acepta `storeFile` absoluto o relativo.
+- `base64_encode` — implementado a mano (sin dependencias) para el secreto
+  `ANDROID_KEYSTORE_BASE64`.
+- ⚠️ `guess_secret` comprueba **las contraseñas antes que el keystore**: el nombre
+  `ANDROID_KEYSTORE_PASSWORD` contiene `KEYSTORE`, así que mirar el keystore primero
+  mandaría el base64 en lugar de la contraseña. Cubierto por
+  `secret_guessing_prefers_password_over_keystore`.
+- `find_apksigner`/`find_newest_apk` — `apksigner` de la build-tools más reciente;
+  el APK más nuevo entre `build/app/outputs` (Flutter) y `<módulo>/build/outputs/apk`.
+
+**Reporte de secretos**: tras mostrar los valores (con aviso de que son secretos),
+ofrece guardarlos en `github-secrets.txt`; si el proyecto tiene `.gitignore` y no lo
+menciona, lo añade para no commitearlo por accidente.
+
+`signer::patch_build_gradle()` soporta tanto `build.gradle.kts` (Kotlin Script) como
+`build.gradle` (Groovy), inyectando:
 1. Properties loader (variables desde `keystore.properties`/`key.properties`)
 2. `signingConfigs { release { ... } }`
 3. `signingConfig` en build type release
 
 Para Kotlin release builds (`build_apk`/`build_aab`), el tool también exporta las variables de entorno `RELEASE_*` que many `build.gradle.kts` usan en su `signingConfigs`, permitiendo que la firma funcione sin modificar el archivo del proyecto.
+
+CLI: `--task sign` (y los alias `signing`/`sha1`/`keystore`) abren el mismo submenú.
 
 ### PowerShell registry (PS v5.1)
 - Usar `-Type` en lugar de `-PropertyType` (este último solo funciona en PowerShell Core).
@@ -571,12 +664,18 @@ Para Kotlin release builds (`build_apk`/`build_aab`), el tool también exporta l
 Todas las tareas del menú TUI se lanzan en una **nueva ventana PowerShell** ejecutando `compass --task <task> --path "<proyecto>"`. El menú principal permanece abierto. La ventana secundaria se cierra al presionar Enter.
 
 ### Android dev (Tauri)
-`android::dev()` corre `npx tauri android dev` directamente. Antes ejecuta:
+`android::dev()` **no** invoca el CLI de Tauri: lanza el script `dev:android` de `package.json`. Antes ejecuta:
 1. `ensure_node_modules()` — npm install si falta `node_modules/`
 2. `ensure_android_project()` — `npx tauri android init` si falta `src-tauri/gen/android/`
 3. `ensure_package_consistent()` — verifica que el directorio del paquete Android (`app/src/main/java/<identifier>`) coincida con el `identifier` de `tauri.conf.json`. Si falta, ofrece eliminar `src-tauri/gen/android` y recrear con `tauri android init`.
 4. `select_device()` — elige dispositivo (ver sección Device Selection)
 5. NDK / Rust targets según sea necesario
+
+⚠️ **`DevLaunch`**: si el proyecto declara `dev:android` en sus `scripts`, se usa `npm run dev:android`; si no, cae a `tauri::command(ctx, "android dev")` (`npx tauri …` si no hay CLI local). El script manda porque es el comando que el autor del proyecto usa a mano, con sus flags (`--host`) y sus overrides (`tauri.android.conf.json`) que dejan el puerto correcto; reconstruirlo aquí los pierde y el WebView acaba pidiendo `localhost` sin túnel detrás. En Windows se emite `npm.cmd` y no `npm` (shim `npm.ps1` bloqueado por ExecutionPolicy), pero **sin** `call`: el gotcha de "un batch sin `call` aborta la cadena" es de batch→batch, y `spawn_new_window_interactive` usa una command line de `cmd /c`, donde el `& pause` final sí se ejecuta igual.
+
+`android::debug()` comparte `prepare_android_dev()` y **también** lanza la app por `DevLaunch`, antes de abrir `edge://inspect` (son pasos 4/5 y 5/5). ⚠️ El orden es load-bearing: `adb kill-server` es el paso **1** y el lanzamiento el **4**, nunca al revés — es el `beforeDevCommand` del script quien levanta el `adb reverse` del puerto del dev server, así que matar el servidor después borraría los túneles y devolvería el "connection refused" con la página en blanco. Por eso `prepare_android_dev()` (que puede acabar en `npm install`) va **antes** del bloque de adb.
+
+Cubierto por `tasks::android::tests` (3 tests): usa el script si está declarado, cae al CLI si no, y no aborta con `package.json` ausente o roto.
 
 ### Kotlin release builds (APK/AAB)
 `kotlin::build_apk()` ejecuta `:assembleRelease` (antes `:assembleDebug`) y `kotlin::build_aab()` ejecuta `:bundleRelease`. Ambos leen `app/keystore.properties` (o `composeApp/keystore.properties`) y exportan variables de entorno para Gradle:

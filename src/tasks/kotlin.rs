@@ -1,5 +1,4 @@
 use std::io::{self, Write};
-use std::path::PathBuf;
 use anyhow::Result;
 use indicatif::{ProgressBar, ProgressStyle};
 
@@ -83,35 +82,17 @@ fn read_kotlin_app_meta(ctx: &ProjectContext) -> Option<(String, String)> {
 fn release_signing_env(ctx: &ProjectContext) -> Option<String> {
     let android_dir = kotlin_android_dir(ctx);
     let props_path = android_dir.join("keystore.properties");
-    let content = std::fs::read_to_string(&props_path).ok()?;
-    let mut store_file: Option<String> = None;
-    let mut store_pass: Option<String> = None;
-    let mut key_pass: Option<String> = None;
-    let mut key_alias: Option<String> = None;
-    for line in content.lines() {
-        if let Some((k, v)) = line.split_once('=') {
-            let v = v.trim().trim_matches('"');
-            match k.trim() {
-                "storeFile" => store_file = Some(v.to_string()),
-                "storePassword" | "storepass" => store_pass = Some(v.to_string()),
-                "keyPassword" | "keypass" => key_pass = Some(v.to_string()),
-                "keyAlias" | "alias" => key_alias = Some(v.to_string()),
-                _ => {}
-            }
-        }
-    }
-    let store_file = store_file?;
-    let store_path = if PathBuf::from(&store_file).is_absolute() {
-        PathBuf::from(&store_file)
-    } else {
-        android_dir.join(&store_file)
-    };
+    // Un único parser de properties para todo el crate (`signer::Props`), en
+    // vez de la copia que vivía aquí.
+    let props = crate::tasks::signer::Props::read(&props_path)?;
+    let store_file = props.store_file?;
+    let store_path = crate::tasks::signer::resolve_keystore(&android_dir, &store_file);
     if !store_path.exists() {
         return None;
     }
-    let store_pass = store_pass.unwrap_or_default();
-    let key_pass = key_pass.unwrap_or_else(|| store_pass.clone());
-    let key_alias = key_alias?;
+    let store_pass = props.store_password.unwrap_or_default();
+    let key_pass = props.key_password.unwrap_or_else(|| store_pass.clone());
+    let key_alias = props.key_alias?;
     // Gradle lee estas variables del entorno. La sintaxis de assignación
     // difiere: PowerShell usa `$env:X=`, `sh` usa `export X=`.
     if platform::IS_WINDOWS {

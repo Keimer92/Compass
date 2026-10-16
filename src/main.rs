@@ -1,5 +1,6 @@
 mod menu;
 mod tasks;
+mod theme;
 mod utils;
 
 use std::io::{self, Write};
@@ -182,8 +183,10 @@ fn run_task_direct(ctx: &crate::utils::context::ProjectContext, task: &str) -> R
                 Ok(())
             }
         },
-        "sign" => tasks::android::configure_signing(ctx),
-        "sha1" => tasks::sha1::show(ctx),
+        // Firmas: una sola ruta para toda la tarjeta unificada de `signer`
+        // (crear/importar/manual, estado, huellas, respaldos, secretos de CI y
+        // verificación de APK). Los nombres antiguos quedan como alias.
+        "sign" | "signing" | "sha1" | "keystore" => tasks::signer::manage(ctx),
         "clean-project" => match ctx.project_type {
             crate::utils::context::ProjectType::Tauri => tasks::cleanup::clean_project(ctx),
             crate::utils::context::ProjectType::Flutter => tasks::flutter::clean(ctx),
@@ -193,12 +196,6 @@ fn run_task_direct(ctx: &crate::utils::context::ProjectContext, task: &str) -> R
         "version" => tasks::version::bump(ctx),
         "gitignore" => tasks::gitignore::create(ctx),
         "git-init" => tasks::git::init(ctx),
-        "keystore" => match ctx.project_type {
-            crate::utils::context::ProjectType::Tauri => tasks::keystore::manage(ctx),
-            crate::utils::context::ProjectType::Flutter => tasks::android::configure_signing(ctx),
-            crate::utils::context::ProjectType::Kotlin => tasks::android::configure_signing(ctx),
-            crate::utils::context::ProjectType::Rust => anyhow::bail!("No aplicable a proyectos Rust"),
-        },
         "whatsapp" => tasks::whatsapp::build(ctx),
         "terminal" => tasks::terminal::configure(ctx),
         "flutter-profile" => {

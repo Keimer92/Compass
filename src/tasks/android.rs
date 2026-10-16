@@ -3,7 +3,6 @@ use std::io::{self, Write};
 use anyhow::{Context, Result};
 
 use crate::utils::{android as android_utils, cmd, context::ProjectContext, platform, tauri, ui};
-use crate::tasks::signer;
 
 fn ensure_android_project(ctx: &ProjectContext) -> Result<()> {
     if ctx.has_android_project {
@@ -379,7 +378,16 @@ fn clear_arch_env() {
     env::remove_var("ORG_GRADLE_PROJECT_targetList");
 }
 
-pub fn dev(ctx: &ProjectContext) -> Result<()> {
+/// Nombre del script de `package.json` con el que arrancar el dev server en
+/// Android.
+const NPM_DEV_ANDROID: &str = "dev:android";
+
+/// Precondiciones compartidas por las dos rutas que arrancan la app en modo
+/// debug en Android (las tarjetas «Android» y «Debug Andr»).
+///
+/// No incluye la selección de dispositivo: [`debug`] prefiere avisar con su
+/// propio diagnóstico cuando no hay ninguno, en vez de abortar aquí.
+fn prepare_android_dev(ctx: &ProjectContext) -> Result<()> {
     tauri::ensure(ctx)?;
     ctx.assert_android_sdk()?;
     ensure_android_project(ctx)?;
@@ -389,6 +397,69 @@ pub fn dev(ctx: &ProjectContext) -> Result<()> {
     cleanup_build_locks(ctx);
     ensure_ndk(ctx)?;
     ensure_rust_targets()?;
+    Ok(())
+}
+
+/// ¿El proyecto declara `dev:android` entre los `scripts` de `package.json`?
+fn declares_npm_dev_android(ctx: &ProjectContext) -> bool {
+    let Ok(raw) = std::fs::read_to_string(ctx.script_dir.join("package.json")) else {
+        return false;
+    };
+    serde_json::from_str::<serde_json::Value>(&raw)
+        .map(|pkg| pkg["scripts"][NPM_DEV_ANDROID].is_string())
+        .unwrap_or(false)
+}
+
+/// Cómo se lanza la app en modo debug en Android.
+///
+/// Se prefiere el script `dev:android` de `package.json` cuando el proyecto lo
+/// declara: es el comando que su autor usa a mano, con sus propios flags
+/// (`--host`, `beforeDevCommand` de Android…) y sus overrides de `tauri.*.conf.json`.
+/// Reconstruirlo aquí como `tauri android dev` los pierde, que es justo lo que
+/// dejaba el WebView cargando `localhost` sin túnel detrás. [`DevLaunch::Cli`]
+/// queda sólo para proyectos que no declaren ese script.
+#[derive(Debug, PartialEq, Eq)]
+enum DevLaunch {
+    /// El proyecto declara `dev:android`.
+    NpmScript,
+    /// No lo declara: se invoca el CLI de Tauri directamente.
+    Cli,
+}
+
+impl DevLaunch {
+    fn detect(ctx: &ProjectContext) -> Self {
+        if declares_npm_dev_android(ctx) {
+            Self::NpmScript
+        } else {
+            Self::Cli
+        }
+    }
+
+    /// Comando listo para incrustar en [`cmd::spawn_new_window_interactive`].
+    ///
+    /// En Windows se cita `npm.cmd` y no `npm` a propósito, igual que en
+    /// [`cmd::run_npm_install`]: el shim `npm.ps1` lo bloquea la
+    /// ExecutionPolicy por defecto.
+    fn command(&self, ctx: &ProjectContext) -> String {
+        match self {
+            Self::NpmScript => {
+                let npm = if platform::IS_WINDOWS { "npm.cmd" } else { "npm" };
+                format!("{npm} run {NPM_DEV_ANDROID}")
+            }
+            Self::Cli => tauri::command(ctx, "android dev"),
+        }
+    }
+
+    fn describe(&self) -> &'static str {
+        match self {
+            Self::NpmScript => "script `dev:android` de package.json",
+            Self::Cli => "CLI de Tauri (package.json no declara `dev:android`)",
+        }
+    }
+}
+
+pub fn dev(ctx: &ProjectContext) -> Result<()> {
+    prepare_android_dev(ctx)?;
 
     // Selecciona el dispositivo físico conectado.
     let _device = android_utils::select_device(ctx)?;
@@ -397,14 +468,13 @@ pub fn dev(ctx: &ProjectContext) -> Result<()> {
     println!("  Tauri se conectará automáticamente al dispositivo disponible.");
     println!();
 
-    let dev_cmd = tauri::command(ctx, "android dev");
-    println!("[INFO] Usando el flujo Android predeterminado de Tauri.");
-    println!("[INFO] URL y adb reverse definidos por tauri.android.conf.json.");
+    let launch = DevLaunch::detect(ctx);
+    println!("[INFO] Arrancando con el {}.", launch.describe());
 
     cmd::spawn_new_window_interactive(
         "Tauri Android Dev",
         &ctx.script_dir,
-        &dev_cmd,
+        &launch.command(ctx),
     )?;
 
     Ok(())
@@ -495,17 +565,22 @@ pub fn debug(ctx: &ProjectContext) -> Result<()> {
     cmd::clear_screen();
     ui::info_banner("Depurador Chrome (Android)");
 
+    // Preparar el entorno ANTES de tocar adb: `tauri::ensure` puede acabar
+    // ejecutando `npm install`, y el `kill-server` de más abajo tumbaría ese
+    // proceso a media instalación.
+    prepare_android_dev(ctx)?;
+
     let adb = ctx.adb_path.as_ref()
         .context("[ERROR] ADB no encontrado. Verifica ANDROID_HOME.")?;
     let adb_str = adb.to_str().unwrap();
 
-    println!("[1/4] Reiniciando servidor ADB...");
+    println!("[1/5] Reiniciando servidor ADB...");
     cmd::run(adb_str, &["kill-server"]).ok();
     std::thread::sleep(std::time::Duration::from_secs(1));
     cmd::run(adb_str, &["start-server"])?;
     std::thread::sleep(std::time::Duration::from_secs(2));
 
-    println!("[2/4] Buscando dispositivos...");
+    println!("[2/5] Buscando dispositivos...");
     let output = cmd::run(adb_str, &["devices", "-l"])?;
     let stdout = String::from_utf8_lossy(&output.stdout);
     println!("{}", stdout);
@@ -521,7 +596,7 @@ pub fn debug(ctx: &ProjectContext) -> Result<()> {
         println!("  y la huella RSA aceptada. Verifica con: adb devices -l");
         println!("  Luego abre chrome://inspect/#devices manualmente.\n");
     } else {
-        println!("[3/4] Abriendo puerto de depuración...");
+        println!("[3/5] Abriendo puerto de depuración...");
         for line in stdout.lines().skip(1) {
             let trimmed = line.trim();
             if trimmed.is_empty() || trimmed.contains("offline") || !trimmed.contains("device") {
@@ -533,8 +608,26 @@ pub fn debug(ctx: &ProjectContext) -> Result<()> {
                 let _ = cmd::run(adb_str, &["-s", serial, "forward", "tcp:9229", "localabstract:firefox_devtools_remote"]);
             }
         }
-        println!("[4/4] Abriendo Chrome DevTools...");
+        }
+
+    // Lanza la app DESPUÉS del `kill-server` del paso 1, nunca antes: es el
+    // `beforeDevCommand` del script `dev:android` quien levanta el `adb reverse`
+    // del puerto del dev server. Lanzarla antes dejaría al `kill-server`
+    // borrando esos túneles y el WebView volvería a pedir `localhost` sin nada
+    // detrás: el "connection refused" con la página en blanco.
+    println!("[4/5] Lanzando la app en modo debug...");
+    let launch = DevLaunch::detect(ctx);
+    println!("       Con el {}.", launch.describe());
+    if let Err(e) = cmd::spawn_new_window_interactive(
+        "Tauri Android Dev",
+        &ctx.script_dir,
+        &launch.command(ctx),
+    ) {
+        println!("[WARN] No se pudo lanzar la ventana de dev: {e}");
     }
+    println!();
+
+    println!("[5/5] Abriendo Chrome DevTools...");
 
     // Windows abre Edge (que trae el inspector de WebView integrado con su
     // propio prefijo); en Linux se usa Chrome con `chrome://`, porque Edge no
@@ -602,7 +695,76 @@ pub fn debug(ctx: &ProjectContext) -> Result<()> {
     Ok(())
 }
 
-pub fn configure_signing(ctx: &ProjectContext) -> Result<()> {
-    signer::create_or_import(ctx)?;
-    Ok(())
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::utils::context::ProjectType;
+
+    /// Contexto de mentira sobre un directorio temporal. Sin `tempfile` en las
+    /// dev-dependencies: cada test crea lo suyo y lo borra, con el PID en el
+    /// nombre para que no se pisen entre sí.
+    fn fake_ctx(name: &str) -> (std::path::PathBuf, ProjectContext) {
+        let root = std::env::temp_dir().join(format!("cr-android-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let ctx = ProjectContext {
+            script_dir: root.clone(),
+            project_type: ProjectType::Tauri,
+            android_home: None,
+            ndk_home: None,
+            adb_path: None,
+            sdk_manager: None,
+            has_node_modules: false,
+            has_android_project: false,
+            has_whatsapp_engine: false,
+        };
+        (root, ctx)
+    }
+
+    fn write_pkg(root: &std::path::Path, body: &str) {
+        std::fs::write(root.join("package.json"), body).unwrap();
+    }
+
+    #[test]
+    fn uses_the_npm_script_when_the_project_declares_it() {
+        let (root, ctx) = fake_ctx("npm-script");
+        write_pkg(&root, r#"{ "scripts": { "dev:android": "tauri android dev --host 127.0.0.1" } }"#);
+
+        assert_eq!(DevLaunch::detect(&ctx), DevLaunch::NpmScript);
+
+        let cmd = DevLaunch::NpmScript.command(&ctx);
+        let npm = if platform::IS_WINDOWS { "npm.cmd" } else { "npm" };
+        assert_eq!(cmd, format!("{npm} run dev:android"));
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Un proyecto sin `dev:android` no puede romperse: cae al CLI de Tauri.
+    #[test]
+    fn falls_back_to_the_cli_without_the_script() {
+        let (root, ctx) = fake_ctx("no-script");
+        write_pkg(&root, r#"{ "scripts": { "dev": "vite", "build": "vite build" } }"#);
+
+        assert_eq!(DevLaunch::detect(&ctx), DevLaunch::Cli);
+        assert_eq!(DevLaunch::Cli.command(&ctx), "npx tauri android dev");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Sin `package.json`, o con JSON inválido, tampoco debe abortar: la caída
+    /// al CLI es el resultado correcto, no un error.
+    #[test]
+    fn a_missing_or_broken_package_json_falls_back_quietly() {
+        let (root, ctx) = fake_ctx("broken-pkg");
+        assert_eq!(DevLaunch::detect(&ctx), DevLaunch::Cli);
+
+        write_pkg(&root, "{ esto no es json");
+        assert_eq!(DevLaunch::detect(&ctx), DevLaunch::Cli);
+
+        // Y con `scripts` presente pero vacío: que no entre en pánico.
+        write_pkg(&root, r#"{ "scripts": {} }"#);
+        assert_eq!(DevLaunch::detect(&ctx), DevLaunch::Cli);
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }
