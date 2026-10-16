@@ -416,32 +416,88 @@ pub fn terminal_prefix(_title: &str, _script: &str) -> Option<Vec<String>> {
     None
 }
 
-/// Abre una ventana de terminal que **permanece abierta** al terminar el comando.
-pub fn spawn_new_window(title: &str, dir: &std::path::Path, command: &str) -> Result<()> {
+/// Ejecuta `command` en la **ventana actual** (heredando stdin/stdout/stderr) y
+/// espera a que termine.
+///
+/// Los builds y procesos largos corren aquí en vez de abrir una segunda ventana:
+/// esa segunda ventana se abría con PowerShell 5.1 (~2-3 s de arranque, más con
+/// el perfil de PSReadLine predictivo) y era el último freno a la apertura de las
+/// tarjetas. La ventana actual la abre el TUI con `cmd`, que es instantánea.
+///
+/// `envs` inyecta variables de entorno (p. ej. `RELEASE_*` para firmar).
+pub fn run_build_and_reveal(
+    command: &str,
+    dir: &std::path::Path,
+    folder: &std::path::Path,
+    exts: &[&str],
+    rename_to: Option<&str>,
+) -> Result<()> {
+    run_build_and_reveal_with_env(command, dir, folder, exts, rename_to, &[])
+}
+
+/// Igual que [`run_build_and_reveal`] pero con variables de entorno extra.
+pub fn run_build_and_reveal_with_env(
+    command: &str,
+    dir: &std::path::Path,
+    folder: &std::path::Path,
+    exts: &[&str],
+    rename_to: Option<&str>,
+    envs: &[(String, String)],
+) -> Result<()> {
+    println!();
+    println!("[INFO] Ejecutando: {command}");
+    println!();
+    if shell_status(command, dir, envs)?.success() {
+        reveal_artifact(folder, exts, rename_to);
+    } else {
+        println!();
+        println!("[ERROR] El build fallo.");
+    }
+    println!();
+    crate::utils::ui::pause();
+    Ok(())
+}
+
+/// Ejecuta un comando largo (p. ej. `cargo run`) en esta ventana y la deja
+/// abierta hasta que el usuario pulse Enter.
+pub fn run_in_current_window(command: &str, dir: &std::path::Path) -> Result<()> {
+    println!();
+    println!("[INFO] Ejecutando: {command}");
+    println!();
+    if !shell_status(command, dir, &[])?.success() {
+        println!();
+        println!("[ERROR] El comando fallo.");
+    }
+    println!();
+    crate::utils::ui::pause();
+    Ok(())
+}
+
+/// Lanza `command` en un shell (`cmd /c` en Windows, `sh -lc` en Linux)
+/// heredando stdio, con `dir` como directorio de trabajo.
+fn shell_status(
+    command: &str,
+    dir: &std::path::Path,
+    envs: &[(String, String)],
+) -> Result<std::process::ExitStatus> {
     #[cfg(windows)]
-    {
-        let ps_command = format!(
-            "$host.UI.RawUI.WindowTitle = '{}'; Set-Location '{}'; {}",
-            title,
-            dir.display(),
-            command
-        );
-        Command::new("powershell")
-            .creation_flags(CREATE_NEW_CONSOLE)
-            .args(["-NoExit", "-Command", &ps_command])
-            .spawn()
-            .context("No se pudo abrir nueva ventana de PowerShell")?;
-        Ok(())
-    }
+    let mut c = {
+        let mut c = Command::new("cmd");
+        c.arg("/c").arg(command);
+        c
+    };
     #[cfg(not(windows))]
-    {
-        let script = format!(
-            "cd {} && {} ; echo; echo 'Presiona Enter para cerrar...'; read -r",
-            sh_quote(&dir.display().to_string()),
-            command
-        );
-        spawn_in_terminal(title, &script)
+    let mut c = {
+        let mut c = Command::new("sh");
+        c.arg("-lc").arg(command);
+        c
+    };
+    c.current_dir(dir);
+    for (k, v) in envs {
+        c.env(k, v);
     }
+    c.status()
+        .with_context(|| format!("No se pudo ejecutar: {command}"))
 }
 
 /// Abre una ventana de terminal que **se cierra** al terminar el comando.
@@ -509,123 +565,114 @@ pub fn spawn_new_window_interactive(title: &str, dir: &std::path::Path, command:
     }
 }
 
-/// Expresión `find` (GNU) que localiza el archivo más reciente en `folder`
-/// cuya extensión esté en `exts`, y lo deja en la variable `f`.
-///
-/// Usa `-printf '%T@ %p\n'` + `sort -rn` en vez de `ls -t` porque el orden por
-/// fecha de `ls` no es estable entre versiones de coreutils.
-#[cfg(not(windows))]
-fn sh_newest_artifact(folder: &std::path::Path, exts: &[&str]) -> String {
-    let dir = sh_quote(&folder.display().to_string());
-    let names = if exts.is_empty() {
-        // Sin extensiones que filtrar: empareja cualquier archivo regular.
-        "-type f".to_string()
-    } else {
-        let patterns = exts
-            .iter()
-            .map(|e| format!("-name '*.{e}'"))
-            .collect::<Vec<_>>()
-            .join(" -o ");
-        format!("-type f \\( {patterns} \\)")
-    };
-    format!(
-        "f=$(find {dir} {names} -printf '%T@ %p\\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)"
-    )
+/// Busca el archivo más reciente dentro de `folder` (recursivo) cuya extensión
+/// esté en `exts`. `exts` vacío significa "cualquier archivo".
+fn newest_artifact(folder: &Path, exts: &[&str]) -> Option<PathBuf> {
+    fn walk(dir: &Path, exts: &[&str], best: &mut Option<(SystemTime, PathBuf)>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(&path, exts, best);
+                continue;
+            }
+            if !exts.is_empty() {
+                let matches = path
+                    .extension()
+                    .map(|ext| exts.iter().any(|e| ext.eq_ignore_ascii_case(e)))
+                    .unwrap_or(false);
+                if !matches {
+                    continue;
+                }
+            }
+            if let Ok(meta) = entry.metadata() {
+                if let Ok(mtime) = meta.modified() {
+                    if best.as_ref().map_or(true, |(best_t, _)| mtime > *best_t) {
+                        *best = Some((mtime, path));
+                    }
+                }
+            }
+        }
+    }
+
+    if !folder.is_dir() {
+        return None;
+    }
+    let mut best = None;
+    walk(folder, exts, &mut best);
+    best.map(|(_, p)| p)
 }
 
-/// Genera un snippet `sh` que renombra el artefacto más reciente en `folder`
-/// a `new_name` (conservando su extensión). Deja el nuevo path en `f`.
-#[cfg(not(windows))]
-fn rename_artifact_snippet(folder: &std::path::Path, exts: &[&str], new_name: &str) -> String {
-    let base = sh_quote(new_name);
-    format!(
-        "{find}; if [ -n \"$f\" ]; then ext=\"${{f##*.}}\"; target=\"$(dirname \"$f\")/{base}.$ext\"; mv \"$f\" \"$target\" && f=\"$target\"; fi",
-        find = sh_newest_artifact(folder, exts),
-        base = base,
-    )
+/// Renombra `path` a `<base>.<ext>` (conservando la extensión) y devuelve el
+/// nuevo path, o `None` si falla.
+fn rename_artifact(path: &Path, base: &str) -> Option<PathBuf> {
+    let ext = path.extension()?.to_string_lossy().into_owned();
+    let target = path.with_file_name(format!("{base}.{ext}"));
+    if target == path {
+        return Some(path.to_path_buf());
+    }
+    std::fs::rename(path, &target).ok()?;
+    Some(target)
 }
 
-/// Genera un snippet PowerShell que renombra el artefacto más reciente
-/// en `folder` (con las extensiones dadas) a `new_name` (sin extensión).
-/// Actualiza la variable `$f` para que apunte al archivo renombrado.
-#[cfg(windows)]
-fn rename_artifact_snippet(folder: &std::path::Path, exts: &[&str], new_name: &str) -> String {
-    let folder_ps = folder.display().to_string().replace('\'', "''");
-    let ext_list = exts
-        .iter()
-        .map(|e| format!("'.{}'", e))
-        .collect::<Vec<_>>()
-        .join(",");
-    let safe_name = new_name.replace('\'', "''");
-    format!(
-        "$f = Get-ChildItem -LiteralPath '{}' -Recurse -File | Where-Object {{ $_.Extension -in {} }} | Sort-Object LastWriteTime -Descending | Select-Object -First 1; if ($f) {{ $newName = '{}' + $f.Extension; Rename-Item -LiteralPath $f.FullName -NewName $newName; $f = Get-Item -LiteralPath (Join-Path $f.DirectoryName $newName) }}",
-        folder_ps, ext_list, safe_name
-    )
+/// Muestra el resultado de un build exitoso y abre el explorador sobre el
+/// artefacto más reciente de `folder` (o sobre la carpeta si no encuentra nada).
+fn reveal_artifact(folder: &Path, exts: &[&str], rename_to: Option<&str>) {
+    let artifact = newest_artifact(folder, exts);
+    match artifact {
+        Some(path) => {
+            let path = rename_to
+                .and_then(|base| rename_artifact(&path, base))
+                .unwrap_or(path);
+            let name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            println!();
+            println!("[OK] Build exitoso: {name}");
+            println!("[INFO] Artefacto: {}", path.display());
+            open_in_explorer(&path);
+        }
+        None => {
+            println!();
+            println!("[OK] Build exitoso (artefacto no encontrado en la carpeta)");
+            open_folder(folder);
+        }
+    }
 }
 
-/// Envuelve un comando de build para que, al terminar con éxito, abra el
-/// explorador de archivos apuntando al artefacto más reciente (exe, apk, aab)
-/// dentro de `folder`. Si el build falla, muestra un error.
-/// La ventana NUNCA se cierra sola para que el usuario pueda ver toda la salida.
-/// Si `rename_to` se provee, renombra el artefacto antes de abrir el explorador.
-///
-/// Windows genera PowerShell; Linux genera `sh` (para `spawn_new_window*`,
-/// que en Linux ejecutan el script con `sh -lc`).
-pub fn reveal_on_success(
-    command: &str,
-    folder: &std::path::Path,
-    exts: &[&str],
-    rename_to: Option<&str>,
-) -> String {
+/// Abre el explorador resaltando `path`.
+fn open_in_explorer(path: &Path) {
     #[cfg(windows)]
     {
-        let folder_ps = folder.display().to_string().replace('\'', "''");
-        let ext_list = exts
-            .iter()
-            .map(|e| format!("'.{}'", e))
-            .collect::<Vec<_>>()
-            .join(",");
-
-        let rename_snippet = match rename_to {
-            Some(name) => format!("{}; ", rename_artifact_snippet(folder, exts, name)),
-            None => String::new(),
-        };
-
-        format!(
-            "{}; if ($?) {{ {}$f = Get-ChildItem -LiteralPath '{}' -Recurse -File | Where-Object {{ $_.Extension -in {} }} | Sort-Object LastWriteTime -Descending | Select-Object -First 1; if ($f) {{ Write-Host ''; Write-Host ('[OK] Build exitoso: ' + $f.Name) -ForegroundColor Green; Write-Host ('[INFO] Artefacto: ' + $f.FullName) -ForegroundColor Cyan; explorer.exe (\"/select,`\"\" + $f.FullName + \"`\"\") }} else {{ Write-Host ''; Write-Host '[OK] Build exitoso (artefacto no encontrado en la carpeta)' -ForegroundColor Green; explorer.exe '{}' }} }} else {{ Write-Host ''; Write-Host '[ERROR] El build fallo.' -ForegroundColor Red }}; Write-Host ''; Write-Host 'Presiona Enter para cerrar...' -ForegroundColor Yellow; Read-Host",
-            command, rename_snippet, folder_ps, ext_list, folder_ps
-        )
+        // `raw_arg`: el parser de Explorer necesita `/select,"<ruta>"`, con las
+        // comillas dobles alrededor de la ruta. Con `.args` Rust citaría el
+        // argumento entero y Explorer recibiría `/select,"ruta"` mal formado, lo
+        // que abre Documentos en vez de la carpeta.
+        let _ = Command::new("explorer")
+            .raw_arg(format!("/select,\"{}\"", path.display()))
+            .spawn();
     }
     #[cfg(not(windows))]
     {
-        let dir = sh_quote(&folder.display().to_string());
+        // Abrir el archivo lanzaría la app o un visor inesperado; la carpeta
+        // contenedora es lo que "revelar" significa de verdad.
+        let target = path.parent().unwrap_or(path);
+        let _ = Command::new("xdg-open").arg(target).spawn();
+    }
+}
 
-        let rename_snippet = match rename_to {
-            Some(name) => format!("{}; ", rename_artifact_snippet(folder, exts, name)),
-            None => String::new(),
-        };
-
-        format!(
-            "{command}; \
-             if [ $? -eq 0 ]; then \
-               {rename_snippet}{find}; \
-               if [ -n \"$f\" ]; then \
-                 echo; printf '\\033[32m[OK] Build exitoso: %s\\033[0m\\n' \"$(basename \"$f\")\"; \
-                 printf '\\033[36m[INFO] Artefacto: %s\\033[0m\\n' \"$f\"; \
-                 xdg-open \"$f\" 2>/dev/null || gio open \"$f\" 2>/dev/null || echo \"[WARN] No se pudo abrir el explorador de archivos\"; \
-               else \
-                 echo; printf '\\033[32m[OK] Build exitoso (artefacto no encontrado)\\033[0m\\n'; \
-                 xdg-open {dir} 2>/dev/null || true; \
-               fi; \
-             else \
-               echo; printf '\\033[31m[ERROR] El build fallo.\\033[0m\\n'; \
-             fi; \
-             echo; printf '\\033[33mPresiona Enter para cerrar...\\033[0m'; read -r",
-            command = command,
-            rename_snippet = rename_snippet,
-            find = sh_newest_artifact(folder, exts),
-            dir = dir,
-        )
+/// Abre una carpeta en el explorador.
+fn open_folder(folder: &Path) {
+    #[cfg(windows)]
+    {
+        let _ = Command::new("explorer").arg(folder).spawn();
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = Command::new("xdg-open").arg(folder).spawn();
     }
 }
 

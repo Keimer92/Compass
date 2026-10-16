@@ -495,12 +495,12 @@ pub fn build_arm64(ctx: &ProjectContext) -> Result<()> {
 
     let rename = read_tauri_app_meta(ctx).map(|(name, ver)| format!("{}-v{}", name, ver));
     let apk_dir = ctx.script_dir.join("src-tauri/gen/android/app/build/outputs/apk");
-    let cmd_line = cmd::reveal_on_success(&tauri::command(ctx, "android build --target aarch64"), &apk_dir, &["apk"], rename.as_deref());
-
-    cmd::spawn_new_window(
-        "Android Build arm64",
+    cmd::run_build_and_reveal(
+        &tauri::command(ctx, "android build --target aarch64"),
         &ctx.script_dir,
-        &cmd_line,
+        &apk_dir,
+        &["apk"],
+        rename.as_deref(),
     )?;
 
     Ok(())
@@ -525,12 +525,12 @@ pub fn build_armv7(ctx: &ProjectContext) -> Result<()> {
     println!();
 
     let apk_dir = ctx.script_dir.join("src-tauri/gen/android/app/build/outputs/apk");
-    let cmd_line = cmd::reveal_on_success(&tauri::command(ctx, "android build --target armv7"), &apk_dir, &["apk"], None);
-
-    cmd::spawn_new_window(
-        "Android Build armv7",
+    cmd::run_build_and_reveal(
+        &tauri::command(ctx, "android build --target armv7"),
         &ctx.script_dir,
-        &cmd_line,
+        &apk_dir,
+        &["apk"],
+        None,
     )?;
 
     Ok(())
@@ -550,12 +550,12 @@ pub fn build_all(ctx: &ProjectContext) -> Result<()> {
 
     let rename = read_tauri_app_meta(ctx).map(|(name, ver)| format!("{}-v{}", name, ver));
     let apk_dir = ctx.script_dir.join("src-tauri/gen/android/app/build/outputs/apk");
-    let cmd_line = cmd::reveal_on_success(&tauri::command(ctx, "android build"), &apk_dir, &["apk"], rename.as_deref());
-
-    cmd::spawn_new_window(
-        "Android Build (All)",
+    cmd::run_build_and_reveal(
+        &tauri::command(ctx, "android build"),
         &ctx.script_dir,
-        &cmd_line,
+        &apk_dir,
+        &["apk"],
+        rename.as_deref(),
     )?;
 
     Ok(())

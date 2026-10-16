@@ -3,26 +3,20 @@ use crate::utils::cmd;
 use crate::utils::context::ProjectContext;
 
 pub fn run(ctx: &ProjectContext) -> Result<()> {
-    println!("[INFO] Iniciando 'cargo run'...");
-    cmd::spawn_new_window("cargo run", &ctx.script_dir, "cargo run")?;
-    println!("[OK] 'cargo run' lanzado en nueva ventana.");
+    cmd::run_in_current_window("cargo run", &ctx.script_dir)?;
     Ok(())
 }
 
 pub fn build(ctx: &ProjectContext) -> Result<()> {
-    println!("[INFO] Ejecutando 'cargo build --release'...");
-
-    let release_dir = ctx.script_dir.join("target/release");
     // Sin extensión en Linux: `desktop_artifact_exts()` lo resuelve por plataforma.
-    let cmd_line = cmd::reveal_on_success(
+    let release_dir = ctx.script_dir.join("target/release");
+    cmd::run_build_and_reveal(
         "cargo build --release",
+        &ctx.script_dir,
         &release_dir,
         crate::utils::platform::desktop_artifact_exts(),
         None,
-    );
-
-    cmd::spawn_new_window("cargo build", &ctx.script_dir, &cmd_line)?;
-    println!("[OK] 'cargo build --release' lanzado en nueva ventana.");
+    )?;
     Ok(())
 }
 
