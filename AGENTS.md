@@ -556,6 +556,13 @@ El revelado usa `explorer.exe /select,"<ruta>"` (con `raw_arg`, para que Explore
 reciba las comillas alrededor de la ruta) en Windows y `xdg-open` sobre la
 carpeta contenedora en Linux. Si no encuentra artefacto, abre `folder`.
 
+⚠️ **Los separadores se normalizan a `\` antes del Explorer** (helper
+`windows_path_for_explorer`): los literales `join("a/b/c")` conservan las `/` del
+literal, y un path con separadores mezclados (`D:\P\src-tauri/gen/android/...`)
+hace que `explorer /select` **ignora el argumento y abre el Escritorio**. Con
+backslashes puros sí selecciona. La ruta impresa en consola (`[INFO] Artefacto`)
+se veía bien porque solo era el display; el parseo de Explorer era lo fallido.
+
 | Task | folder | exts |
 |------|--------|------|
 | `windows::build` (Tauri) | `src-tauri/target/release/bundle` | `desktop_artifact_exts()` |

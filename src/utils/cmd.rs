@@ -655,16 +655,30 @@ fn reveal_artifact(folder: &Path, exts: &[&str], rename_to: Option<&str>) {
     }
 }
 
+/// Convierte un path a su forma **Windows** para el Explorer: separadores
+/// backslash puros.
+///
+/// Los literales de ruta del crate usan `/` (portabilidad Linux/Windows) y los
+/// `join("a/b/c")` los conservan, así que un path construido por aquí puede
+/// llevar separadores mezclados (`D:\P\src-tauri/gen/android/...`). `explorer
+/// /select` no parsea ese caso: ignora el argumento y abre el Escritorio (o
+/// Documentos). Con backslashes puros sí funciona.
+#[cfg(windows)]
+fn windows_path_for_explorer(path: &Path) -> String {
+    path.display().to_string().replace('/', "\\")
+}
+
 /// Abre el explorador resaltando `path`.
 fn open_in_explorer(path: &Path) {
     #[cfg(windows)]
     {
+        let p = windows_path_for_explorer(path);
         // `raw_arg`: el parser de Explorer necesita `/select,"<ruta>"`, con las
         // comillas dobles alrededor de la ruta. Con `.args` Rust citaría el
         // argumento entero y Explorer recibiría `/select,"ruta"` mal formado, lo
         // que abre Documentos en vez de la carpeta.
         let _ = Command::new("explorer")
-            .raw_arg(format!("/select,\"{}\"", path.display()))
+            .raw_arg(format!("/select,\"{p}\""))
             .spawn();
     }
     #[cfg(not(windows))]
@@ -680,7 +694,9 @@ fn open_in_explorer(path: &Path) {
 fn open_folder(folder: &Path) {
     #[cfg(windows)]
     {
-        let _ = Command::new("explorer").arg(folder).spawn();
+        // Mismo motivo que en `open_in_explorer`: `/` mezcladas → Escritorio.
+        let p = windows_path_for_explorer(folder);
+        let _ = Command::new("explorer").arg(&p).spawn();
     }
     #[cfg(not(windows))]
     {
@@ -807,5 +823,20 @@ mod tests {
         assert!(renamed.exists());
         assert!(!path.exists());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Regresión: los `join("a/b/c")` conservan las `/` del literal y `explorer
+    /// /select` abre el Escritorio en vez de seleccionar con un path de
+    /// separadores mezclados. El path que llega al Explorer debe ser puro `\`.
+    #[cfg(windows)]
+    #[test]
+    fn path_for_explorer_normalizes_separators() {
+        let path = Path::new(r"D:\P\src-tauri/gen/android/app/build/outputs/apk/universal/release/app-release.apk");
+        let p = windows_path_for_explorer(path);
+        assert_eq!(
+            p,
+            r"D:\P\src-tauri\gen\android\app\build\outputs\apk\universal\release\app-release.apk"
+        );
+        assert!(!p.contains('/'));
     }
 }
