@@ -14,6 +14,7 @@
 //! | `dev` `mnt` `cfg` | acento de cada sección (títulos y marcas del pie) |
 //! | `dev_bg` `mnt_bg` `cfg_bg` | fondo de la card **seleccionada** por sección |
 //! | `hover_bg` | fondo de la card **hovereada** (neutro, distinto de la selección) |
+//! | `background` | fondo de **toda la pantalla** (como el bg de los temas de OpenCode) |
 //! | `success` `info` `accent` `warning` | badge de tipo de proyecto y avisos |
 //!
 //! Los `*_bg` y el `hover_bg` no se derivan del resto: van explícitos por tema
@@ -72,6 +73,7 @@ pub struct Theme {
     pub mnt_bg: Color,
     pub cfg_bg: Color,
     pub hover_bg: Color,
+    pub background: Color,
     pub success: Color,
     pub info: Color,
     pub accent: Color,
@@ -122,6 +124,7 @@ pub static THEMES: &[Theme] = &[
         mnt_bg: hex(0x443a16),
         cfg_bg: hex(0x3c1c48),
         hover_bg: hex(0x1e1e24),
+        background: hex(0x16161e),
         success: Color::Green,
         info: Color::Cyan,
         accent: Color::Magenta,
@@ -141,6 +144,7 @@ pub static THEMES: &[Theme] = &[
         mnt_bg: dark(0xf5a742, 27),
         cfg_bg: dark(0x9d7cd8, 27),
         hover_bg: hex(0x1e1e1e),
+        background: hex(0x131313),
         success: hex(0x7fd88f),
         info: hex(0x56b6c2),
         accent: hex(0x9d7cd8),
@@ -160,6 +164,7 @@ pub static THEMES: &[Theme] = &[
         mnt_bg: dark(0xffc777, 27),
         cfg_bg: dark(0xc099ff, 27),
         hover_bg: hex(0x222436),
+        background: hex(0x1a1b26),
         success: hex(0xc3e88d),
         info: hex(0x86e1fc),
         accent: hex(0xc099ff),
@@ -179,6 +184,7 @@ pub static THEMES: &[Theme] = &[
         mnt_bg: dark(0xf9e2af, 27),
         cfg_bg: dark(0xcba6f7, 27),
         hover_bg: hex(0x313244),
+        background: hex(0x1e1e2e),
         success: hex(0xa6e3a1),
         info: hex(0x94e2d5),
         accent: hex(0xcba6f7),
@@ -198,6 +204,7 @@ pub static THEMES: &[Theme] = &[
         mnt_bg: dark(0xf1fa8c, 27),
         cfg_bg: dark(0xff79c6, 27),
         hover_bg: hex(0x3a3c4e),
+        background: hex(0x282a36),
         success: hex(0x50fa7b),
         info: hex(0xffb86c),
         accent: hex(0xff79c6),
@@ -217,6 +224,7 @@ pub static THEMES: &[Theme] = &[
         mnt_bg: dark(0xfabd2f, 27),
         cfg_bg: dark(0xd3869b, 27),
         hover_bg: hex(0x3c3836),
+        background: hex(0x282828),
         success: hex(0xb8bb26),
         info: hex(0x83a598),
         accent: hex(0xd3869b),
@@ -236,6 +244,7 @@ pub static THEMES: &[Theme] = &[
         mnt_bg: dark(0xebcb8b, 27),
         cfg_bg: dark(0xb48ead, 27),
         hover_bg: hex(0x3b4252),
+        background: hex(0x2e3440),
         success: hex(0xa3be8c),
         info: hex(0x81a1c1),
         accent: hex(0xb48ead),
@@ -255,6 +264,7 @@ pub static THEMES: &[Theme] = &[
         mnt_bg: dark(0xe5c07b, 27),
         cfg_bg: dark(0xc678dd, 27),
         hover_bg: hex(0x353b45),
+        background: hex(0x282c34),
         success: hex(0x98c379),
         info: hex(0x56b6c2),
         accent: hex(0xc678dd),
@@ -274,6 +284,7 @@ pub static THEMES: &[Theme] = &[
         mnt_bg: dark(0xe6db74, 27),
         cfg_bg: dark(0xae81ff, 27),
         hover_bg: hex(0x3e3d32),
+        background: hex(0x272822),
         success: hex(0xa6e22e),
         info: hex(0xfd971f),
         accent: hex(0xae81ff),
@@ -293,6 +304,7 @@ pub static THEMES: &[Theme] = &[
         mnt_bg: dark(0xf6c177, 27),
         cfg_bg: dark(0xc4a7e7, 27),
         hover_bg: hex(0x26233a),
+        background: hex(0x191724),
         success: hex(0x9ccfd8),
         info: hex(0x9ccfd8),
         accent: hex(0xc4a7e7),
@@ -312,6 +324,7 @@ pub static THEMES: &[Theme] = &[
         mnt_bg: dark(0xd7a657, 27),
         cfg_bg: dark(0x957fb8, 27),
         hover_bg: hex(0x2a2a37),
+        background: hex(0x1f1f28),
         success: hex(0x98bb6c),
         info: hex(0x76946a),
         accent: hex(0xd27e99),
@@ -331,6 +344,7 @@ pub static THEMES: &[Theme] = &[
         mnt_bg: dark(0xe6ff57, 27),
         cfg_bg: dark(0xc770ff, 27),
         hover_bg: hex(0x141c12),
+        background: hex(0x0a120a),
         success: hex(0x2eff6a),
         info: hex(0x30b3ff),
         accent: hex(0xc770ff),
@@ -350,6 +364,7 @@ pub static THEMES: &[Theme] = &[
         mnt_bg: dark(0xfede5d, 27),
         cfg_bg: dark(0xb084eb, 27),
         hover_bg: hex(0x2a2139),
+        background: hex(0x241b2f),
         success: hex(0x72f1b8),
         info: hex(0xff8b39),
         accent: hex(0xb084eb),
@@ -369,6 +384,7 @@ pub static THEMES: &[Theme] = &[
         mnt_bg: dark(0xb58900, 27),
         cfg_bg: dark(0xd33682, 27),
         hover_bg: hex(0x0d3a47),
+        background: hex(0x002b36),
         success: hex(0x859900),
         info: hex(0x2aa198),
         accent: hex(0xd33682),
@@ -503,6 +519,16 @@ mod tests {
     fn text_is_readable_against_muted() {
         for t in THEMES {
             assert_ne!(t.text, t.muted, "{}: texto y texto atenuado iguales", t.name);
+        }
+    }
+
+    /// El fondo de pantalla no debe coincidir ni con el texto (texto invisible)
+    /// ni con el hover de card (el hover dejaría de verse).
+    #[test]
+    fn background_differs_from_text_and_hover() {
+        for t in THEMES {
+            assert_ne!(t.background, t.text, "{}: background == texto", t.name);
+            assert_ne!(t.background, t.hover_bg, "{}: background == hover", t.name);
         }
     }
 

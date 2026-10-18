@@ -383,6 +383,15 @@ fn calc_total_height(ctx: &ProjectContext, items: &[MenuItem], theme: &Theme) ->
 fn draw_menu(frame: &mut Frame, state: &mut MenuState, ctx: &ProjectContext) {
     let area = frame.area();
     let theme = state.theme;
+
+    // Fondo de toda la pantalla, a lo OpenCode: cada tema lleva su propio
+    // `background`, y el resto de widgets no lo pisan porque sus `Style`
+    // no definen `bg` (se pintan "sobre" este bloque).
+    frame.render_widget(
+        Block::default().style(Style::default().bg(theme.background)),
+        area,
+    );
+
     let total_h = calc_total_height(ctx, &state.items, theme);
 
     if area.height < total_h {
@@ -497,7 +506,12 @@ fn render_theme_picker(frame: &mut Frame, area: Rect, theme: &Theme, picker: The
         lines.push(line);
     }
 
+    // `Clear` borra el menú de detrás, pero deja las celdas con estilo por
+    // defecto (el fondo nativo de la terminal): el Block del Paragraph pinta el
+    // `background` del tema para que el modal no destaque como un rectángulo
+    // de otro color.
     let block = Block::default()
+        .style(Style::default().bg(theme.background))
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(theme.brand))

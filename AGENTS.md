@@ -178,7 +178,12 @@ aplica el tema; `render_theme_picker()` dibuja la capa.
   quien no toque el tema.
 - Un `Theme` son **roles semánticos**, no colores: `menu.rs` no tiene un solo
   literal de color. La sección DEV usa `dev`, MNT `mnt`, CFG `cfg`; los fondos de
-  la card seleccionada son `dev_bg`/`mnt_bg`/`cfg_bg`, y el hover `hover_bg`.
+  la card seleccionada son `dev_bg`/`mnt_bg`/`cfg_bg`, el hover `hover_bg` y el
+  fondo de **toda la pantalla** es `background` (a lo OpenCode: cada tema pinta su
+  propio fondo con un `Block` que cubre `frame.area()` al principio de
+  `draw_menu`; el resto de widgets no lo pisan porque sus `Style` no definen
+  `bg`). El modal de temas también lo pinta (su `Clear` dejaría el fondo nativo
+  de la terminal).
   Los badges de tipo de proyecto se mapean a `success`/`info`/`accent`/`warning`.
 - `dev_bg`/`mnt_bg`/`cfg_bg`/`hover_bg` van **explícitos por tema** (no se derivan)
   porque el "vidrio esmerilado" es una decisión estética. El helper `const fn dark()`
