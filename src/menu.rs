@@ -74,7 +74,6 @@ pub enum MenuItem {
     Git,
     BuildWhatsApp,
     ConfigureTerminal,
-    ContextMenu,
 }
 
 impl MenuItem {
@@ -95,7 +94,6 @@ impl MenuItem {
             Self::Git => "\u{1f527}",
             Self::BuildWhatsApp => "\u{1f4ac}",
             Self::ConfigureTerminal => "\u{2699}",
-            Self::ContextMenu => "\u{1f4c1}",
         }
     }
 
@@ -103,7 +101,7 @@ impl MenuItem {
         match self {
             Self::WindowsDev | Self::AndroidDev | Self::WindowsBuild | Self::AndroidBuildArm64 | Self::AndroidBuildArmv7 | Self::AndroidBuildAll | Self::InstallDebug | Self::FlutterProfile => "DEV",
             Self::Clean | Self::DebugAndroid | Self::Signing | Self::Version => "MNT",
-            Self::Git | Self::BuildWhatsApp | Self::ConfigureTerminal | Self::ContextMenu => "CFG",
+            Self::Git | Self::BuildWhatsApp | Self::ConfigureTerminal => "CFG",
         }
     }
 
@@ -150,7 +148,6 @@ impl MenuItem {
             Self::Git => "Git",
             Self::BuildWhatsApp => "WhatsApp",
             Self::ConfigureTerminal => "Terminal",
-            Self::ContextMenu => "Menu Ctx",
         }
     }
 
@@ -171,7 +168,6 @@ impl MenuItem {
                 Self::Git => "Init · gitignore · remoto",
                 Self::BuildWhatsApp => "Compila WhatsApp",
                 Self::ConfigureTerminal => "Autocompletado",
-                Self::ContextMenu => "Menu contextual",
                 Self::FlutterProfile => "",
             },
             ProjectType::Tauri => match self {
@@ -189,7 +185,6 @@ impl MenuItem {
                 Self::BuildWhatsApp => "Compila WhatsApp",
                 Self::Version => "Bump pkg/cargo/tauri",
                 Self::ConfigureTerminal => "Autocompletado",
-                Self::ContextMenu => "Menu contextual",
                 Self::FlutterProfile => "",
             },
             ProjectType::Flutter => match self {
@@ -207,7 +202,6 @@ impl MenuItem {
                 Self::BuildWhatsApp => "Compila WhatsApp",
                 Self::Version => "",
                 Self::ConfigureTerminal => "Autocompletado",
-                Self::ContextMenu => "Menu contextual",
                 Self::FlutterProfile => "flutter run --profile",
             },
             ProjectType::Kotlin => match self {
@@ -225,7 +219,6 @@ impl MenuItem {
                 Self::BuildWhatsApp => "Compila WhatsApp",
                 Self::Version => "",
                 Self::ConfigureTerminal => "Autocompletado",
-                Self::ContextMenu => "Menu contextual",
                 Self::FlutterProfile => "",
             },
         }
@@ -274,7 +267,6 @@ impl MenuState {
             MenuItem::Git,
             MenuItem::BuildWhatsApp,
             MenuItem::ConfigureTerminal,
-            MenuItem::ContextMenu,
         ];
 
         let items: Vec<MenuItem> = base.into_iter()
@@ -295,8 +287,8 @@ impl MenuState {
             })
             // `ConfigureTerminal` escribe un perfil de PowerShell (PSReadLine), que
             // no existe en Linux, así que se oculta en vez de exponer una tarjeta
-            // que fallaría. `ContextMenu` sí se muestra: en Pop!_OS/COSMIC lo
-            // implementa `context_menu_cosmic.rs`.
+            // que fallaría. El menú contextual ya no es una tarjeta: `install.bat`
+            // (o `install.sh --with-context-menu` en COSMIC) lo instala de una.
             .filter(|item| cfg!(windows) || !matches!(item, MenuItem::ConfigureTerminal))
             .collect();
 
@@ -456,6 +448,7 @@ fn draw_menu(frame: &mut Frame, state: &mut MenuState, ctx: &ProjectContext) {
             height: FOOTER_H,
         },
         theme,
+        ctx,
     );
 
     // El modal va al final para quedar por encima de todo lo demás.
@@ -597,14 +590,10 @@ fn render_group_cards(frame: &mut Frame, area: Rect, state: &MenuState, items: &
     }
 }
 
-fn render_footer(frame: &mut Frame, area: Rect, theme: &Theme) {
-    // El indicador de tema va alineado a la derecha, en su propio rect: así en
-    // una terminal de 80 columnas lo que se recorta (si acaso) son los puntos de
-    // sección de la izquierda, nunca el nombre del tema activo.
-    let right = format!("Ctrl+T temas: {} ", theme.name);
-    let right_w = right.chars().count() as u16;
-    let left_w = area.width.saturating_sub(right_w);
-
+fn render_footer(frame: &mut Frame, area: Rect, theme: &Theme, ctx: &ProjectContext) {
+    // Izquierda: atajos, secciones y tema. Derecha: la **ruta completa** del
+    // proyecto (la barra de título sólo lleva el nombre del directorio, así que
+    // el path entero va aquí). Si no cabe, se recorta por la izquierda con "…".
     let left = Line::from(vec![
         Span::styled("  \u{2191}\u{2193}\u{2190}\u{2192}", Style::default().fg(theme.text)),
         Span::styled(" navegar   ", Style::default().fg(theme.muted)),
@@ -615,18 +604,35 @@ fn render_footer(frame: &mut Frame, area: Rect, theme: &Theme) {
         Span::styled("\u{25cf} DEV ", Style::default().fg(theme.dev)),
         Span::styled("\u{25cf} MNT ", Style::default().fg(theme.mnt)),
         Span::styled("\u{25cf} CFG", Style::default().fg(theme.cfg)),
+        Span::styled(
+            format!("   Ctrl+T temas: {}  ", theme.name),
+            Style::default().fg(theme.brand),
+        ),
     ]);
+    let left_w = (left.width() as u16).min(area.width);
+
+    let full = ctx.script_dir.display().to_string();
+    let right_w = area.width - left_w;
+    let chars: Vec<char> = full.chars().collect();
+    let shown = if chars.len() as u16 > right_w && right_w >= 2 {
+        let keep = right_w as usize - 1;
+        format!("…{}", chars[chars.len() - keep..].iter().collect::<String>())
+    } else {
+        full
+    };
+    let shown_w = (shown.chars().count() as u16).min(area.width);
+
     frame.render_widget(
         Paragraph::new(left),
         Rect { width: left_w, ..area },
     );
     frame.render_widget(
         Paragraph::new(Line::from(Span::styled(
-            right,
-            Style::default().fg(theme.brand),
+            shown,
+            Style::default().fg(theme.muted),
         )))
         .alignment(Alignment::Right),
-        Rect { x: area.x + left_w, width: right_w, ..area },
+        Rect { x: area.x + area.width - shown_w, width: shown_w, ..area },
     );
 }
 
@@ -903,7 +909,6 @@ fn menu_item_to_task(item: MenuItem, ptype: ProjectType) -> &'static str {
 
         (MenuItem::BuildWhatsApp, _) => "whatsapp",
         (MenuItem::ConfigureTerminal, _) => "terminal",
-        (MenuItem::ContextMenu, _) => "context-menu",
 
         _ => unreachable!(),
     }
@@ -916,6 +921,10 @@ pub fn run(ctx: &ProjectContext) -> anyhow::Result<()> {
 
     let mut terminal = setup_terminal()?;
     let mut state = MenuState::new(ctx.project_type, theme::load());
+
+    // Igual que en las tareas: la ventana del menú se titula por proyecto, no
+    // por ruta del binario.
+    cmd::set_console_title(&platform::dir_display_name(&ctx.script_dir));
 
     trace_event(&format!(
         "TERMINAL SIZE: {:?} | project: {}",
@@ -959,7 +968,7 @@ pub fn run(ctx: &ProjectContext) -> anyhow::Result<()> {
                 };
 
                 cmd::spawn_new_window_autoexit(
-                    &format!("Compass - {}", task),
+                    &format!("Compass - {}", platform::dir_display_name(project_path)),
                     project_path,
                     &command,
                 )?;

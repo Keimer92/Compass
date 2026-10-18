@@ -134,8 +134,16 @@ pub fn desktop_artifact_exts() -> &'static [&'static str] {
     }
 }
 
+/// Nombre visible de un directorio: el último componente de la ruta (`School
+/// Tracker` para `D:\Proyectos\School Tracker`), o la ruta entera si no tiene
+/// componentes (p. ej. `C:\`). Se usa como título de las ventanas de terminal.
+pub fn dir_display_name(dir: &Path) -> String {
+    dir.file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| dir.display().to_string())
+}
+
 /// Localiza un wrapper de Gradle (`gradlew` o `gradlew.bat`) en `dir`.
-///
 /// Acepta ambas formas porque un proyecto KMP generado en Windows y luego
 /// clonado a Linux conserva `gradlew.bat` pero no `gradlew` (y viceversa).
 pub fn find_gradlew(dir: &Path) -> Option<PathBuf> {

@@ -688,6 +688,15 @@ fn open_folder(folder: &Path) {
     }
 }
 
+/// Pone el título de la consola con el **nombre del directorio del proyecto**.
+///
+/// Cmd cambia el título de la ventana al *command line* del hijo mientras corre
+/// (por eso la ventana mostraba `C:\Users\Admin\.cargo\bin\compass.exe …`); si es
+/// el propio proceso quien lo fija al arrancar, se sobreescribe al abrirse.
+pub fn set_console_title(title: &str) {
+    let _ = crossterm::execute!(std::io::stdout(), crossterm::terminal::SetTitle(title.to_string()));
+}
+
 /// Elimina un directorio recursivamente manejando rutas largas en Windows.
 ///
 /// `std::fs::remove_dir_all` es instantáneo y cubre la inmensa mayoría de los

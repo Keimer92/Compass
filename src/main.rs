@@ -126,6 +126,12 @@ fn run_global_task(task: &str) -> Result<()> {
 }
 
 fn run_task_direct(ctx: &crate::utils::context::ProjectContext, task: &str) -> Result<()> {
+    // Cmd muestra en el título el command line del hijo mientras corre; al
+    // fijarlo aquí con el nombre del directorio del proyecto, la ventana de la
+    // tarea muestra "School Tracker" en vez de la ruta del binario.
+    crate::utils::cmd::set_console_title(&crate::utils::platform::dir_display_name(
+        &ctx.script_dir,
+    ));
     match task {
         "windows-dev" => match ctx.project_type {
             crate::utils::context::ProjectType::Tauri => tasks::windows::dev(ctx),

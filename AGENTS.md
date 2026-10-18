@@ -166,7 +166,23 @@ Mientras el modal está abierto el teclado le pertenece por completo: el menú d
 detrás no reacciona (ni `Enter` ejecuta una tarea). Cada fila muestra el nombre y
 tres muestras de color de su propia paleta (DEV/MNT/CFG), para reconocer el tema
 sin aplicarlo. El modal se dibuja con `Clear` encima del menú, y el nombre del
-tema activo se muestra en el pie (`Ctrl+T temas: <nombre>`, en color `brand`).
+tema activo se muestra en el pie, a la izquierda (`Ctrl+T temas: <nombre>`, en
+color `brand`); a la derecha va la **ruta completa** del proyecto (ver "Título de
+ventana y pie").
+
+### Título de ventana y rutas
+
+- **Barra de título**: *no* se fija con `title` de cmd para las tareas — cmd
+  escribe en el título el *command line* del hijo mientras corre, y por eso la
+  ventana mostraba `C:\Users\Admin\.cargo\bin\compass.exe --task …`. Lo fija el
+  **propio proceso** al arrancar, vía `cmd::set_console_title()` (crossterm
+  `SetTitle` → `SetConsoleTitleW` en Windows), con
+  `platform::dir_display_name()`: el **nombre del directorio** (`School Tracker`),
+  no la ruta. Se aplica en la TUI (`menu::run`) y en todas las tareas
+  (`run_task_direct`).
+- **Pie del TUI**: a la derecha, la **ruta completa** del proyecto en color
+  `muted`. Si no cabe, se recorta por la izquierda con `…`. El indicador de tema
+  se movió a la izquierda, tras los puntos de sección.
 
 Estado: `MenuState.picker: Option<ThemePicker>` (`index` en `theme::THEMES` +
 `original`, para el cancelar). `MenuState::preview_theme()` mueve el resaltado y
@@ -308,7 +324,10 @@ theme.rs
   └─ load()/save() — persiste el nombre en <data_dir>/compass/theme
 
 menu.rs
-  ├─ MenuItem (18 variants: WindowsDev, AndroidDev, ..., InstallDebug, Signing, Version, ContextMenu)
+  ├─ MenuItem (17 variants: WindowsDev, AndroidDev, ..., InstallDebug, Signing, Version)
+  │   — 🚫 **ya no existe la variante `ContextMenu`**: `install.bat` instala el menú
+  │     contextual al arrancar, la tarjeta era redundante (las tareas `context-menu*`
+  │     por CLI siguen disponibles)
   ├─ ratatui TUI con cards en grilla 3-columnas, 3 secciones (DEV/MNT/CFG)
   ├─ Filtro por tipo de proyecto (Rust oculta Android/Signing)
   ├─ handle_event(): devuelve MenuAction (Run | Quit); teclado + mouse (grid matemático)
@@ -318,7 +337,7 @@ menu.rs
 utils/
   ├─ context.rs — detect(), ProjectType, ProjectContext, whatsapp_path()
   ├─ platform.rs — helpers de portabilidad: IS_WINDOWS, exe_name(), gradlew_name(), home_dir(), data_dir(), find_gradlew(), NDK_VERSION, tauri_native_pkg()
-  ├─ cmd.rs — run*, spawn_new_window_autoexit, spawn_new_window_interactive, run_build_and_reveal, run_in_current_window, run_shell_status, run_npm_install, clear_screen, remove_dir
+  ├─ cmd.rs — run*, set_console_title, spawn_new_window_autoexit, spawn_new_window_interactive, run_build_and_reveal, run_in_current_window, run_shell_status, run_npm_install, clear_screen, remove_dir
   ├─ tauri.rs — command(), ensure(), cli_entry() [CLI sin shim de .bin + reinstalación si falta el binding nativo]
   ├─ ui.rs — ask_text(), ask_password(), success_banner(), info_banner(), pause()
   └─ android.rs — select_device(), wait_for_device_boot(), list_physical_devices() [sólo dispositivos físicos]
@@ -359,7 +378,6 @@ tasks/
 | Git | `git::manage` | `git::manage` | `git::manage` | `git::manage` |
 | BuildWhatsApp | `whatsapp::build` | `whatsapp::build` | `whatsapp::build` | `whatsapp::build` |
 | ConfigureTerminal | `terminal::configure` | `terminal::configure` | `terminal::configure` | `terminal::configure` |
-| InstallContextMenu | `context_menu::toggle` | `context_menu::toggle` | `context_menu::toggle` | `context_menu::toggle` |
 | Salir | `Esc` → `process::exit(0)` | ídem | ídem | ídem |
 
 ### Tareas globales (sin projecto)
