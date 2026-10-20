@@ -880,13 +880,19 @@ del Taskfile) pero con el *host tag* y el compilador correctos:
 
 Detalles que importan:
 
+- ⚠️ **Nada de shell para el pipeline de Android.** `cmd::run_program()`
+  (nuevo) invoca el programa **sin shell**, con los argumentos uno a uno. Con
+  `cmd /c` las rutas con espacios se parten (`D:\Mis Proyectos\Go + Wails
+  v3\...` → `D:\Mis` + `Proyectos/Go` + …) y `cmd.exe` además borra la primera
+  y la última comilla de la línea, lo que rompe `-ldflags="-w -s"`. Con
+  `Command::new(program).args(args)` cada argumento llega intacto.
 - **Compilador de la NDK**: en Windows el NDK trae un wrapper `.cmd` (y un
   script bash sin extensión, que no es ejecutable ahí), así que se llama a
   **`clang.exe` con `--target=aarch64-linux-android21` explícito**, que es
   justo lo que hace el wrapper. El `minSdk` (21) sale de
   `build/android/app/build.gradle`.
 - **Variables de entorno**: `GOOS=android`, `GOARCH=arm64`, `CGO_ENABLED=1`,
-  `CC` y `CXX` se inyectan con `Command::env` (vía `cmd::run_shell_status`),
+  `CC` y `CXX` se inyectan con `Command::env` (vía `cmd::run_program`),
   nunca prefijando el comando.
 - **`local.properties`**: si ni `ANDROID_HOME` ni `ANDROID_SDK_ROOT` están
   definidas, Compass escribe `build/android/local.properties` con `sdk.dir`.
@@ -902,6 +908,10 @@ Detalles que importan:
 - El **AAB** no se instala con `adb install`: es un bundle de Play Store.
 - `APP_NAME` y `BIN_DIR` se leen del bloque `vars:` del `Taskfile.yml` de la
   raíz (sólo literales; los valores con plantilla `{{...}}` se ignoran).
+
+**Verificado** en `school-tracker` (Windows): la APK release sale en
+`build/android/app/build/outputs/apk/release/app-release.apk` y se copia a
+`bin/school-tracker.apk`.
 
 ### Tauri Android package consistency (`ensure_package_consistent`)
 Detecta el error típico "Project directory ... does not exist" que ocurre cuando se cambia el `identifier` en `tauri.conf.json` sin regenerar el proyecto Android. Lee el identifier, calcula la ruta esperada del paquete Java (`app/src/main/java/<pkg_path>`) y si no existe:
