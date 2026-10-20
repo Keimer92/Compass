@@ -904,6 +904,7 @@ fn menu_item_to_task(item: MenuItem, ptype: ProjectType) -> &'static str {
         (MenuItem::WindowsDev, ProjectType::Flutter) => "windows-dev",
         (MenuItem::WindowsDev, ProjectType::Kotlin) => "windows-dev",
         (MenuItem::WindowsDev, ProjectType::Rust) => "windows-dev",
+        (MenuItem::WindowsDev, ProjectType::GoWails) => "windows-dev",
 
         (MenuItem::AndroidDev, _) => "android-dev",
 
@@ -912,12 +913,14 @@ fn menu_item_to_task(item: MenuItem, ptype: ProjectType) -> &'static str {
         (MenuItem::AndroidBuildArm64, ProjectType::Tauri) => "android-arm64",
         (MenuItem::AndroidBuildArm64, ProjectType::Flutter) => "android-arm64",
         (MenuItem::AndroidBuildArm64, ProjectType::Kotlin) => "android-arm64",
+        (MenuItem::AndroidBuildArm64, ProjectType::GoWails) => "android-arm64",
 
         (MenuItem::AndroidBuildArmv7, ProjectType::Tauri) => "android-armv7",
 
         (MenuItem::AndroidBuildAll, ProjectType::Tauri) => "android-all",
         (MenuItem::AndroidBuildAll, ProjectType::Flutter) => "android-all",
         (MenuItem::AndroidBuildAll, ProjectType::Kotlin) => "android-all",
+        (MenuItem::AndroidBuildAll, ProjectType::GoWails) => "android-all",
 
         (MenuItem::InstallDebug, _) => "android-install-debug",
 
@@ -1041,6 +1044,27 @@ mod tests {
             "el hover debe verse distinto de la selección (no comparten el mismo fondo)"
         );
         assert_ne!(normal, selected);
+    }
+
+    /// Cada card visible debe mapear a una tarea CLI. `menu_item_to_task`
+    /// acaba en `unreachable!()` para las combinaciones que no listing, y eso
+    /// es un panic en tiempo de ejecución: el test lo convierte en fallo de
+    /// compilación de CI.
+    #[test]
+    fn every_visible_item_maps_to_a_task() {
+        for pt in [
+            ProjectType::Tauri,
+            ProjectType::Flutter,
+            ProjectType::Kotlin,
+            ProjectType::GoWails,
+            ProjectType::Rust,
+        ] {
+            let state = MenuState::new(pt, crate::theme::DEFAULT);
+            for item in &state.items {
+                let task = menu_item_to_task(*item, pt);
+                assert!(!task.is_empty());
+            }
+        }
     }
 
     #[test]

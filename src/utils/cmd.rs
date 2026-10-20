@@ -484,6 +484,33 @@ pub fn run_build_and_reveal_with_env_outcome(
     Ok(BuildOutcome { success, artifact })
 }
 
+/// Ejecuta un programa **sin shell**, con argumentos, variables de entorno y
+/// `dir` como directorio de trabajo. Devuelve si tuvo éxito.
+///
+/// Es la alternativa a `run_shell_status` cuando hay rutas con espacios o
+/// flags con comillas (`-ldflags="-w -s"`): el shell de Windows (`cmd /c`) no
+/// las respeta, y `cmd.exe` además tiene su propia regla de comillas (borra
+/// la primera y la última) que rompe los argumentos.
+///
+/// Con `Command::new(program).args(args)` cada argumento llega tal cual, sin
+/// que nadie lo reinterprete.
+pub fn run_program(
+    program: &str,
+    args: &[&str],
+    dir: &std::path::Path,
+    envs: &[(String, String)],
+) -> Result<bool> {
+    let mut c = Command::new(program);
+    c.args(args);
+    c.current_dir(dir);
+    for (k, v) in envs {
+        c.env(k, v);
+    }
+    Ok(c.status()
+        .with_context(|| format!("No se pudo ejecutar: {program}"))?
+        .success())
+}
+
 /// Ejecuta un comando largo (p. ej. `cargo run`) en esta ventana y la deja
 /// abierta hasta que el usuario pulse Enter.
 pub fn run_in_current_window(command: &str, dir: &std::path::Path) -> Result<()> {

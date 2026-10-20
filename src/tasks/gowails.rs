@@ -266,21 +266,17 @@ fn ndk_compilers(bin: &Path) -> Option<(String, String)> {
     None
 }
 
-/// Ejecuta un comando en el directorio dado, heredando la salida.
-fn run(command: &str, dir: &Path, envs: &[(String, String)]) -> Result<bool> {
-    cmd::run_shell_status(command, dir, envs)
-}
-
 /// `npm run <script>` en el frontend.
 ///
-/// En Windows `npm` es `npm.cmd`, que `cmd /c` sí sabe ejecutar.
+/// En Windows `npm` es `npm.cmd`, que necesita `cmd.exe` para ejecutarse.
+/// Se invoca **sin shell** para que los argumentos lleguen intactos.
 fn npm_run(dir: &Path, script: &str) -> Result<()> {
-    let command = if platform::IS_WINDOWS {
-        format!("npm.cmd run {script}")
+    let ok = if platform::IS_WINDOWS {
+        cmd::run_program("cmd", &["/c", "npm.cmd", "run", script], dir, &[])?
     } else {
-        format!("npm run {script}")
+        cmd::run_program("npm", &["run", script], dir, &[])?
     };
-    if !run(&command, dir, &[])? {
+    if !ok {
         anyhow::bail!("`npm run {script}` falló en: {}", dir.display());
     }
     Ok(())
@@ -409,27 +405,48 @@ fn build_android_apk(ctx: &ProjectContext, release: bool) -> Result<PathBuf> {
     // ── 1. Overlay: registra las fuentes específicas de Android ──
     println!("[1/5] Generando el overlay de Android...");
     let overlay = android.join("overlay.json");
-    let cmd_overlay = format!(
-        "wails3 android overlay:gen -out \"{}\" -config build/config.yml",
-        overlay.display()
-    );
-    if !run(&cmd_overlay, root, &[])? {
+    let overlay_arg = overlay.display().to_string();
+    if !cmd::run_program(
+        "wails3",
+        &[
+            "android",
+            "overlay:gen",
+            "-out",
+            &overlay_arg,
+            "-config",
+            "build/config.yml",
+        ],
+        root,
+        &[],
+    )? {
         anyhow::bail!("[ERROR] Fallo `wails3 android overlay:gen`.");
     }
 
     // ── 2. Bindings para el frontend ──
     println!("[2/5] Generando los bindings...");
-    let tags = if release {
-        "production,android"
+    let build_flags = if release {
+        "-tags production,android -trimpath -buildvcs=false -ldflags=-w -s"
     } else {
-        "android,debug"
+        "-tags android,debug -buildvcs=false -gcflags=all=-l"
     };
-    let cmd_bindings = format!("wails3 generate bindings -f \"-tags {tags}\" -clean=true -ts -i");
     let envs = vec![
         ("GOOS".to_string(), "android".to_string()),
         ("CGO_ENABLED".to_string(), "0".to_string()),
     ];
-    if !run(&cmd_bindings, root, &envs)? {
+    if !cmd::run_program(
+        "wails3",
+        &[
+            "generate",
+            "bindings",
+            "-f",
+            build_flags,
+            "-clean=true",
+            "-ts",
+            "-i",
+        ],
+        root,
+        &envs,
+    )? {
         println!("[WARN] La generacion de bindings fallo; se continua con los que hubiera.");
     }
 
@@ -451,18 +468,29 @@ fn build_android_apk(ctx: &ProjectContext, release: bool) -> Result<PathBuf> {
     std::fs::create_dir_all(&jni_dir)
         .with_context(|| format!("No se pudo crear: {}", jni_dir.display()))?;
     let so_path = jni_dir.join("libwails.so");
+    let so_arg = so_path.display().to_string();
 
-    let build_flags = if release {
-        "-tags production,android -trimpath -buildvcs=false -ldflags=\"-w -s\""
+    // Los flags van como argumentos sueltos: sin shell, `-ldflags=-w -s`
+    // llega a Go como un único argumento, que es lo que espera.
+    let mut go_args: Vec<&str> = vec!["build", "-buildmode=c-shared", "-overlay", &overlay_arg];
+    if release {
+        go_args.extend_from_slice(&[
+            "-tags",
+            "production,android",
+            "-trimpath",
+            "-buildvcs=false",
+            "-ldflags=-w -s",
+        ]);
     } else {
-        "-tags android,debug -buildvcs=false -gcflags=all=\"-l\""
-    };
-    let cmd_go = format!(
-        "go build -buildmode=c-shared -overlay \"{}\" {} -o \"{}\"",
-        overlay.display(),
-        build_flags,
-        so_path.display()
-    );
+        go_args.extend_from_slice(&[
+            "-tags",
+            "android,debug",
+            "-buildvcs=false",
+            "-gcflags=all=-l",
+        ]);
+    }
+    go_args.extend_from_slice(&["-o", &so_arg]);
+
     let envs = vec![
         ("GOOS".to_string(), "android".to_string()),
         ("GOARCH".to_string(), ARCH.to_string()),
@@ -470,7 +498,7 @@ fn build_android_apk(ctx: &ProjectContext, release: bool) -> Result<PathBuf> {
         ("CC".to_string(), cc.clone()),
         ("CXX".to_string(), cxx.clone()),
     ];
-    if !run(&cmd_go, root, &envs)? {
+    if !cmd::run_program("go", &go_args, root, &envs)? {
         anyhow::bail!(
             "[ERROR] Fallo la compilacion de libwails.so.\n\
              Revisa que la NDK sea compatible y que GOOS/GOARCH/CGO_ENABLED sean correctos."
@@ -482,15 +510,7 @@ fn build_android_apk(ctx: &ProjectContext, release: bool) -> Result<PathBuf> {
     ensure_sdk_properties(ctx, &android)?;
 
     let gradle_task = if release { "assembleRelease" } else { "assembleDebug" };
-    let wrapper = platform::find_gradlew(&android).ok_or_else(|| {
-        anyhow::anyhow!(
-            "[ERROR] No se encontro el wrapper de Gradle en: {}\n\
-             Regenera los assets de build con: wails3 update build-assets",
-            android.display()
-        )
-    })?;
-    let gradle_cmd = format!("\"{}\" {}", wrapper.display(), gradle_task);
-    if !run(&gradle_cmd, &android, &[])? {
+    if !gradle(&android, gradle_task)? {
         anyhow::bail!("[ERROR] Gradle falló en `{}`.", gradle_task);
     }
 
@@ -518,6 +538,48 @@ fn build_android_apk(ctx: &ProjectContext, release: bool) -> Result<PathBuf> {
     }
 
     Ok(apk_file)
+}
+
+/// Ejecuta una tarea de Gradle en `build/android`.
+///
+/// El wrapper es `gradlew.bat` en Windows y `gradlew` en POSIX. Se invoca
+/// **sin shell**: `cmd /c gradlew.bat …` funciona, pero el `cmd` de Windows
+/// rompe las rutas con espacios, y aquí el directorio del proyecto puede
+/// tenerlas.
+fn gradle(android: &Path, task: &str) -> Result<bool> {
+    let wrapper = platform::find_gradlew(android).ok_or_else(|| {
+        anyhow::anyhow!(
+            "[ERROR] No se encontro el wrapper de Gradle en: {}\n\
+             Regenera los assets de build con: wails3 update build-assets",
+            android.display()
+        )
+    })?;
+
+    if platform::IS_WINDOWS {
+        if wrapper.extension().map(|e| e.eq_ignore_ascii_case("bat")).unwrap_or(false) {
+            // Un `.bat` necesita `cmd.exe`.
+            Ok(cmd::run_program("cmd", &["/c", "gradlew.bat", task], android, &[])?)
+        } else {
+            let wrapper_arg = wrapper.display().to_string();
+            Ok(cmd::run_program(&wrapper_arg, &[task], android, &[])?)
+        }
+    } else {
+        // Git no siempre preserva el bit de ejecución al clonar entre sistemas.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Ok(meta) = std::fs::metadata(&wrapper) {
+                if meta.permissions().mode() & 0o111 == 0 {
+                    let _ = std::fs::set_permissions(
+                        &wrapper,
+                        std::fs::Permissions::from_mode(0o755),
+                    );
+                }
+            }
+        }
+        let wrapper_arg = wrapper.display().to_string();
+        Ok(cmd::run_program(&wrapper_arg, &[task], android, &[])?)
+    }
 }
 
 /// Escribe `build/android/local.properties` con `sdk.dir`.
@@ -611,19 +673,11 @@ pub fn build_aab(ctx: &ProjectContext) -> Result<()> {
     let android = android_dir(ctx);
     ensure_sdk_properties(ctx, &android)?;
 
-    let wrapper = platform::find_gradlew(&android).ok_or_else(|| {
-        anyhow::anyhow!(
-            "[ERROR] No se encontro el wrapper de Gradle en: {}",
-            android.display()
-        )
-    })?;
-
     // Reutiliza el pipeline de la APK para tener `libwails.so` y el overlay.
     build_android_apk(ctx, true)?;
 
-    let gradle_cmd = format!("\"{}\" bundleRelease", wrapper.display());
-    if !run(&gradle_cmd, &android, &[])? {
-        anyhow::bail!("[ERROR] Gradle falló en `bundleRelease`.");
+    if !gradle(&android, "bundleRelease")? {
+        anyhow::bail!("[ERROR] Gradle fallo en `bundleRelease`.");
     }
 
     let aab_dir = android

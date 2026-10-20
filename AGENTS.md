@@ -26,6 +26,8 @@ El orden de detección es: **Flutter → Tauri → Go+Wails → KMP → Rust**. 
 | Rust puro | ✅ | ✅ |
 | Android (dev + release APK/AAB) | ✅ | ✅ sólo dispositivo físico |
 | Kotlin Multiplatform (Android + `packageDistributionForCurrentOS`) | ✅ | ✅ |
+| Go + Wails v3 (**desktop**) | ✅ (exe) | ✅ binario sin extensión |
+| Go + Wails v3 (**Android**) | ✅ pipeline propio (el Taskfile de Wails es POSIX) | ✅ |
 | Flutter Android (APK/AAB) | ✅ | ✅ |
 | Flutter **desktop** | ✅ | ✅ `-d linux` / `flutter build linux` |
 | Tauri **desktop** | ✅ (exe/msi) | ✅ AppImage/deb (`platform::desktop_artifact_exts()`) |
@@ -951,6 +953,8 @@ compass --task context-menu-install
 compass  # abre menú interactivo
 ```
 
+Tareas sólo de Go + Wails: `--task package` (instalador NSIS/MSIX, `wails3 task package`).
+
 ## .gitignore Templates
 
 Cada tipo de proyecto tiene su propio `.gitignore`:
@@ -959,6 +963,7 @@ Cada tipo de proyecto tiene su propio `.gitignore`:
 - **Tauri**: ignorar Rust target, gen/android, node_modules, dist, Vite cache
 - **Flutter**: ignorar build, .dart_tool, Android builds, ios symlinks
 - **Kotlin**: ignorar build, .gradle, .kotlin, local.properties, APK/AAB artefactos
+- **Go + Wails**: ignorar bin/, frontend/node_modules, frontend/dist, frontend/bindings, build/android (build, .gradle, jniLibs, overlay.json, local.properties), *.syso, APK/AAB
 
 Todos preservan: fuente, config, wrapper/scripts, firmas, motor WhatsApp.
 
