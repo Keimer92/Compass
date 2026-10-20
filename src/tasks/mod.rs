@@ -4,6 +4,7 @@ pub mod context_menu;
 pub mod context_menu_cosmic;
 pub mod flutter;
 pub mod git;
+pub mod gowails;
 pub mod kotlin;
 pub mod rust;
 pub mod signer;

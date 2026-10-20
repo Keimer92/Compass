@@ -177,6 +177,18 @@ fn quick_targets(ctx: &ProjectContext) -> Vec<(String, PathBuf)> {
             ("target/debug".into(), root.join("target/debug")),
             ("target/release".into(), root.join("target/release")),
         ],
+        ProjectType::GoWails => {
+            let android = root.join("build").join("android");
+            vec![
+                ("bin/".into(), root.join("bin")),
+                ("frontend/dist".into(), root.join("frontend/dist")),
+                (
+                    "Android app/build".into(),
+                    android.join("app").join("build"),
+                ),
+                ("Android .gradle".into(), android.join(".gradle")),
+            ]
+        }
     }
 }
 
@@ -223,6 +235,19 @@ fn full_targets(ctx: &ProjectContext) -> Vec<(String, PathBuf)> {
             ]
         }
         ProjectType::Rust => vec![("target/".into(), root.join("target"))],
+        ProjectType::GoWails => {
+            let android = root.join("build").join("android");
+            vec![
+                ("bin/".into(), root.join("bin")),
+                ("frontend/dist".into(), root.join("frontend/dist")),
+                (
+                    "Android app/build".into(),
+                    android.join("app").join("build"),
+                ),
+                ("Android .gradle".into(), android.join(".gradle")),
+                ("frontend/node_modules/".into(), root.join("frontend/node_modules")),
+            ]
+        }
     }
 }
 
@@ -282,6 +307,24 @@ fn selectable_targets(ctx: &ProjectContext) -> Vec<Candidate> {
             ]
         }
         ProjectType::Rust => vec![c("target/", root.join("target"), true)],
+        ProjectType::GoWails => {
+            let android = root.join("build").join("android");
+            vec![
+                c("bin/", root.join("bin"), false),
+                c("frontend/dist", root.join("frontend/dist"), false),
+                c(
+                    "Android app/build",
+                    android.join("app").join("build"),
+                    false,
+                ),
+                c("Android .gradle", android.join(".gradle"), false),
+                c(
+                    "frontend/node_modules/",
+                    root.join("frontend/node_modules"),
+                    true,
+                ),
+            ]
+        }
     }
 }
 
@@ -316,6 +359,7 @@ fn full_clean(ctx: &ProjectContext) -> Result<()> {
         ProjectType::Flutter => crate::tasks::flutter::clean(ctx),
         ProjectType::Kotlin => crate::tasks::kotlin::clean(ctx),
         ProjectType::Rust => crate::tasks::rust::clean(ctx),
+        ProjectType::GoWails => crate::tasks::gowails::clean(ctx),
     }
 }
 

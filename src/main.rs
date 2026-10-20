@@ -138,39 +138,46 @@ fn run_task_direct(ctx: &crate::utils::context::ProjectContext, task: &str) -> R
             crate::utils::context::ProjectType::Flutter => tasks::flutter::run_windows(ctx),
             crate::utils::context::ProjectType::Kotlin => tasks::kotlin::run_windows(ctx),
             crate::utils::context::ProjectType::Rust => tasks::rust::run(ctx),
+            crate::utils::context::ProjectType::GoWails => tasks::gowails::dev(ctx),
         },
         "android-dev" => match ctx.project_type {
             crate::utils::context::ProjectType::Tauri => tasks::android::dev(ctx),
             crate::utils::context::ProjectType::Flutter => tasks::flutter::run_android(ctx),
             crate::utils::context::ProjectType::Kotlin => tasks::kotlin::run_android(ctx),
             crate::utils::context::ProjectType::Rust => anyhow::bail!("No aplicable a proyectos Rust"),
+            crate::utils::context::ProjectType::GoWails => tasks::gowails::install_debug(ctx),
         },
         "windows-build" => match ctx.project_type {
             crate::utils::context::ProjectType::Tauri => tasks::windows::build(ctx),
             crate::utils::context::ProjectType::Flutter => tasks::flutter::build_windows(ctx),
             crate::utils::context::ProjectType::Kotlin => tasks::kotlin::build_windows(ctx),
             crate::utils::context::ProjectType::Rust => tasks::rust::build(ctx),
+            crate::utils::context::ProjectType::GoWails => tasks::gowails::build_desktop(ctx),
         },
         "android-arm64" => match ctx.project_type {
             crate::utils::context::ProjectType::Tauri => tasks::android::build_arm64(ctx),
             crate::utils::context::ProjectType::Flutter => tasks::flutter::build_apk(ctx),
             crate::utils::context::ProjectType::Kotlin => tasks::kotlin::build_apk(ctx),
             crate::utils::context::ProjectType::Rust => anyhow::bail!("No aplicable a proyectos Rust"),
+            crate::utils::context::ProjectType::GoWails => tasks::gowails::build_apk(ctx),
         },
         "android-armv7" => match ctx.project_type {
             crate::utils::context::ProjectType::Tauri => tasks::android::build_armv7(ctx),
             crate::utils::context::ProjectType::Flutter => anyhow::bail!("No aplicable a proyectos Flutter"),
             crate::utils::context::ProjectType::Kotlin => anyhow::bail!("No aplicable a proyectos Kotlin"),
             crate::utils::context::ProjectType::Rust => anyhow::bail!("No aplicable a proyectos Rust"),
+            crate::utils::context::ProjectType::GoWails => anyhow::bail!("No aplicable a proyectos Go + Wails (Wails v3 sólo compila arm64)"),
         },
         "android-all" => match ctx.project_type {
             crate::utils::context::ProjectType::Tauri => tasks::android::build_all(ctx),
             crate::utils::context::ProjectType::Flutter => tasks::flutter::build_aab(ctx),
             crate::utils::context::ProjectType::Kotlin => tasks::kotlin::build_aab(ctx),
             crate::utils::context::ProjectType::Rust => anyhow::bail!("No aplicable a proyectos Rust"),
+            crate::utils::context::ProjectType::GoWails => tasks::gowails::build_aab(ctx),
         },
         "android-install-debug" => match ctx.project_type {
             crate::utils::context::ProjectType::Kotlin => tasks::kotlin::install_debug(ctx),
+            crate::utils::context::ProjectType::GoWails => tasks::gowails::install_debug(ctx),
             _ => anyhow::bail!("No aplicable a proyectos Kotlin (solo Gradle)"),
         },
         // Limpieza: una sola ruta para el menú unificado de `cleanup` (rápida,
@@ -187,6 +194,7 @@ fn run_task_direct(ctx: &crate::utils::context::ProjectContext, task: &str) -> R
                 println!("[INFO] Para depurar KMP: ./gradlew :composeApp:installDebug");
                 Ok(())
             }
+            crate::utils::context::ProjectType::GoWails => tasks::gowails::debug_android(ctx),
             crate::utils::context::ProjectType::Rust => {
                 println!("[INFO] No aplicable a proyectos Rust.");
                 Ok(())
@@ -201,6 +209,11 @@ fn run_task_direct(ctx: &crate::utils::context::ProjectContext, task: &str) -> R
         // .gitignore y conexión con el remoto. Los nombres antiguos son alias.
         "git" | "git-init" | "gitignore" => tasks::git::manage(ctx),
         "whatsapp" => tasks::whatsapp::build(ctx),
+        // Empaquetado del instalador (sólo Go + Wails: NSIS/MSIX).
+        "package" | "windows-package" => match ctx.project_type {
+            crate::utils::context::ProjectType::GoWails => tasks::gowails::package_desktop(ctx),
+            _ => anyhow::bail!("No aplicable a este tipo de proyecto"),
+        },
         "terminal" => tasks::terminal::configure(ctx),
         "flutter-profile" => {
             println!("\n[INFO] Selecciona la plataforma para Profile:\n");

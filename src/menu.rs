@@ -126,18 +126,21 @@ impl MenuItem {
                 ProjectType::Flutter => "APK",
                 ProjectType::Kotlin => "APK",
                 ProjectType::Rust => "",
+                ProjectType::GoWails => "APK",
             },
             Self::AndroidBuildArmv7 => match project_type {
                 ProjectType::Tauri => "Android a7",
                 ProjectType::Flutter => "",
                 ProjectType::Kotlin => "",
                 ProjectType::Rust => "",
+                ProjectType::GoWails => "",
             },
             Self::AndroidBuildAll => match project_type {
                 ProjectType::Tauri => "Android All",
                 ProjectType::Flutter => "AAB",
                 ProjectType::Kotlin => "AAB",
                 ProjectType::Rust => "",
+                ProjectType::GoWails => "AAB",
             },
             Self::InstallDebug => "Install",
             Self::FlutterProfile => "Profile",
@@ -221,6 +224,23 @@ impl MenuItem {
                 Self::ConfigureTerminal => "Autocompletado",
                 Self::FlutterProfile => "",
             },
+            ProjectType::GoWails => match self {
+                Self::WindowsDev => "wails3 task dev",
+                Self::AndroidDev => "APK debug + instalar",
+                Self::WindowsBuild => "wails3 task build",
+                Self::AndroidBuildArm64 => "APK release",
+                Self::AndroidBuildArmv7 => "",
+                Self::AndroidBuildAll => "AAB release",
+                Self::InstallDebug => "APK debug + instalar",
+                Self::Clean => "Limpia builds/deps",
+                Self::DebugAndroid => "logcat de la app",
+                Self::Signing => "",
+                Self::Git => "Init · gitignore · remoto",
+                Self::BuildWhatsApp => "Compila WhatsApp",
+                Self::Version => "build/config.yml",
+                Self::ConfigureTerminal => "Autocompletado",
+                Self::FlutterProfile => "",
+            },
         }
     }
 }
@@ -284,6 +304,11 @@ impl MenuState {
                 ProjectType::Tauri => !matches!(item, MenuItem::InstallDebug | MenuItem::FlutterProfile),
                 ProjectType::Flutter => !matches!(item, MenuItem::AndroidBuildArmv7 | MenuItem::Version | MenuItem::InstallDebug),
                 ProjectType::Kotlin => !matches!(item, MenuItem::AndroidBuildArmv7 | MenuItem::Version | MenuItem::FlutterProfile),
+                // Go + Wails: la firma de Android la hace el propio Gradle de
+                // Wails con variables de entorno (ANDROID_KEYSTORE_*), no un
+                // `keystore.properties` como en Kotlin/Tauri, así que la
+                // tarjeta de firmas no aplica.
+                ProjectType::GoWails => !matches!(item, MenuItem::AndroidBuildArmv7 | MenuItem::FlutterProfile | MenuItem::Signing),
             })
             // `ConfigureTerminal` escribe un perfil de PowerShell (PSReadLine), que
             // no existe en Linux, así que se oculta en vez de exponer una tarjeta
@@ -536,12 +561,14 @@ fn render_header(frame: &mut Frame, area: Rect, ctx: &ProjectContext, theme: &Th
         ProjectType::Flutter => ("\u{1f3af}", "Compass for Dart / Flutter", "FLUTTER"),
         ProjectType::Kotlin => ("\u{1f537}", "Compass for Kotlin / KMP", "KOTLIN"),
         ProjectType::Rust => ("\u{2699}", "Compass for Rust", "RUST"),
+        ProjectType::GoWails => ("\u{1f408}", "Compass for Go / Wails", "GO"),
     };
     let badge_color = match ctx.project_type {
         ProjectType::Tauri => theme.success,
         ProjectType::Flutter => theme.info,
         ProjectType::Kotlin => theme.accent,
         ProjectType::Rust => theme.warning,
+        ProjectType::GoWails => theme.info,
     };
 
     let mut lines = vec![

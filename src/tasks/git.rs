@@ -610,6 +610,57 @@ Desktop.ini
 # --- Logs ---
 *.log
 "#,
+        ProjectType::GoWails => r#"# ============================================
+# .gitignore para Go + Wails v3
+# ============================================
+
+# --- Binarios generados ---
+bin/
+
+# --- Node.js / frontend ---
+frontend/node_modules/
+frontend/dist/
+frontend/bindings/
+
+# --- Android (generado por 'wails3 update build-assets') ---
+build/android/app/build/
+build/android/.gradle/
+build/android/app/src/main/jniLibs/
+build/android/app/src/main/assets/
+build/android/overlay.json
+build/android/local.properties
+build/android/gen/
+*.apk
+*.aab
+
+# --- Go ---
+*.syso
+*.test
+
+# --- IDE ---
+.idea/
+*.iml
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~
+
+# --- Environment ---
+.env
+.env.example
+.env.local
+.env.*.local
+
+# --- Logs ---
+*.log
+"#,
     }
 }
 
@@ -650,6 +701,13 @@ fn print_preserved(project_type: ProjectType) {
             println!("  - gradle/wrapper/ (Gradle Wrapper)");
             println!("  - gradlew + gradlew.bat (wrappers de ambas plataformas)");
         }
+        ProjectType::GoWails => {
+            println!("  - main.go, internal/ (código Go)");
+            println!("  - go.mod + go.sum");
+            println!("  - Taskfile.yml + build/ (assets de build de Wails)");
+            println!("  - frontend/src/ (código del frontend)");
+            println!("  - frontend/package.json + package-lock.json");
+        }
     }
 }
 
@@ -677,6 +735,12 @@ fn print_instructions(project_type: ProjectType) {
             println!("  3. ./gradlew :composeApp:run (Desktop)");
             println!("  4. ./gradlew :composeApp:installDebug (Android)");
         }
+        ProjectType::GoWails => {
+            println!("  1. git clone <repo>");
+            println!("  2. go install github.com/wailsapp/wails/v3/cmd/wails3@latest");
+            println!("  3. npm install  (en frontend/)");
+            println!("  4. wails3 task dev  (Desktop) / wails3 task build");
+        }
     }
 }
 
@@ -686,6 +750,7 @@ fn gitignore_banner(project_type: ProjectType) -> &'static str {
         ProjectType::Tauri => "CREAR .gitignore PARA RUST/TAURI",
         ProjectType::Flutter => "CREAR .gitignore PARA FLUTTER/DART",
         ProjectType::Kotlin => "CREAR .gitignore PARA KOTLIN MULTIPLATFORM",
+        ProjectType::GoWails => "CREAR .gitignore PARA GO + WAILS",
     }
 }
 

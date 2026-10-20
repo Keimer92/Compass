@@ -79,6 +79,11 @@ pub fn android_layout(ctx: &ProjectContext) -> Option<AndroidLayout> {
             props_name: "keystore.properties",
         },
         ProjectType::Rust => return None,
+        // Wails v3 firma el Android con variables de entorno
+        // (`ANDROID_KEYSTORE_FILE`, `ANDROID_KEYSTORE_PASSWORD`, ...), no con
+        // un `keystore.properties` en el proyecto, así que la firma de este
+        // módulo no aplica.
+        ProjectType::GoWails => return None,
     };
     Some(layout)
 }
@@ -591,7 +596,15 @@ fn show_status(ctx: &ProjectContext) -> Result<()> {
     println!();
 
     let Some(info) = detect(ctx) else {
-        println!("[INFO] No aplicable a proyectos Rust.");
+        match ctx.project_type {
+            ProjectType::GoWails => {
+                println!("[INFO] En Go + Wails v3 la firma la hace el propio Gradle de Wails");
+                println!("       con variables de entorno, no con un keystore.properties:");
+                println!("         ANDROID_KEYSTORE_FILE, ANDROID_KEYSTORE_PASSWORD,");
+                println!("         ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD");
+            }
+            _ => println!("[INFO] No aplicable a proyectos Rust."),
+        }
         ui::pause();
         return Ok(());
     };
@@ -601,6 +614,7 @@ fn show_status(ctx: &ProjectContext) -> Result<()> {
         ProjectType::Flutter => "Flutter",
         ProjectType::Kotlin => "Kotlin/KMP",
         ProjectType::Rust => "Rust",
+        ProjectType::GoWails => "Go + Wails",
     };
     println!("  Proyecto : {}", type_label);
     println!("  Módulo   : {}", info.layout.module_dir.display());

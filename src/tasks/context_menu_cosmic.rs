@@ -520,10 +520,14 @@ pub fn has_vibe_entries() -> bool {
 /// no significan nada aquí. Si se unifica, conviene subirlo a un módulo común.
 const VIBE_TOOLS: &[VibeToolLinux] = &[
     VibeToolLinux { title: "OpenCode", cli: "opencode --auto" },
-    VibeToolLinux { title: "Kilo Code", cli: "kilo" },
-    VibeToolLinux { title: "Cline", cli: "cline -i" },
-    VibeToolLinux { title: "Antigravity", cli: "agy" },
-    VibeToolLinux { title: "Kiro CLI", cli: "kiro-cli chat" },
+    // `--auto` activa el YOLO mode de Kilo Code: aprueba todas las acciones sin prompts.
+    VibeToolLinux { title: "Kilo Code", cli: "kilo --auto" },
+    // `--auto-approve true` habilita la aprobación global de herramientas sin prompts.
+    VibeToolLinux { title: "Cline", cli: "cline --auto-approve true" },
+    // `--dangerously-skip-permissions` omite todos los prompts de permisos.
+    VibeToolLinux { title: "Antigravity", cli: "agy --dangerously-skip-permissions" },
+    // `--trust-all-tools` otorga confianza de sesión completa (YOLO mode de Kiro CLI).
+    VibeToolLinux { title: "Kiro CLI", cli: "kiro-cli chat --trust-all-tools" },
     VibeToolLinux { title: "Hermes", cli: "hermes" },
 ];
 

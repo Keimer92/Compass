@@ -444,18 +444,44 @@ pub fn run_build_and_reveal_with_env(
     rename_to: Option<&str>,
     envs: &[(String, String)],
 ) -> Result<()> {
+    let _ = run_build_and_reveal_with_env_outcome(command, dir, folder, exts, rename_to, envs)?;
+    Ok(())
+}
+
+/// Resultado de un build: si tuvo éxito y dónde quedó el artefacto.
+///
+/// El path es el **ya renombrado** (`<base>.<ext>`), que es el que se instala
+/// en el dispositivo: si se renombra después, se instalaría el fichero viejo.
+pub struct BuildOutcome {
+    pub success: bool,
+    pub artifact: Option<PathBuf>,
+}
+
+/// Igual que [`run_build_and_reveal_with_env`] pero devuelve el resultado del
+/// build y la ruta del artefacto, para poder hacer algo con él después
+/// (p. ej. instalarlo en el teléfono).
+pub fn run_build_and_reveal_with_env_outcome(
+    command: &str,
+    dir: &std::path::Path,
+    folder: &std::path::Path,
+    exts: &[&str],
+    rename_to: Option<&str>,
+    envs: &[(String, String)],
+) -> Result<BuildOutcome> {
     println!();
     println!("[INFO] Ejecutando: {command}");
     println!();
-    if run_shell_status(command, dir, envs)? {
-        reveal_artifact(folder, exts, rename_to);
+    let success = run_shell_status(command, dir, envs)?;
+    let artifact = if success {
+        reveal_artifact(folder, exts, rename_to)
     } else {
         println!();
         println!("[ERROR] El build fallo.");
-    }
+        None
+    };
     println!();
     crate::utils::ui::pause();
-    Ok(())
+    Ok(BuildOutcome { success, artifact })
 }
 
 /// Ejecuta un comando largo (p. ej. `cargo run`) en esta ventana y la deja
@@ -631,7 +657,9 @@ fn rename_artifact(path: &Path, base: &str) -> Option<PathBuf> {
 
 /// Muestra el resultado de un build exitoso y abre el explorador sobre el
 /// artefacto más reciente de `folder` (o sobre la carpeta si no encuentra nada).
-fn reveal_artifact(folder: &Path, exts: &[&str], rename_to: Option<&str>) {
+///
+/// Devuelve el path del artefacto (ya renombrado), si lo hubo.
+fn reveal_artifact(folder: &Path, exts: &[&str], rename_to: Option<&str>) -> Option<PathBuf> {
     let artifact = newest_artifact(folder, exts);
     match artifact {
         Some(path) => {
@@ -646,11 +674,13 @@ fn reveal_artifact(folder: &Path, exts: &[&str], rename_to: Option<&str>) {
             println!("[OK] Build exitoso: {name}");
             println!("[INFO] Artefacto: {}", path.display());
             open_in_explorer(&path);
+            Some(path)
         }
         None => {
             println!();
             println!("[OK] Build exitoso (artefacto no encontrado en la carpeta)");
             open_folder(folder);
+            None
         }
     }
 }

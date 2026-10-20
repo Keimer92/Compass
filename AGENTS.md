@@ -2,7 +2,7 @@
 
 ## Overview
 
-`compass` es una herramienta CLI/TUI multiplataforma que automatiza tareas de desarrollo, compilación y configuración para proyectos **Tauri (Rust)**, **Flutter (Dart)**, **Kotlin Multiplatform (Compose)** y **Rust puro**. Detecta automáticamente el tipo de proyecto y adapta comandos, rutas y comportamientos.
+`compass` es una herramienta CLI/TUI multiplataforma que automatiza tareas de desarrollo, compilación y configuración para proyectos **Tauri (Rust)**, **Flutter (Dart)**, **Kotlin Multiplatform (Compose)**, **Go + Wails v3** y **Rust puro**. Detecta automáticamente el tipo de proyecto y adapta comandos, rutas y comportamientos.
 
 ## Project Types
 
@@ -11,9 +11,10 @@
 | `Tauri` | `pubspec.yaml` → Flutter, luego `tauri.conf.json` o `package.json` | 🦀 | Completo |
 | `Flutter` | `pubspec.yaml` | 🎯 | Completo |
 | `Kotlin` | `gradlew.bat` + `settings.gradle.kts` | 🔷 | Completo |
+| `Go + Wails` | `go.mod` con `wailsapp/wails` + `Taskfile.yml` | 🐹 | Completo (sin firma) |
 | `Rust` | `Cargo.toml` (después de todos los anteriores) | ⚙️ | Reducido (sin Android) |
 
-El orden de detección es: **Flutter → Tauri → KMP → Rust**. Si un proyecto coincide con `package.json` pero no con `tauri.conf.json`, se clasifica como Tauri (para proyectos JS/Node con frontend).
+El orden de detección es: **Flutter → Tauri → Go+Wails → KMP → Rust**. Si un proyecto coincide con `package.json` pero no con `tauri.conf.json`, se clasifica como Tauri (para proyectos JS/Node con frontend).
 
 ## Platform Support
 
@@ -347,6 +348,7 @@ tasks/
   ├─ android.rs — dev(), build_arm64(), build_all(), debug(), ensure_package_consistent() [verifica identifier vs directorio paquete Android]
   ├─ flutter.rs — run_windows(), run_android(), profile_windows(), profile_android(), build_*(), clean()
   ├─ kotlin.rs  — run_windows() [con hot reload], run_android(), install_debug() (`:<modulo>:installDebug` + lanza con `am start`), build_*(), clean(); deteccion de modulo Gradle `:app`/`:composeApp` via `gradle_module()`; release_signing_env() [exporta RELEASE_* vars, parseando con `signer::Props`]
+  ├─ gowails.rs — dev(), build_desktop(), package_desktop(), build_apk(), build_aab(), install_debug(), debug_android(), clean()  [Go + Wails v3: pipeline Android propio, ver "Go + Wails v3"]
   ├─ rust.rs    — run(), build(), clean()                [Rust only]
   ├─ cleanup.rs — manage() [submenú unificado: rápida / completa / reporte de tamaños], quick_targets()/full_targets(), clean_project() [Tauri: portabilidad]
   ├─ git.rs     — manage() [submenú unificado: init / .gitignore / conectar con remoto / estado]; templates de .gitignore por tipo
@@ -362,23 +364,23 @@ tasks/
 
 ### Por tipo de proyecto
 
-| Menu Item | Tauri | Flutter | Kotlin | Rust |
-|-----------|-------|---------|--------|------|
-| WindowsDev | `windows::dev` | `flutter::run_windows` | `kotlin::run_windows` | `rust::run` |
-| AndroidDev | `android::dev` | `flutter::run_android` | `kotlin::run_android` | oculto |
-| FlutterProfile | oculto | `flutter::profile_windows` / `flutter::profile_android` (pregunta) | oculto | oculto |
-| WindowsBuild | `windows::build` | `flutter::build_windows` | `kotlin::build_windows` | `rust::build` |
-| AndroidBuildArm64 | `android::build_arm64` | `flutter::build_apk` | `kotlin::build_apk` (assembleRelease) | oculto |
-| AndroidBuildAll | `android::build_all` | `flutter::build_aab` | `kotlin::build_aab` (bundleRelease) | oculto |
-| InstallDebug | oculto | oculto | `kotlin::install_debug` (`:<modulo>:installDebug` + lanza) | oculto |
-| Clean | `cleanup::manage` | `cleanup::manage` | `cleanup::manage` | `cleanup::manage` |
-| DebugAndroid | `android::debug` | mensaje info | mensaje info | oculto |
-| Signing | `signer::manage` | `signer::manage` | `signer::manage` | oculto |
-| Version | `version::bump` (pkg/cargo/tauri) | mensaje info | mensaje info | `version::bump` (Cargo.toml) |
-| Git | `git::manage` | `git::manage` | `git::manage` | `git::manage` |
-| BuildWhatsApp | `whatsapp::build` | `whatsapp::build` | `whatsapp::build` | `whatsapp::build` |
-| ConfigureTerminal | `terminal::configure` | `terminal::configure` | `terminal::configure` | `terminal::configure` |
-| Salir | `Esc` → `process::exit(0)` | ídem | ídem | ídem |
+| Menu Item | Tauri | Flutter | Kotlin | Go + Wails | Rust |
+|-----------|-------|---------|--------|-----------|------|
+| WindowsDev | `windows::dev` | `flutter::run_windows` | `kotlin::run_windows` | `gowails::dev` (`wails3 task dev`) | `rust::run` |
+| AndroidDev | `android::dev` | `flutter::run_android` | `kotlin::run_android` | `gowails::install_debug` | oculto |
+| FlutterProfile | oculto | `flutter::profile_windows` / `flutter::profile_android` (pregunta) | oculto | oculto | oculto |
+| WindowsBuild | `windows::build` | `flutter::build_windows` | `kotlin::build_windows` | `gowails::build_desktop` | `rust::build` |
+| AndroidBuildArm64 | `android::build_arm64` | `flutter::build_apk` | `kotlin::build_apk` (assembleRelease) | `gowails::build_apk` | oculto |
+| AndroidBuildAll | `android::build_all` | `flutter::build_aab` | `kotlin::build_aab` (bundleRelease) | `gowails::build_aab` | oculto |
+| InstallDebug | oculto | oculto | `kotlin::install_debug` (`:<modulo>:installDebug` + lanza) | `gowails::install_debug` | oculto |
+| Clean | `cleanup::manage` | `cleanup::manage` | `cleanup::manage` | `cleanup::manage` → `gowails::clean` | `cleanup::manage` |
+| DebugAndroid | `android::debug` | mensaje info | mensaje info | `gowails::debug_android` (logcat por PID) | oculto |
+| Signing | `signer::manage` | `signer::manage` | `signer::manage` | **oculta** (Wails firma con variables de entorno) | oculto |
+| Version | `version::bump` (pkg/cargo/tauri) | mensaje info | mensaje info | `version::bump` (`build/config.yml`) | `version::bump` (Cargo.toml) |
+| Git | `git::manage` | `git::manage` | `git::manage` | `git::manage` | `git::manage` |
+| BuildWhatsApp | `whatsapp::build` | `whatsapp::build` | `whatsapp::build` | `whatsapp::build` | `whatsapp::build` |
+| ConfigureTerminal | `terminal::configure` | `terminal::configure` | `terminal::configure` | `terminal::configure` | `terminal::configure` |
+| Salir | `Esc` → `process::exit(0)` | ídem | ídem | ídem | ídem |
 
 ### Tareas globales (sin projecto)
 
@@ -461,11 +463,11 @@ HKCU\Software\Classes\Directory\ContextMenus\VibeCoding\shell
 
 | # | Sub-entrada | Comando | Descripción |
 |---|-------------|---------|-------------|
-| 01 | **OpenCode** | `cmd.exe /c start "OpenCode" /D "%V" cmd.exe /c "opencode --auto"` | Abre OpenCode en la carpeta |
-| 02 | **Kilo Code** | `cmd.exe /c start "Kilo Code" /D "%V" cmd.exe /c "kilo"` | Abre Kilo Code en la carpeta |
-| 03 | **Cline** | `cmd.exe /c start "Cline" /D "%V" cmd.exe /c "cline -i"` | Abre Cline (`-i` evita modo headless) |
-| 04 | **Antigravity** | `cmd.exe /c start "Antigravity" /D "%V" cmd.exe /c "agy"` | Abre Antigravity CLI (Google) |
-| 05 | **Kiro CLI** | `cmd.exe /c start "Kiro CLI" /D "%V" cmd.exe /c "kiro-cli chat"` | Abre Kiro CLI. El binario es **`kiro-cli`**, no `kiro` |
+| 01 | **OpenCode** | `cmd.exe /c start "OpenCode" /D "%V" cmd.exe /c "opencode --auto"` | Abre OpenCode en modo auto (sin prompts) |
+| 02 | **Kilo Code** | `cmd.exe /c start "Kilo Code" /D "%V" cmd.exe /c "kilo --auto"` | Abre Kilo Code en YOLO mode (aprueba todo automáticamente) |
+| 03 | **Cline** | `cmd.exe /c start "Cline" /D "%V" cmd.exe /c "cline --auto-approve true"` | Abre Cline con aprobación global de herramientas sin prompts |
+| 04 | **Antigravity** | `cmd.exe /c start "Antigravity" /D "%V" cmd.exe /c "agy --dangerously-skip-permissions"` | Abre Antigravity omitiendo todos los prompts de permisos |
+| 05 | **Kiro CLI** | `cmd.exe /c start "Kiro CLI" /D "%V" cmd.exe /c "kiro-cli chat --trust-all-tools"` | Abre Kiro CLI con confianza total de sesión (YOLO mode). El binario es **`kiro-cli`**, no `kiro` |
 | 06 | **Hermes** | `cmd.exe /c start "Hermes" /D "%V" cmd.exe /c "hermes"` | Abre Hermes (Nous Research), sin flags: su TUI arranca a pelo |
 
 ⚠️ **Kiro CLI no tiene comando de instalación**: se instala con su `.exe` (o `winget install Kiro-CLI`), no desde la terminal. Por eso `install` va **vacío** en su entrada de `VIBE_TOOLS`, y eso significa explícitamente **"detectar e instalar el submenú, pero no preguntar por instalarlo"**. `ensure_tools_installed()` salta el bucle de preguntas cuando `install` está vacío y sólo avisa. Preguntar algo a lo que no se puede responder con un Enter sería un bucle sin salida. Cubierto por `a_empty_install_means_detect_only_never_ask`.
@@ -816,6 +818,88 @@ Cubierto por `tasks::android::tests` (3 tests): usa el script si está declarado
 - `RELEASE_KEY_PASSWORD`
 
 Esto permite que el `signingConfigs` existente en `build.gradle.kts` (que usa variables de entorno `RELEASE_*`) firme automáticamente sin modificar el archivo del proyecto. Si el archivo de propiedades no existe, avisa con `[WARN]` y continúa (el build puede fallar si no hay firma configurada).
+
+### Instalación del APK release en Kotlin (igual que debug)
+
+`kotlin::build_apk` (tarjeta "APK Release") **pregunta al terminar el build** si quiere
+instalar el APK en el teléfono, y lo hace con `adb install -r` + `am start`, o sea el
+mismo flujo que la tarjeta de debug (`:installDebug`).
+
+- Gradle no tiene tarea para "instalar este APK release", así que se usa `adb` a mano
+  con el artefacto **ya renombrado** (`<App>-v<ver>.apk`). Por eso `cmd::run_build_and_reveal`
+  se descompuso en `run_build_and_reveal_with_env_outcome`, que devuelve
+  `BuildOutcome { success, artifact }`: sin eso se instalaría el fichero viejo.
+- ⚠️ **Choque de firmas**: si el dispositivo ya tiene la app instalada con la clave de
+  **debug**, `adb install -r` falla con `INSTALL_FAILED_UPDATE_INCOMPATIBLE` (la release
+  va firmada con otra clave). `install_release_apk` detecta ese caso y ofrece
+  desinstalar la versión anterior (`adb uninstall <namespace>`) antes de reinstalar.
+- El **AAB** no se puede instalar con `adb install` (es un bundle de Play Store): la
+  tarjeta de AAB sólo avisa de que hay que usar el APK o `bundletool`.
+
+
+### Go + Wails v3 (`tasks/gowails.rs`)
+
+Tipo de proyecto nuevo: `ProjectType::GoWails`. Se detecta con **`go.mod` que
+contenga `wailsapp/wails` + `Taskfile.yml`** (o `build/config.yml`): la v2
+usaba `wails.json` y otro CLI, así que no se mezcla (`context::is_wails_v3`).
+
+| Tarjeta | Qué hace |
+|---------|----------|
+| Windows/Linux | `wails3 task dev` en ventana interactiva (Vite en modo dev + hot reload) |
+| Win/Linux Build | `wails3 task build` → `bin/<APP_NAME>.exe` (o sin extensión en Linux), revelado |
+| APK (release) | Pipeline Android propio → `build/android/app/build/outputs/apk/release/`, copiada a `bin/<APP>.apk` y **opción de instalarla en el teléfono** |
+| AAB (release) | Lo mismo + `bundleRelease` → `bin/<APP>.aab` |
+| Install (debug) | APK debug + `adb install` + `am start` |
+| Debug Andr | `adb logcat --pid=<pid de la app>` (sin `grep`, así que funciona en Windows) |
+| Version | Bump de `version:` en `build/config.yml` (formato YAML, conserva indentación y comentario) |
+| Clean | `bin/`, `frontend/dist`, `frontend/bindings`, `build/android/app/build`, `build/android/.gradle`, `jniLibs/` |
+
+⚠️ **Por qué el build de Android NO usa el Taskfile del proyecto**: las tareas
+`android:*` de la plantilla de Wails v3 están escritas en POSIX y su `case` de
+host sólo contempla Darwin y Linux:
+
+```sh
+case "$(uname -s)" in
+  Darwin) HOST_TAG="darwin-x86_64" ;;
+  Linux)  HOST_TAG="linux-x86_64" ;;
+  *)      echo "Unsupported host OS"; exit 1 ;;
+esac
+```
+
+En Windows el `case` cae en `*)` y aborta, aunque la NDK del host sí exista
+(`windows-x86_64`). Por eso Compass replica el pipeline (los mismos 5 pasos
+del Taskfile) pero con el *host tag* y el compilador correctos:
+
+1. `wails3 android overlay:gen -out build/android/overlay.json -config build/config.yml`
+2. `wails3 generate bindings -f "-tags android,debug" -clean=true -ts -i` (con `GOOS=android`, `CGO_ENABLED=0`)
+3. Frontend: `npm install` (si falta `node_modules/`) + `npm run build` en `frontend/`
+4. `go build -buildmode=c-shared -overlay build/android/overlay.json -tags android,debug -o build/android/app/src/main/jniLibs/arm64-v8a/libwails.so`
+5. Gradle: `gradlew.bat assembleDebug` / `assembleRelease` en `build/android/`
+
+Detalles que importan:
+
+- **Compilador de la NDK**: en Windows el NDK trae un wrapper `.cmd` (y un
+  script bash sin extensión, que no es ejecutable ahí), así que se llama a
+  **`clang.exe` con `--target=aarch64-linux-android21` explícito**, que es
+  justo lo que hace el wrapper. El `minSdk` (21) sale de
+  `build/android/app/build.gradle`.
+- **Variables de entorno**: `GOOS=android`, `GOARCH=arm64`, `CGO_ENABLED=1`,
+  `CC` y `CXX` se inyectan con `Command::env` (vía `cmd::run_shell_status`),
+  nunca prefijando el comando.
+- **`local.properties`**: si ni `ANDROID_HOME` ni `ANDROID_SDK_ROOT` están
+  definidas, Compass escribe `build/android/local.properties` con `sdk.dir`.
+- **`applicationId` ≠ `namespace`**: el `applicationId` (`com.wails.app` por
+  defecto) es el paquete de la APK; la actividad se llama
+  `<namespace>.MainActivity` (`com.wails.app.MainActivity`). Se leen los dos
+  de `build/android/app/build.gradle`.
+- **Firma**: Wails v3 firma con **variables de entorno**
+  (`ANDROID_KEYSTORE_FILE`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`,
+  `ANDROID_KEY_PASSWORD`), no con un `keystore.properties`. Por eso la tarjeta
+  de **Signing se oculta** para este tipo de proyecto (`signer::android_layout`
+  devuelve `None` y el `--task sign` explica cómo firmarlo).
+- El **AAB** no se instala con `adb install`: es un bundle de Play Store.
+- `APP_NAME` y `BIN_DIR` se leen del bloque `vars:` del `Taskfile.yml` de la
+  raíz (sólo literales; los valores con plantilla `{{...}}` se ignoran).
 
 ### Tauri Android package consistency (`ensure_package_consistent`)
 Detecta el error típico "Project directory ... does not exist" que ocurre cuando se cambia el `identifier` en `tauri.conf.json` sin regenerar el proyecto Android. Lee el identifier, calcula la ruta esperada del paquete Java (`app/src/main/java/<pkg_path>`) y si no existe:

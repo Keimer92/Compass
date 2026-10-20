@@ -301,6 +301,21 @@ pub fn install_debug(ctx: &ProjectContext) -> Result<()> {
     Ok(())
 }
 
+/// Instala un APK ya compilado (release) en el teléfono y abre la app.
+///
+/// Es el equivalente del `:installDebug` de Gradle, pero para un artefacto
+/// concreto: Gradle no tiene tarea para "instalar este APK release", así que
+/// se usa `adb install -r` directamente (ver `android_utils::install_apk`,
+/// que además resuelve el choque de firmas debug ↔ release).
+fn install_release_apk(ctx: &ProjectContext, apk: &std::path::Path) -> Result<()> {
+    let namespace = extract_namespace(ctx).unwrap_or_default();
+    let activity = extract_main_activity_package(ctx)
+        .map(|p| format!("{}.MainActivity", p))
+        .unwrap_or_else(|| format!("{}.MainActivity", namespace));
+
+    android_utils::install_apk(ctx, apk, &namespace, &activity)
+}
+
 pub fn build_windows(ctx: &ProjectContext) -> Result<()> {
     println!("\n[INFO] Compilando aplicación de escritorio con Gradle...\n");
     ensure_gradle(ctx)?;
@@ -335,7 +350,30 @@ pub fn build_apk(ctx: &ProjectContext) -> Result<()> {
     };
     let rename = read_kotlin_app_meta(ctx).map(|(name, ver)| format!("{}-v{}", name, ver));
     let apk_dir = android_dir.join("build").join("outputs").join("apk").join("release");
-    cmd::run_build_and_reveal_with_env(&gradle, &ctx.script_dir, &apk_dir, &["apk"], rename.as_deref(), &envs)?;
+    let outcome = cmd::run_build_and_reveal_with_env_outcome(
+        &gradle,
+        &ctx.script_dir,
+        &apk_dir,
+        &["apk"],
+        rename.as_deref(),
+        &envs,
+    )?;
+
+    // El APK release se instala en el telefono igual que el de debug: se
+    // ofrece al terminar el build, no siempre (puede que el usuario solo
+    // quiera el artefacto).
+    if outcome.success {
+        if let Some(apk) = outcome.artifact {
+            let install = inquire::Confirm::new("¿Instalar el APK release en el dispositivo?")
+                .with_default(true)
+                .prompt()?;
+            if install {
+                install_release_apk(ctx, &apk)?;
+            }
+        } else {
+            println!("[WARN] No se encontro el APK para instalar.");
+        }
+    }
 
     Ok(())
 }
@@ -355,7 +393,22 @@ pub fn build_aab(ctx: &ProjectContext) -> Result<()> {
     };
     let rename = read_kotlin_app_meta(ctx).map(|(name, ver)| format!("{}-v{}", name, ver));
     let aab_dir = android_dir.join("build").join("outputs").join("bundle").join("release");
-    cmd::run_build_and_reveal_with_env(&gradle, &ctx.script_dir, &aab_dir, &["aab"], rename.as_deref(), &envs)?;
+    let outcome = cmd::run_build_and_reveal_with_env_outcome(
+        &gradle,
+        &ctx.script_dir,
+        &aab_dir,
+        &["aab"],
+        rename.as_deref(),
+        &envs,
+    )?;
+
+    if outcome.success {
+        // Un AAB no se puede instalar con `adb install`: es un bundle de
+        // Play Store. Para instalar en el telefono hay que usar el APK
+        // (tarjeta de APK release) o `bundletool`.
+        println!("[INFO] Un AAB no se instala directamente en el telefono.");
+        println!("       Usa la tarjeta de APK release para instalarlo, o sube el bundle a Play Store.");
+    }
 
     Ok(())
 }

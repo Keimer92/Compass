@@ -103,6 +103,87 @@ pub fn select_device(ctx: &ProjectContext) -> Result<Device> {
     }
 }
 
+/// Instala un APK **ya compilado** en el dispositivo físico y abre la app.
+///
+/// Es el equivalente de `adb install -r` + `am start`, para los casos en los
+/// que no hay una tarea de Gradle que instale (Kotlin y Go+Wails compilan el
+/// APK por su cuenta).
+///
+/// `package` es el `applicationId` y `activity` la clase **completa** de la
+/// actividad principal (`com.wails.app.MainActivity`), no el alias corto.
+///
+/// ⚠️ El **choque de firmas** es el detalle importante: si el teléfono ya tiene
+/// la app instalada con otra clave (por ejemplo la de *debug* frente a la de
+/// *release*), `adb install -r` falla con `INSTALL_FAILED_UPDATE_INCOMPATIBLE`.
+/// En ese caso se ofrece desinstalar la versión anterior y reinstalar.
+pub fn install_apk(
+    ctx: &ProjectContext,
+    apk: &Path,
+    package: &str,
+    activity: &str,
+) -> Result<()> {
+    let adb = ctx
+        .adb_path
+        .as_ref()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|| "adb".to_string());
+
+    let device = select_device(ctx)?;
+    let apk_str = apk.display().to_string();
+
+    let output = cmd::run(&adb, &["-s", &device.serial, "install", "-r", &apk_str])?;
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let combined = format!("{stdout}\n{stderr}");
+
+    let mut installed = combined.contains("Success");
+
+    if !installed
+        && (combined.contains("INSTALL_FAILED_UPDATE_INCOMPATIBLE")
+            || combined.contains("signatures do not match")
+            || combined.contains("INSTALL_FAILED_VERSION_DOWNGRADE"))
+    {
+        println!("[WARN] La app ya instalada esta firmada con otra clave (debug).");
+        if !package.is_empty() {
+            let uninstall = inquire::Confirm::new(
+                "¿Desinstalar la version anterior e instalar la release?",
+            )
+            .with_default(true)
+            .prompt()?;
+            if uninstall {
+                let _ = cmd::run(&adb, &["-s", &device.serial, "uninstall", package]);
+                let output = cmd::run(&adb, &["-s", &device.serial, "install", "-r", &apk_str])?;
+                let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+                let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                let combined = format!("{stdout}\n{stderr}");
+                installed = combined.contains("Success");
+                if !installed {
+                    println!("[ERROR] La instalacion fallo:");
+                    println!("{}", combined.trim());
+                }
+            }
+        }
+    } else if !installed {
+        println!("[ERROR] La instalacion fallo:");
+        println!("{}", combined.trim());
+    }
+
+    if installed {
+        println!("[OK] APK instalado en {}", device.serial);
+
+        if !package.is_empty() && !activity.is_empty() {
+            let component = format!("{package}/{activity}");
+            let _ = cmd::run(
+                &adb,
+                &["-s", &device.serial, "shell", "am", "start", "-n", &component],
+            );
+            println!("[OK] Abriendo aplicacion...");
+        }
+    }
+
+    Ok(())
+}
+
 /// Lista los dispositivos físicos conectados vía `adb devices`.
 fn list_physical_devices(adb_path: &Path) -> Result<Vec<Device>> {
     let adb = adb_path.to_str().context("Ruta de adb inválida")?;

@@ -9,12 +9,24 @@ use crate::utils::ui;
 
 const RE_JSON: &str = r#""version"\s*:\s*"([^"]+)""#;
 const RE_TOML: &str = r#"(?m)^version\s*=\s*"([^"]+)""#;
+/// Lectura de la versión en YAML (`build/config.yml` de Wails v3).
+const RE_YAML: &str = r#"(?m)^[ \t]*version:[ \t]*"([^"]+)""#;
+/// Escritura en YAML: el grupo 1 es la indentación, que se conserva.
+const RE_YAML_REPLACE: &str = r#"(?m)^([ \t]*)version:[ \t]*"[^"]+""#;
 const RE_PACKAGE: &str = r"(?m)^\[package\]\s*$";
 const RE_NEW_VERSION: &str = r"^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$";
 
+/// Formato del fichero de configuración, para leer y escribir la versión.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Format {
+    Json,
+    Toml,
+    Yaml,
+}
+
 struct VersionFile {
     path: PathBuf,
-    is_json: bool,
+    format: Format,
     current: Option<String>,
     text: String,
 }
@@ -31,13 +43,21 @@ pub fn bump(ctx: &ProjectContext) -> Result<()> {
     println!("╚══════════════════════════════════════════════════╝");
     println!();
 
-    let configs: Vec<(PathBuf, bool)> = match ctx.project_type {
+    let configs: Vec<(PathBuf, Format)> = match ctx.project_type {
         ProjectType::Tauri => vec![
-            (ctx.script_dir.join("package.json"), true),
-            (ctx.script_dir.join("src-tauri").join("tauri.conf.json"), true),
-            (ctx.script_dir.join("src-tauri").join("Cargo.toml"), false),
+            (ctx.script_dir.join("package.json"), Format::Json),
+            (
+                ctx.script_dir.join("src-tauri").join("tauri.conf.json"),
+                Format::Json,
+            ),
+            (ctx.script_dir.join("src-tauri").join("Cargo.toml"), Format::Toml),
         ],
-        ProjectType::Rust => vec![(ctx.script_dir.join("Cargo.toml"), false)],
+        ProjectType::Rust => vec![(ctx.script_dir.join("Cargo.toml"), Format::Toml)],
+        // Wails v3 lleva la versión en `build/config.yml` (bloque `info:`).
+        ProjectType::GoWails => vec![(
+            ctx.script_dir.join("build").join("config.yml"),
+            Format::Yaml,
+        )],
         ProjectType::Flutter | ProjectType::Kotlin => {
             println!("[INFO] No aplicable: en Flutter/Kotlin la version se gestiona en pubspec.yaml / gradle.");
             println!();
@@ -48,7 +68,7 @@ pub fn bump(ctx: &ProjectContext) -> Result<()> {
 
     // Fase de VALIDACION (todo-o-nada): si algo falla, no se escribe nada.
     let mut files: Vec<VersionFile> = Vec::new();
-    for (path, is_json) in configs {
+    for (path, format) in configs {
         if !path.exists() {
             bail!("No existe el archivo: {}", path.display());
         }
@@ -57,11 +77,15 @@ pub fn bump(ctx: &ProjectContext) -> Result<()> {
             .trim_start_matches('\u{feff}')
             .to_string();
 
-        let re = Regex::new(if is_json { RE_JSON } else { RE_TOML })?;
+        let re = Regex::new(match format {
+            Format::Json => RE_JSON,
+            Format::Toml => RE_TOML,
+            Format::Yaml => RE_YAML,
+        })?;
         if let Some(cap) = re.captures(&text) {
             files.push(VersionFile {
                 path,
-                is_json,
+                format,
                 current: Some(cap[1].to_string()),
                 text,
             });
@@ -69,7 +93,16 @@ pub fn bump(ctx: &ProjectContext) -> Result<()> {
         }
 
         // Sin campo version: comprobar que se puede INSERTAR de forma segura.
-        if !is_json {
+        if format == Format::Yaml {
+            // En YAML insertar a ciegas rompería el bloque `info:`; se exige
+            // que la versión ya exista.
+            bail!(
+                "No se encontro el campo `version:` en: {}\n  \
+                 Añádelo bajo `info:` y vuelve a intentarlo.",
+                path.display()
+            );
+        }
+        if format == Format::Toml {
             if !Regex::new(RE_PACKAGE)?.is_match(&text) {
                 bail!(
                     "Cargo.toml sin version y sin seccion [package]:\n  no se puede insertar de forma segura: {}",
@@ -96,7 +129,7 @@ pub fn bump(ctx: &ProjectContext) -> Result<()> {
         }
         files.push(VersionFile {
             path,
-            is_json,
+            format,
             current: None,
             text,
         });
@@ -107,6 +140,7 @@ pub fn bump(ctx: &ProjectContext) -> Result<()> {
         "  Tipo de proyecto: {}",
         match ctx.project_type {
             ProjectType::Tauri => "TAURI",
+            ProjectType::GoWails => "GO + WAILS",
             _ => "RUST",
         }
     );
@@ -135,18 +169,27 @@ pub fn bump(ctx: &ProjectContext) -> Result<()> {
     let mut added = 0usize;
     for f in &mut files {
         let new_text = match &f.current {
-            Some(_) => {
-                let re = Regex::new(if f.is_json { RE_JSON } else { RE_TOML })?;
-                let replacement = if f.is_json {
-                    format!("\"version\": \"{}\"", new)
-                } else {
-                    format!("version = \"{}\"", new)
-                };
-                re.replace(&f.text, replacement.as_str()).into_owned()
-            }
+            Some(_) => match f.format {
+                Format::Json => {
+                    let re = Regex::new(RE_JSON)?;
+                    re.replace(&f.text, format!("\"version\": \"{}\"", new).as_str())
+                        .into_owned()
+                }
+                Format::Toml => {
+                    let re = Regex::new(RE_TOML)?;
+                    re.replace(&f.text, format!("version = \"{}\"", new).as_str())
+                        .into_owned()
+                }
+                // La indentación se conserva con `$1`.
+                Format::Yaml => {
+                    let re = Regex::new(RE_YAML_REPLACE)?;
+                    re.replace(&f.text, format!("${{1}}version: \"{}\"", new).as_str())
+                        .into_owned()
+                }
+            },
             None => {
                 added += 1;
-                if !f.is_json {
+                if f.format == Format::Toml {
                     let insert = format!("[package]\nversion = \"{}\"", new);
                     let re = Regex::new(RE_PACKAGE)?;
                     re.replace(&f.text, insert.as_str()).into_owned()
@@ -172,6 +215,34 @@ pub fn bump(ctx: &ProjectContext) -> Result<()> {
     println!();
     pause();
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// El `version:` de `build/config.yml` de Wails v3 va indentado y con un
+    /// comentario detrás: la escritura debe conservar ambas cosas.
+    #[test]
+    fn yaml_version_replacement_keeps_indent_and_comment() {
+        let text =
+            "info:\n  productName: \"App\"\n  version: \"0.0.1\"  # The application version\n";
+        let re = Regex::new(RE_YAML).unwrap();
+        let cap = re.captures(text).unwrap();
+        assert_eq!(cap.get(1).unwrap().as_str(), "0.0.1");
+
+        let re = Regex::new(RE_YAML_REPLACE).unwrap();
+        let out = re.replace(text, "${1}version: \"1.2.3\"").into_owned();
+        assert!(out.contains("  version: \"1.2.3\"  # The application version"));
+    }
+
+    /// Las líneas comentadas (`# version: ...`) no son la versión del proyecto.
+    #[test]
+    fn yaml_version_ignores_commented_lines() {
+        let text = "info:\n  # version: \"9.9.9\"\n  version: \"0.0.1\"\n";
+        let re = Regex::new(RE_YAML).unwrap();
+        assert_eq!(re.captures(text).unwrap().get(1).unwrap().as_str(), "0.0.1");
+    }
 }
 
 fn pause() {

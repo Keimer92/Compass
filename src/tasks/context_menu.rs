@@ -205,7 +205,9 @@ const VIBE_TOOLS: &[VibeTool] = &[
     VibeTool {
         key: "02KiloCode",
         title: "Kilo Code",
-        cli: "kilo",
+        // `--auto` activa el YOLO mode: aprueba todas las acciones automáticamente
+        // sin pedir confirmación (equivalente al `--auto` de opencode).
+        cli: "kilo --auto",
         install: "npm install -g @kilocode/cli",
         fallback: &[],
         install_via: InstallVia::Cmd,
@@ -213,7 +215,9 @@ const VIBE_TOOLS: &[VibeTool] = &[
     VibeTool {
         key: "03Cline",
         title: "Cline",
-        cli: "cline -i",
+        // `--auto-approve true` habilita la aprobación global de herramientas
+        // sin prompts (modo autónomo documentado en docs.cline.bot/cline-cli/overview).
+        cli: "cline --auto-approve true",
         install: "npm install -g cline",
         fallback: &[],
         install_via: InstallVia::Cmd,
@@ -221,7 +225,10 @@ const VIBE_TOOLS: &[VibeTool] = &[
     VibeTool {
         key: "04Antigravity",
         title: "Antigravity",
-        cli: "agy",
+        // `--dangerously-skip-permissions` es el equivalente de Antigravity al
+        // `--dangerously-skip-permissions` de Claude Code: omite todos los prompts
+        // de permisos de herramientas (documentado en google-antigravity/antigravity-cli).
+        cli: "agy --dangerously-skip-permissions",
         install: "irm https://antigravity.google/cli/install.ps1 | iex",
         // El instalador de Google lo deja en su carpeta propia y no siempre lo
         // agrega al PATH.
@@ -236,7 +243,9 @@ const VIBE_TOOLS: &[VibeTool] = &[
     VibeTool {
         key: "05KiroCli",
         title: "Kiro CLI",
-        cli: "kiro-cli chat",
+        // `--trust-all-tools` otorga confianza de sesión completa: equivale al
+        // YOLO mode de Kiro CLI (documentado en kiro.dev/docs/cli/v3/permissions/).
+        cli: "kiro-cli chat --trust-all-tools",
         // Se instala con el .exe de `https://kiro.dev` (o `winget`), no hay
         // comando de terminal: el instalador es un MSI/EXE con GUI. Por eso
         // `install` está vacío y `ensure_tools_installed()` no ofrece

@@ -10,13 +10,17 @@ pub enum ProjectType {
     Flutter,
     Kotlin,
     Rust,
+    /// Go + Wails v3 (`go.mod` con `wailsapp/wails` + `Taskfile.yml`).
+    GoWails,
 }
 
 impl ProjectType {
     pub fn whatsapp_path(&self, root: &PathBuf) -> PathBuf {
         match self {
             Self::Tauri => root.join("src-tauri").join("whatsapp-engine"),
-            Self::Flutter | Self::Kotlin | Self::Rust => root.join("whatsapp_engine"),
+            Self::Flutter | Self::Kotlin | Self::Rust | Self::GoWails => {
+                root.join("whatsapp_engine")
+            }
         }
     }
 }
@@ -84,6 +88,9 @@ pub fn detect() -> Result<ProjectContext> {
         ProjectType::Flutter => platform::find_gradlew(&script_dir.join("android")).is_some(),
         ProjectType::Kotlin => platform::find_gradlew(&script_dir).is_some(),
         ProjectType::Rust => false,
+        // Wails v3 deja el proyecto Gradle en `build/android/`.
+        ProjectType::GoWails => platform::find_gradlew(&script_dir.join("build").join("android"))
+            .is_some(),
     };
     let has_whatsapp_engine = project_type.whatsapp_path(&script_dir).exists();
 
@@ -111,6 +118,12 @@ pub fn classify_dir(d: &Path) -> Option<ProjectType> {
     if d.join("tauri.conf.json").exists() {
         return Some(ProjectType::Tauri);
     }
+    // Go + Wails v3: `go.mod` con la dependencia de Wails **y** el Taskfile
+    // (v3 movió la configuración a `Taskfile.yml` + `build/config.yml`; la v2
+    // usaba `wails.json` y otro CLI, así que no se acepta aquí).
+    if is_wails_v3(d) {
+        return Some(ProjectType::GoWails);
+    }
     // Acepta `gradlew` o `gradlew.bat`: en Linux el wrapper no lleva extensión.
     if platform::find_gradlew(d).is_some() && d.join("settings.gradle.kts").exists() {
         return Some(ProjectType::Kotlin);
@@ -122,6 +135,21 @@ pub fn classify_dir(d: &Path) -> Option<ProjectType> {
         return Some(ProjectType::Rust);
     }
     None
+}
+
+/// ¿Es un proyecto Go + Wails **v3**?
+///
+/// Se exigen las dos señales: la dependencia `wailsapp/wails` en `go.mod` y el
+/// `Taskfile.yml` (o `build/config.yml`), que es lo que usa la v3. La v2
+/// (`wails.json`) tiene otro CLI (`wails`) y otro layout, así que no se mezcla.
+fn is_wails_v3(d: &Path) -> bool {
+    let Ok(go_mod) = std::fs::read_to_string(d.join("go.mod")) else {
+        return false;
+    };
+    if !go_mod.contains("wailsapp/wails") {
+        return false;
+    }
+    d.join("Taskfile.yml").exists() || d.join("build").join("config.yml").exists()
 }
 
 fn detect_project_root() -> Result<(PathBuf, ProjectType)> {
@@ -136,7 +164,7 @@ fn detect_project_root() -> Result<(PathBuf, ProjectType)> {
     }
 
     anyhow::bail!(
-        "No se encontró un proyecto Tauri, Flutter/Dart, Kotlin Multiplatform o Rust en este directorio ni en sus padres.\n\
+        "No se encontró un proyecto Tauri, Flutter/Dart, Kotlin Multiplatform, Rust o Go/Wails en este directorio ni en sus padres.\n\
          Usa el selector con 'compass --pick' para elegir la carpeta del proyecto."
     );
 }
@@ -148,6 +176,7 @@ fn type_label(pt: ProjectType) -> &'static str {
         ProjectType::Flutter => "Flutter",
         ProjectType::Kotlin => "Kotlin",
         ProjectType::Rust => "Rust",
+        ProjectType::GoWails => "Go + Wails",
     }
 }
 
