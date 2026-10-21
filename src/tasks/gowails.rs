@@ -509,8 +509,16 @@ fn build_android_apk(ctx: &ProjectContext, release: bool) -> Result<PathBuf> {
     println!("[5/5] Ensamblando la APK con Gradle...");
     ensure_sdk_properties(ctx, &android)?;
 
+    // La firma release llega al Gradle por variables de entorno. Sin ellas,
+    // Wails firma con la llave de debug (que Play Store rechaza).
+    let signing = if release { signing_env(ctx) } else { None };
+    if release && signing.is_none() {
+        println!("[WARN] No hay keystore de release configurado; la APK se firmará con la llave de debug.");
+        println!("       Configúralo en la tarjeta Signing (o con --task sign).");
+    }
+
     let gradle_task = if release { "assembleRelease" } else { "assembleDebug" };
-    if !gradle(&android, gradle_task)? {
+    if !gradle(&android, gradle_task, signing.as_deref().unwrap_or(&[]))? {
         anyhow::bail!("[ERROR] Gradle falló en `{}`.", gradle_task);
     }
 
@@ -540,13 +548,49 @@ fn build_android_apk(ctx: &ProjectContext, release: bool) -> Result<PathBuf> {
     Ok(apk_file)
 }
 
+/// Variables de entorno de firma que espera el Gradle de Wails.
+///
+/// Su `build/android/app/build.gradle` lee:
+///
+/// ```groovy
+/// def keystoreFile = System.getenv("ANDROID_KEYSTORE_FILE")
+/// ```
+///
+/// y, si está vacío, firma el release con la llave de **debug**. Compass
+/// guarda la configuración en `android-signing/keystore.properties` (la
+/// gestiona la tarjeta *Signing*) y la exporta aquí, para que el usuario no
+/// tenga que definir variables a mano en cada build.
+fn signing_env(ctx: &ProjectContext) -> Option<Vec<(String, String)>> {
+    let layout = crate::tasks::signer::android_layout(ctx)?;
+    let props = crate::tasks::signer::Props::read(&layout.props_path())?;
+    let store_file = props.store_file?;
+    let store_path = crate::tasks::signer::resolve_keystore(&layout.signing_dir, &store_file);
+    if !store_path.exists() {
+        return None;
+    }
+    let store_pass = props.store_password.unwrap_or_default();
+    let key_pass = props
+        .key_password
+        .unwrap_or_else(|| store_pass.clone());
+    let key_alias = props.key_alias?;
+    Some(vec![
+        (
+            "ANDROID_KEYSTORE_FILE".to_string(),
+            store_path.display().to_string(),
+        ),
+        ("ANDROID_KEYSTORE_PASSWORD".to_string(), store_pass),
+        ("ANDROID_KEY_ALIAS".to_string(), key_alias),
+        ("ANDROID_KEY_PASSWORD".to_string(), key_pass),
+    ])
+}
+
 /// Ejecuta una tarea de Gradle en `build/android`.
 ///
 /// El wrapper es `gradlew.bat` en Windows y `gradlew` en POSIX. Se invoca
 /// **sin shell**: `cmd /c gradlew.bat …` funciona, pero el `cmd` de Windows
 /// rompe las rutas con espacios, y aquí el directorio del proyecto puede
 /// tenerlas.
-fn gradle(android: &Path, task: &str) -> Result<bool> {
+fn gradle(android: &Path, task: &str, envs: &[(String, String)]) -> Result<bool> {
     let wrapper = platform::find_gradlew(android).ok_or_else(|| {
         anyhow::anyhow!(
             "[ERROR] No se encontro el wrapper de Gradle en: {}\n\
@@ -558,10 +602,10 @@ fn gradle(android: &Path, task: &str) -> Result<bool> {
     if platform::IS_WINDOWS {
         if wrapper.extension().map(|e| e.eq_ignore_ascii_case("bat")).unwrap_or(false) {
             // Un `.bat` necesita `cmd.exe`.
-            Ok(cmd::run_program("cmd", &["/c", "gradlew.bat", task], android, &[])?)
+            Ok(cmd::run_program("cmd", &["/c", "gradlew.bat", task], android, envs)?)
         } else {
             let wrapper_arg = wrapper.display().to_string();
-            Ok(cmd::run_program(&wrapper_arg, &[task], android, &[])?)
+            Ok(cmd::run_program(&wrapper_arg, &[task], android, envs)?)
         }
     } else {
         // Git no siempre preserva el bit de ejecución al clonar entre sistemas.
@@ -578,7 +622,7 @@ fn gradle(android: &Path, task: &str) -> Result<bool> {
             }
         }
         let wrapper_arg = wrapper.display().to_string();
-        Ok(cmd::run_program(&wrapper_arg, &[task], android, &[])?)
+        Ok(cmd::run_program(&wrapper_arg, &[task], android, envs)?)
     }
 }
 
@@ -676,7 +720,7 @@ pub fn build_aab(ctx: &ProjectContext) -> Result<()> {
     // Reutiliza el pipeline de la APK para tener `libwails.so` y el overlay.
     build_android_apk(ctx, true)?;
 
-    if !gradle(&android, "bundleRelease")? {
+    if !gradle(&android, "bundleRelease", signing_env(ctx).as_deref().unwrap_or(&[]))? {
         anyhow::bail!("[ERROR] Gradle fallo en `bundleRelease`.");
     }
 
@@ -817,4 +861,81 @@ pub fn clean(ctx: &ProjectContext) -> Result<()> {
     println!("[OK] Limpieza completada.");
     ui::pause();
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::utils::context::ProjectType;
+
+    fn ctx(root: &Path) -> ProjectContext {
+        ProjectContext {
+            script_dir: root.to_path_buf(),
+            project_type: ProjectType::GoWails,
+            android_home: None,
+            ndk_home: None,
+            adb_path: None,
+            sdk_manager: None,
+            has_node_modules: false,
+            has_android_project: false,
+            has_whatsapp_engine: false,
+        }
+    }
+
+    /// El keystore de Wails **no** puede vivir en `build/android/`: esa
+    /// carpeta la regenera `wails3 update build-assets`.
+    #[test]
+    fn wails_keystore_lives_outside_build() {
+        let root = Path::new("/tmp/proyecto");
+        let layout = crate::tasks::signer::android_layout(&ctx(root)).unwrap();
+
+        assert_eq!(layout.module_dir, root.join("build").join("android").join("app"));
+        assert_eq!(layout.signing_dir, root.join("android-signing"));
+        assert!(!layout.patch_gradle, "el Gradle de Wails ya lee el entorno");
+        assert_eq!(
+            layout.props_path(),
+            root.join("android-signing").join("keystore.properties")
+        );
+    }
+
+    /// Las variables que el Gradle de Wails espera vienen del `.properties`
+    /// que gestiona la tarjeta *Signing*.
+    #[test]
+    fn signing_env_exports_the_wails_variables() {
+        let dir = std::env::temp_dir().join("compass-wails-signing-test");
+        let _ = std::fs::remove_dir_all(&dir);
+        let signing = dir.join("android-signing");
+        std::fs::create_dir_all(&signing).unwrap();
+        std::fs::write(signing.join("release.keystore"), "x").unwrap();
+        std::fs::write(
+            signing.join("keystore.properties"),
+            "storeFile=release.keystore\nstorePassword=storepw\nkeyAlias=upload\nkeyPassword=keypw\n",
+        )
+        .unwrap();
+
+        let envs = signing_env(&ctx(&dir)).expect("debe leer las properties");
+        let get = |k: &str| {
+            envs.iter()
+                .find(|(n, _)| n == k)
+                .map(|(_, v)| v.clone())
+                .unwrap_or_default()
+        };
+        assert!(get("ANDROID_KEYSTORE_FILE").ends_with("release.keystore"));
+        assert_eq!(get("ANDROID_KEYSTORE_PASSWORD"), "storepw");
+        assert_eq!(get("ANDROID_KEY_ALIAS"), "upload");
+        assert_eq!(get("ANDROID_KEY_PASSWORD"), "keypw");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Sin keystore no hay variables: el release se firmaría con la llave de
+    /// debug, así que el build avisa.
+    #[test]
+    fn signing_env_is_empty_without_keystore() {
+        let dir = std::env::temp_dir().join("compass-wails-signing-empty");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(signing_env(&ctx(&dir)).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

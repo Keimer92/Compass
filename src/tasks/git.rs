@@ -617,6 +617,10 @@ Desktop.ini
 # --- Binarios generados ---
 bin/
 
+# --- Firma de Android (keystore + contraseñas: NO subir) ---
+android-signing/
+keystore-backups/
+
 # --- Node.js / frontend ---
 frontend/node_modules/
 frontend/dist/

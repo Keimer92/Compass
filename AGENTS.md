@@ -377,7 +377,7 @@ tasks/
 | InstallDebug | oculto | oculto | `kotlin::install_debug` (`:<modulo>:installDebug` + lanza) | `gowails::install_debug` | oculto |
 | Clean | `cleanup::manage` | `cleanup::manage` | `cleanup::manage` | `cleanup::manage` → `gowails::clean` | `cleanup::manage` |
 | DebugAndroid | `android::debug` | mensaje info | mensaje info | `gowails::debug_android` (logcat por PID) | oculto |
-| Signing | `signer::manage` | `signer::manage` | `signer::manage` | **oculta** (Wails firma con variables de entorno) | oculto |
+| Signing | `signer::manage` | `signer::manage` | `signer::manage` | `signer::manage` (variables de entorno) | oculto |
 | Version | `version::bump` (pkg/cargo/tauri) | mensaje info | mensaje info | `version::bump` (`build/config.yml`) | `version::bump` (Cargo.toml) |
 | Git | `git::manage` | `git::manage` | `git::manage` | `git::manage` | `git::manage` |
 | BuildWhatsApp | `whatsapp::build` | `whatsapp::build` | `whatsapp::build` | `whatsapp::build` | `whatsapp::build` |
@@ -900,18 +900,37 @@ Detalles que importan:
   defecto) es el paquete de la APK; la actividad se llama
   `<namespace>.MainActivity` (`com.wails.app.MainActivity`). Se leen los dos
   de `build/android/app/build.gradle`.
-- **Firma**: Wails v3 firma con **variables de entorno**
-  (`ANDROID_KEYSTORE_FILE`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`,
-  `ANDROID_KEY_PASSWORD`), no con un `keystore.properties`. Por eso la tarjeta
-  de **Signing se oculta** para este tipo de proyecto (`signer::android_layout`
-  devuelve `None` y el `--task sign` explica cómo firmarlo).
+- **Firma**: Wails v3 firma el release con **variables de entorno**, no con un
+  `keystore.properties`:
+  `ANDROID_KEYSTORE_FILE`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` y
+  `ANDROID_KEY_PASSWORD` (las lee `build/android/app/build.gradle`). Compass
+  lo resuelve así:
+  - La tarjeta **Signing** funciona igual que en los demás tipos: crea/importa
+    el keystore, escribe las properties, saca las huellas, hace respaldos y
+    verifica la APK. Lo único que cambia es **dónde** y **cómo**:
+    - `AndroidLayout` tiene dos carpetas: `module_dir` (el módulo Android,
+      `build/android/app`, de donde sale la APK que se verifica) y
+      `signing_dir` (dónde viven el keystore y el `.properties`).
+    - En Wails `signing_dir` es **`android-signing/`** en la raíz, **fuera de
+      `build/`**: `wails3 update build-assets` regenera `build/android/` y se
+      llevaría el keystore (que es irrecuperable si no está respaldado).
+    - `patch_gradle = false`: el Gradle de Wails ya lee el entorno, así que
+      **no se parchea** el `build.gradle` (además lo regenera Wails).
+  - Al compilar la APK/AAB release, `gowails::signing_env()` lee
+    `android-signing/keystore.properties` y exporta las cuatro variables al
+    proceso de Gradle (`Command::env`). Sin keystore, el build avisa de que
+    la APK saldrá firmada con la llave de **debug** (que Play Store rechaza).
+  - El `.gitignore` de Go+Wails ignora `android-signing/` y
+    `keystore-backups/`: contienen el keystore y las contraseñas.
 - El **AAB** no se instala con `adb install`: es un bundle de Play Store.
 - `APP_NAME` y `BIN_DIR` se leen del bloque `vars:` del `Taskfile.yml` de la
   raíz (sólo literales; los valores con plantilla `{{...}}` se ignoran).
 
 **Verificado** en `school-tracker` (Windows): la APK release sale en
 `build/android/app/build/outputs/apk/release/app-release.apk` y se copia a
-`bin/school-tracker.apk`.
+`bin/school-tracker.apk`. Con `ANDROID_KEYSTORE_*` exportadas, `apksigner
+verify --print-certs` muestra el certificado del keystore configurado; sin
+ellas, el de debug (`CN=Android Debug`).
 
 ### Tauri Android package consistency (`ensure_package_consistent`)
 Detecta el error típico "Project directory ... does not exist" que ocurre cuando se cambia el `identifier` en `tauri.conf.json` sin regenerar el proyecto Android. Lee el identifier, calcula la ruta esperada del paquete Java (`app/src/main/java/<pkg_path>`) y si no existe:

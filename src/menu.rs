@@ -115,7 +115,10 @@ impl MenuItem {
                 _ if platform::IS_WINDOWS => "Windows",
                 _ => "Linux",
             },
-            Self::AndroidDev => "Android",
+            Self::AndroidDev => match project_type {
+                ProjectType::GoWails => "And. Debug",
+                _ => "Android",
+            },
             Self::WindowsBuild => match project_type {
                 ProjectType::Rust => "Build",
                 _ if platform::IS_WINDOWS => "Win Build",
@@ -228,13 +231,13 @@ impl MenuItem {
                 Self::WindowsDev => "wails3 task dev",
                 Self::AndroidDev => "APK debug + instalar",
                 Self::WindowsBuild => "wails3 task build",
-                Self::AndroidBuildArm64 => "APK release",
+                Self::AndroidBuildArm64 => "APK release + instalar",
                 Self::AndroidBuildArmv7 => "",
                 Self::AndroidBuildAll => "AAB release",
                 Self::InstallDebug => "APK debug + instalar",
                 Self::Clean => "Limpia builds/deps",
                 Self::DebugAndroid => "logcat de la app",
-                Self::Signing => "",
+                Self::Signing => "Firmas y huellas",
                 Self::Git => "Init · gitignore · remoto",
                 Self::BuildWhatsApp => "Compila WhatsApp",
                 Self::Version => "build/config.yml",
@@ -304,11 +307,11 @@ impl MenuState {
                 ProjectType::Tauri => !matches!(item, MenuItem::InstallDebug | MenuItem::FlutterProfile),
                 ProjectType::Flutter => !matches!(item, MenuItem::AndroidBuildArmv7 | MenuItem::Version | MenuItem::InstallDebug),
                 ProjectType::Kotlin => !matches!(item, MenuItem::AndroidBuildArmv7 | MenuItem::Version | MenuItem::FlutterProfile),
-                // Go + Wails: la firma de Android la hace el propio Gradle de
-                // Wails con variables de entorno (ANDROID_KEYSTORE_*), no un
-                // `keystore.properties` como en Kotlin/Tauri, así que la
-                // tarjeta de firmas no aplica.
-                ProjectType::GoWails => !matches!(item, MenuItem::AndroidBuildArmv7 | MenuItem::FlutterProfile | MenuItem::Signing),
+                // Go + Wails: la firma la hace el Gradle de Wails con
+                // variables de entorno (ANDROID_KEYSTORE_*), que Compass
+                // exporta al compilar; la tarjeta gestiona el keystore y el
+                // `.properties` de donde salen.
+                ProjectType::GoWails => !matches!(item, MenuItem::AndroidBuildArmv7 | MenuItem::FlutterProfile),
             })
             // `ConfigureTerminal` escribe un perfil de PowerShell (PSReadLine), que
             // no existe en Linux, así que se oculta en vez de exponer una tarjeta
@@ -1065,6 +1068,18 @@ mod tests {
                 assert!(!task.is_empty());
             }
         }
+    }
+
+    /// Go + Wails muestra la tarjeta de firmas (el keystore se exporta al
+    /// build como variables de entorno) y oculta las que no aplican.
+    #[test]
+    fn gowails_shows_signing_and_hides_unapplicable_cards() {
+        let state = MenuState::new(ProjectType::GoWails, crate::theme::DEFAULT);
+        assert!(state.items.contains(&MenuItem::Signing));
+        assert!(state.items.contains(&MenuItem::AndroidBuildArm64));
+        assert!(state.items.contains(&MenuItem::AndroidBuildAll));
+        assert!(!state.items.contains(&MenuItem::AndroidBuildArmv7));
+        assert!(!state.items.contains(&MenuItem::FlutterProfile));
     }
 
     #[test]

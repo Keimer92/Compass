@@ -45,16 +45,28 @@ use crate::utils::{
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AndroidLayout {
     /// Directorio del módulo Android (`android/app`, `.../gen/android/app`,
-    /// `composeApp` o `app`).
+    /// `composeApp`, `app` o `build/android/app` en Wails).
     pub module_dir: PathBuf,
     /// Nombre del archivo de propiedades: `key.properties` (Flutter) o
-    /// `keystore.properties` (Tauri/KMP).
+    /// `keystore.properties` (Tauri/KMP/Wails).
     pub props_name: &'static str,
+    /// Carpeta donde viven el keystore y el `.properties`.
+    ///
+    /// Normalmente es `module_dir`. En **Go + Wails v3** es una carpeta aparte
+    /// (`android-signing/`): el módulo `build/android/` lo regenera
+    /// `wails3 update build-assets`, y perder el keystore es irrecuperable.
+    pub signing_dir: PathBuf,
+    /// `true` si hay que parchear el `build.gradle` para que use el keystore.
+    ///
+    /// En Wails v3 **no**: su Gradle ya lee `ANDROID_KEYSTORE_FILE` y
+    /// compañía del entorno, así que Compass se limita a exportarlas al
+    /// compilar (ver `tasks::gowails::signing_env`).
+    pub patch_gradle: bool,
 }
 
 impl AndroidLayout {
     pub fn props_path(&self) -> PathBuf {
-        self.module_dir.join(self.props_name)
+        self.signing_dir.join(self.props_name)
     }
 }
 
@@ -67,23 +79,35 @@ pub fn android_layout(ctx: &ProjectContext) -> Option<AndroidLayout> {
         ProjectType::Tauri => AndroidLayout {
             module_dir: ctx.script_dir.join("src-tauri").join("gen").join("android").join("app"),
             props_name: "keystore.properties",
+            signing_dir: ctx.script_dir.join("src-tauri").join("gen").join("android").join("app"),
+            patch_gradle: true,
         },
         ProjectType::Flutter => AndroidLayout {
             module_dir: ctx.script_dir.join("android").join("app"),
             props_name: "key.properties",
+            signing_dir: ctx.script_dir.join("android").join("app"),
+            patch_gradle: true,
         },
         ProjectType::Kotlin => AndroidLayout {
             // `kotlin_android_dir` ya distingue `app/` de `composeApp/`; antes
             // aquí se asumía `composeApp` a secas (bug para KMP con `app/`).
             module_dir: kotlin_android_dir(ctx),
             props_name: "keystore.properties",
+            signing_dir: kotlin_android_dir(ctx),
+            patch_gradle: true,
         },
         ProjectType::Rust => return None,
-        // Wails v3 firma el Android con variables de entorno
-        // (`ANDROID_KEYSTORE_FILE`, `ANDROID_KEYSTORE_PASSWORD`, ...), no con
-        // un `keystore.properties` en el proyecto, así que la firma de este
-        // módulo no aplica.
-        ProjectType::GoWails => return None,
+        // Wails v3: el módulo Android es `build/android/app` y su Gradle ya
+        // lee la firma del entorno (`ANDROID_KEYSTORE_FILE`, ...), así que no
+        // se parchea. El keystore y el `.properties` viven en
+        // `android-signing/`, fuera de `build/`, porque `wails3 update
+        // build-assets` regenera esa carpeta.
+        ProjectType::GoWails => AndroidLayout {
+            module_dir: ctx.script_dir.join("build").join("android").join("app"),
+            props_name: "keystore.properties",
+            signing_dir: ctx.script_dir.join("android-signing"),
+            patch_gradle: false,
+        },
     };
     Some(layout)
 }
@@ -137,14 +161,14 @@ impl Props {
 
 /// Resuelve el `storeFile` de las propiedades a una ruta real.
 ///
-/// El valor puede ser absoluto o relativo al módulo Android (que es como lo
-/// escribe este módulo y como lo espera Gradle).
-pub fn resolve_keystore(module_dir: &Path, store_file: &str) -> PathBuf {
+/// El valor puede ser absoluto o relativo a la carpeta de firma (que es como
+/// lo escribe este módulo y como lo espera Gradle).
+pub fn resolve_keystore(signing_dir: &Path, store_file: &str) -> PathBuf {
     let p = PathBuf::from(store_file);
     if p.is_absolute() {
         p
     } else {
-        module_dir.join(store_file)
+        signing_dir.join(store_file)
     }
 }
 
@@ -189,7 +213,7 @@ pub fn detect(ctx: &ProjectContext) -> Option<SigningInfo> {
 
     let (keystore, keystore_missing) = match props.as_ref().and_then(|p| p.store_file.clone()) {
         Some(sf) if !sf.is_empty() => {
-            let path = resolve_keystore(&layout.module_dir, &sf);
+            let path = resolve_keystore(&layout.signing_dir, &sf);
             if path.exists() {
                 (Some(path), None)
             } else {
@@ -579,12 +603,25 @@ fn require_layout(ctx: &ProjectContext) -> Result<AndroidLayout> {
 }
 
 fn ensure_module_exists(layout: &AndroidLayout) -> bool {
-    if layout.module_dir.exists() {
-        return true;
+    if !layout.module_dir.exists() {
+        eprintln!("[ERROR] No se encontró el directorio Android del proyecto.");
+        eprintln!("  Ruta esperada: {}", layout.module_dir.display());
+        if !layout.patch_gradle {
+            // Wails v3: los assets Android se generan aparte.
+            eprintln!("  Genéralos con: wails3 update build-assets");
+        }
+        return false;
     }
-    eprintln!("[ERROR] No se encontró el directorio Android del proyecto.");
-    eprintln!("  Ruta esperada: {}", layout.module_dir.display());
-    false
+    // La carpeta de firma se crea si falta: es donde viven el keystore y el
+    // `.properties`, y no tiene por qué existir hasta que se configura.
+    if !layout.signing_dir.exists() {
+        if let Err(e) = fs::create_dir_all(&layout.signing_dir) {
+            eprintln!("[ERROR] No se pudo crear: {}", layout.signing_dir.display());
+            eprintln!("  {}", e);
+            return false;
+        }
+    }
+    true
 }
 
 // ── Estado / autodetección ─────────────────────────────────────────────────
@@ -618,6 +655,9 @@ fn show_status(ctx: &ProjectContext) -> Result<()> {
     };
     println!("  Proyecto : {}", type_label);
     println!("  Módulo   : {}", info.layout.module_dir.display());
+    if info.layout.signing_dir != info.layout.module_dir {
+        println!("  Firma en : {}", info.layout.signing_dir.display());
+    }
 
     match &info.props {
         Some(_) => println!("  Properties: {}  [OK]", info.layout.props_name),
@@ -637,10 +677,17 @@ fn show_status(ctx: &ProjectContext) -> Result<()> {
         println!("  Alias    : {}", alias);
     }
 
-    let gradle = match gradle_signing_status(&info.layout.module_dir) {
-        GradleSigning::Patched => "parcheado (signingConfigs inyectado) [OK]",
-        GradleSigning::Unpatched => "sin parchear — usa la opción 2/3/4 [WARN]",
-        GradleSigning::NoFile => "no se encontró build.gradle(.kts) [WARN]",
+    let gradle = if !info.layout.patch_gradle {
+        // Wails v3: la firma llega al Gradle por variables de entorno, y
+        // Compass las exporta al compilar la APK/AAB release.
+        "firma por variables de entorno (ANDROID_KEYSTORE_*) [OK]".to_string()
+    } else {
+        match gradle_signing_status(&info.layout.module_dir) {
+            GradleSigning::Patched => "parcheado (signingConfigs inyectado) [OK]",
+            GradleSigning::Unpatched => "sin parchear — usa la opción 2/3/4 [WARN]",
+            GradleSigning::NoFile => "no se encontró build.gradle(.kts) [WARN]",
+        }
+        .to_string()
     };
     println!("  Gradle   : {}", gradle);
 
@@ -782,14 +829,14 @@ fn create_keystore(ctx: &ProjectContext) -> Result<()> {
     let alias = ui::ask_text("Alias de la llave", Some("upload"))?;
     let pass = ui::ask_password("Contraseña para el Keystore (mín 6 caracteres)")?;
 
-    let dest_keystore = layout.module_dir.join(&name);
+    let dest_keystore = layout.signing_dir.join(&name);
     let keytool = find_keytool()?;
     println!("  keytool encontrado en: {}", keytool);
     println!();
 
     // Limpieza de keystores previos: el proyecto sólo debe tener el suyo.
     println!("  Limpiando keystores existentes...");
-    if let Ok(entries) = fs::read_dir(&layout.module_dir) {
+    if let Ok(entries) = fs::read_dir(&layout.signing_dir) {
         for entry in entries.flatten() {
             let p = entry.path();
             if p.is_file() {
@@ -923,7 +970,7 @@ fn import_keystore(ctx: &ProjectContext) -> Result<()> {
     let key_pass = if key_pass_input.is_empty() { store_pass.clone() } else { key_pass_input };
 
     let k_name = keystore_file.file_name().unwrap().to_str().unwrap().to_string();
-    let dest = layout.module_dir.join(&k_name);
+    let dest = layout.signing_dir.join(&k_name);
     fs::copy(&keystore_file, &dest).context("Error al copiar el archivo")?;
     println!("  [OK] Archivo copiado correctamente.");
 
@@ -954,7 +1001,11 @@ fn manual_configure(ctx: &ProjectContext) -> Result<()> {
     patch_build_gradle(&layout)?;
 
     ui::success_banner("Configuración manual completada");
-    println!("  Asegúrate de que '{}' exista en la carpeta del módulo.", name);
+    println!(
+        "  Asegúrate de que '{}' exista en {}.",
+        name,
+        layout.signing_dir.display()
+    );
     ui::pause();
     Ok(())
 }
@@ -976,6 +1027,16 @@ fn write_properties(layout: &AndroidLayout, keystore_name: &str, store_pass: &st
 /// Inyecta el loader, `signingConfigs` y el `signingConfig` de release en el
 /// `build.gradle(.kts)` del módulo. Soporta Kotlin Script y Groovy.
 fn patch_build_gradle(layout: &AndroidLayout) -> Result<()> {
+    // En Go + Wails v3 el Gradle ya lee la firma del entorno
+    // (`ANDROID_KEYSTORE_FILE` y compañía): parchearlo duplicaría la
+    // configuración y, además, el archivo lo regenera
+    // `wails3 update build-assets`.
+    if !layout.patch_gradle {
+        println!("  [OK] El Gradle de Wails ya lee la firma del entorno; no hay que parchearlo.");
+        println!("       Compass exporta ANDROID_KEYSTORE_* al compilar la APK/AAB release.");
+        return Ok(());
+    }
+
     let android_app = &layout.module_dir;
     let props_name = layout.props_name;
 
@@ -1074,9 +1135,10 @@ fn backup_keystore(ctx: &ProjectContext) -> Result<()> {
         return Ok(());
     }
 
-    // Keystores del módulo + el declarado en las properties (puede vivir fuera).
+    // Keystores de la carpeta de firma + el declarado en las properties (puede
+    // vivir fuera).
     let mut files: Vec<PathBuf> = Vec::new();
-    if let Ok(entries) = fs::read_dir(&layout.module_dir) {
+    if let Ok(entries) = fs::read_dir(&layout.signing_dir) {
         for entry in entries.flatten() {
             let p = entry.path();
             let name = p.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
@@ -1096,7 +1158,7 @@ fn backup_keystore(ctx: &ProjectContext) -> Result<()> {
     if files.is_empty() {
         eprintln!();
         eprintln!("[ERROR] No se encontraron archivos .keystore o .jks.");
-        eprintln!("La ruta buscada es: {}", layout.module_dir.display());
+        eprintln!("La ruta buscada es: {}", layout.signing_dir.display());
         eprintln!("Primero crea uno con la opción 2.");
         ui::pause();
         return Ok(());
@@ -1114,7 +1176,7 @@ fn backup_keystore(ctx: &ProjectContext) -> Result<()> {
 
     // Las properties van con el keystore: sin ellas el respaldo no sirve.
     for props_name in &["keystore.properties", "key.properties"] {
-        let props = layout.module_dir.join(props_name);
+        let props = layout.signing_dir.join(props_name);
         if props.exists() {
             fs::copy(&props, dest_dir.join(props_name))?;
             println!("  [OK] {} respaldado.", props_name);
@@ -1182,7 +1244,7 @@ fn restore_keystore(ctx: &ProjectContext) -> Result<()> {
         let path = entry.path();
         if path.is_file() {
             let name = entry.file_name();
-            fs::copy(&path, layout.module_dir.join(&name))?;
+            fs::copy(&path, layout.signing_dir.join(&name))?;
             println!("  [OK] {} restaurado.", name.to_string_lossy());
             count += 1;
         }
@@ -1632,6 +1694,8 @@ mod tests {
             layout: AndroidLayout {
                 module_dir: PathBuf::from("/tmp/app"),
                 props_name: "keystore.properties",
+                signing_dir: PathBuf::from("/tmp/app"),
+                patch_gradle: true,
             },
             props: Some(Props {
                 store_file: Some("release.keystore".into()),
