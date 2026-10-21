@@ -313,7 +313,16 @@ fn install_release_apk(ctx: &ProjectContext, apk: &std::path::Path) -> Result<()
         .map(|p| format!("{}.MainActivity", p))
         .unwrap_or_else(|| format!("{}.MainActivity", namespace));
 
-    android_utils::install_apk(ctx, apk, &namespace, &activity)
+    // La APK ya está compilada: si no hay dispositivo o falla la instalación,
+    // se avisa pero **no** se aborta (si no, la ventana del menú se cerraba
+    // y el mensaje se perdía).
+    if let Err(e) = android_utils::install_apk(ctx, apk, &namespace, &activity) {
+        println!();
+        println!("[WARN] No se pudo instalar en el dispositivo:");
+        println!("       {}", e.to_string().replace('\n', "\n       "));
+    }
+    println!("[OK] APK disponible en: {}", apk.display());
+    Ok(())
 }
 
 pub fn build_windows(ctx: &ProjectContext) -> Result<()> {
@@ -375,6 +384,9 @@ pub fn build_apk(ctx: &ProjectContext) -> Result<()> {
         }
     }
 
+    // Pausa final: la ventana del menú se cierra al terminar el proceso, y
+    // sin esto el resultado de la instalación se pierde de vista.
+    ui::pause();
     Ok(())
 }
 

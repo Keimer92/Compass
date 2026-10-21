@@ -511,6 +511,28 @@ pub fn run_program(
         .success())
 }
 
+/// Igual que [`run_program`] pero **capturando** la salida, para poder
+/// inspeccionarla.
+///
+/// Sirve para pasos cuya salida hay que leer (por ejemplo, comprobar que el
+/// generador de bindings ha cargado los paquetes de Go y no ha generado cero
+/// servicios).
+pub fn run_program_capture(
+    program: &str,
+    args: &[&str],
+    dir: &std::path::Path,
+    envs: &[(String, String)],
+) -> Result<Output> {
+    let mut c = Command::new(program);
+    c.args(args);
+    c.current_dir(dir);
+    for (k, v) in envs {
+        c.env(k, v);
+    }
+    c.output()
+        .with_context(|| format!("No se pudo ejecutar: {program}"))
+}
+
 /// Ejecuta un comando largo (p. ej. `cargo run`) en esta ventana y la deja
 /// abierta hasta que el usuario pulse Enter.
 pub fn run_in_current_window(command: &str, dir: &std::path::Path) -> Result<()> {

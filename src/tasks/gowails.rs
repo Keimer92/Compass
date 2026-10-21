@@ -424,16 +424,25 @@ fn build_android_apk(ctx: &ProjectContext, release: bool) -> Result<PathBuf> {
 
     // ── 2. Bindings para el frontend ──
     println!("[2/5] Generando los bindings...");
+    // Sólo los **tags**: el generador reparte esta cadena por espacios y se
+    // la pasa a `go list`, así que cualquier flag con valor compuesto
+    // (`-ldflags="-w -s"`, `-gcflags=all="-l"`) lo rompe con
+    // "flag provided but not defined: -s". Y para generar los bindings sólo
+    // importan los tags: son los que deciden qué ficheros de Go se analizan.
     let build_flags = if release {
-        "-tags production,android -trimpath -buildvcs=false -ldflags=-w -s"
+        "-tags production,android"
     } else {
-        "-tags android,debug -buildvcs=false -gcflags=all=-l"
+        "-tags android,debug"
     };
-    let envs = vec![
-        ("GOOS".to_string(), "android".to_string()),
-        ("CGO_ENABLED".to_string(), "0".to_string()),
-    ];
-    if !cmd::run_program(
+    // ⚠️ **Aquí NO se pone `GOOS=android`**. El generador de bindings carga los
+    // paquetes de Go para analizarlos, y con `GOOS=android` + `CGO_ENABLED=0`
+    // el cargador no puede resolver ni la biblioteca estándar ("could not
+    // import embed") → genera **0 servicios** y el frontend deja de compilar
+    // ("Could not resolve ../../../bindings/<paquete>/service").
+    // El Taskfile de Wails sí define una tarea `generate:android:bindings` con
+    // esas variables, pero **no** forma parte del pipeline de build: la que se
+    // usa (`common:generate:bindings`) corre en el host.
+    let out = cmd::run_program_capture(
         "wails3",
         &[
             "generate",
@@ -445,9 +454,22 @@ fn build_android_apk(ctx: &ProjectContext, release: bool) -> Result<PathBuf> {
             "-i",
         ],
         root,
-        &envs,
-    )? {
-        println!("[WARN] La generacion de bindings fallo; se continua con los que hubiera.");
+        &[],
+    )?;
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    print!("{stdout}");
+    eprint!("{stderr}");
+
+    if !out.status.success() {
+        anyhow::bail!("[ERROR] Falló la generación de bindings.");
+    }
+    if stderr.contains("could not import") {
+        anyhow::bail!(
+            "[ERROR] El generador de bindings no pudo cargar los paquetes de Go.\n  \
+             Suele pasar si se genera con GOOS=android: los bindings deben generarse\n  \
+             en el host (sin GOOS=android) y sólo los *flags* llevan los tags de Android."
+        );
     }
 
     // ── 3. Frontend ──
@@ -694,6 +716,7 @@ pub fn build_apk(ctx: &ProjectContext) -> Result<()> {
         install_apk(ctx, &apk)?;
     }
 
+    ui::pause();
     Ok(())
 }
 
@@ -702,6 +725,7 @@ pub fn install_debug(ctx: &ProjectContext) -> Result<()> {
     println!("\n[INFO] Compilando Android APK (Debug) con Wails...\n");
     let apk = build_android_apk(ctx, false)?;
     install_apk(ctx, &apk)?;
+    ui::pause();
     Ok(())
 }
 
@@ -748,14 +772,29 @@ pub fn build_aab(ctx: &ProjectContext) -> Result<()> {
     println!("[OK] AAB generado: {}", dest.display());
     println!("[INFO] Un AAB no se instala directamente en el telefono; es para Play Store.");
 
+    ui::pause();
     Ok(())
 }
 
 /// Instala un APK ya compilado en el teléfono y abre la app.
+///
+/// **No aborta el build si no hay dispositivo**: la APK ya está compilada y
+/// ese es el resultado que importa. Antes el error de `select_device` (no hay
+/// teléfono conectado) terminaba el proceso y, como la ventana del menú se
+/// cierra sola al terminar, el mensaje se perdía.
 fn install_apk(ctx: &ProjectContext, apk: &Path) -> Result<()> {
     let package = application_id(ctx);
     let activity = main_activity(ctx);
-    android_utils::install_apk(ctx, apk, &package, &activity)
+
+    if let Err(e) = android_utils::install_apk(ctx, apk, &package, &activity) {
+        println!();
+        println!("[WARN] No se pudo instalar en el dispositivo:");
+        println!("       {}", e.to_string().replace('\n', "\n       "));
+        println!();
+    }
+
+    println!("[OK] APK disponible en: {}", apk.display());
+    Ok(())
 }
 
 /// Logcat de la app en el dispositivo (sólo su PID, sin `grep`).

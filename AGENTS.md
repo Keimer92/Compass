@@ -873,13 +873,39 @@ En Windows el `case` cae en `*)` y aborta, aunque la NDK del host sí exista
 del Taskfile) pero con el *host tag* y el compilador correctos:
 
 1. `wails3 android overlay:gen -out build/android/overlay.json -config build/config.yml`
-2. `wails3 generate bindings -f "-tags android,debug" -clean=true -ts -i` (con `GOOS=android`, `CGO_ENABLED=0`)
+2. `wails3 generate bindings -f "-tags android,debug" -clean=true -ts -i`
 3. Frontend: `npm install` (si falta `node_modules/`) + `npm run build` en `frontend/`
 4. `go build -buildmode=c-shared -overlay build/android/overlay.json -tags android,debug -o build/android/app/src/main/jniLibs/arm64-v8a/libwails.so`
 5. Gradle: `gradlew.bat assembleDebug` / `assembleRelease` en `build/android/`
 
+⚠️ **Los bindings se generan en el HOST, sin `GOOS=android`.** Es el punto
+más fácil de romper: el generador de bindings **carga los paquetes de Go** para
+analizarlos, y con `GOOS=android` + `CGO_ENABLED=0` el cargador no puede
+resolver ni la biblioteca estándar:
+
+```
+WARNING -: android/amd64 requires external (cgo) linking, but cgo is not enabled
+WARNING main.go:4:2: could not import embed (missing package: "embed")
+INFO Processed: 1 Package, 0 Services, 0 Methods, ...
+```
+
+Con **0 servicios** generados, el frontend deja de compilar con un error
+críptico: `Could not resolve "../../../bindings/<paquete>/service"`. El
+Taskfile de Wails **sí** define una tarea `generate:android:bindings` con esas
+variables, pero **no** forma parte del pipeline de build: la que se usa
+(`common:generate:bindings`) corre en el host. En Compass el paso se captura
+(`cmd::run_program_capture`) y si la salida contiene `could not import` se
+aborta con un mensaje claro, en vez de dejar que reviente el frontend.
+
 Detalles que importan:
 
+- ⚠️ **La ventana del menú se cierra al terminar el proceso.** La tarea se
+  lanza con `spawn_new_window_autoexit` (`cmd /c title X & compass --task …`),
+  que **no** hace `pause`: si la tarea muere con un error, el mensaje
+  desaparece en un segundo y el usuario ve "la terminal se cierra". Por eso
+  las tareas de Android terminan con `ui::pause()`, y **la instalación no
+  aborta el build** si no hay dispositivo (la APK ya está compilada: se avisa
+  y se sigue). Lo mismo se aplicó a `kotlin::build_apk`.
 - ⚠️ **Nada de shell para el pipeline de Android.** `cmd::run_program()`
   (nuevo) invoca el programa **sin shell**, con los argumentos uno a uno. Con
   `cmd /c` las rutas con espacios se parten (`D:\Mis Proyectos\Go + Wails
