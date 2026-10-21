@@ -313,15 +313,9 @@ fn install_release_apk(ctx: &ProjectContext, apk: &std::path::Path) -> Result<()
         .map(|p| format!("{}.MainActivity", p))
         .unwrap_or_else(|| format!("{}.MainActivity", namespace));
 
-    // La APK ya está compilada: si no hay dispositivo o falla la instalación,
-    // se avisa pero **no** se aborta (si no, la ventana del menú se cerraba
-    // y el mensaje se perdía).
-    if let Err(e) = android_utils::install_apk(ctx, apk, &namespace, &activity) {
-        println!();
-        println!("[WARN] No se pudo instalar en el dispositivo:");
-        println!("       {}", e.to_string().replace('\n', "\n       "));
-    }
-    println!("[OK] APK disponible en: {}", apk.display());
+    // Se instala **solo si hay un dispositivo Android conectado**. Si no lo
+    // hay, el paso se omite sin preguntar: la APK ya está compilada.
+    android_utils::install_apk_if_device(ctx, apk, &namespace, &activity)?;
     Ok(())
 }
 
@@ -368,17 +362,12 @@ pub fn build_apk(ctx: &ProjectContext) -> Result<()> {
         &envs,
     )?;
 
-    // El APK release se instala en el telefono igual que el de debug: se
-    // ofrece al terminar el build, no siempre (puede que el usuario solo
-    // quiera el artefacto).
+    // El APK release se instala en el telefono igual que el de debug: **si
+    // hay un dispositivo Android conectado**. Si no lo hay, el paso se omite
+    // (la APK ya está compilada) y no se pregunta nada.
     if outcome.success {
         if let Some(apk) = outcome.artifact {
-            let install = inquire::Confirm::new("¿Instalar el APK release en el dispositivo?")
-                .with_default(true)
-                .prompt()?;
-            if install {
-                install_release_apk(ctx, &apk)?;
-            }
+            install_release_apk(ctx, &apk)?;
         } else {
             println!("[WARN] No se encontro el APK para instalar.");
         }

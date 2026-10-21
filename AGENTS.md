@@ -921,6 +921,15 @@ Detalles que importan:
   las tareas de Android terminan con `ui::pause()`, y **la instalación no
   aborta el build** si no hay dispositivo (la APK ya está compilada: se avisa
   y se sigue). Lo mismo se aplicó a `kotlin::build_apk`.
+- **La instalación es automática si hay un móvil conectado**: no se pregunta
+  nada. `android_utils::install_apk_if_device()` comprueba
+  `connected_devices()` y:
+  - **Con dispositivo** → instala (`adb install -r`) y abre la app. Con varios,
+    `select_device` pregunta cuál.
+  - **Sin dispositivo** → omite el paso con un aviso y la ruta de la APK.
+
+  Aplica igual al **debug** y al **release**, y en Kotlin y en Go+Wails
+  (`kotlin::build_apk` y `gowails::build_apk`).
 - ⚠️ **Nada de shell para el pipeline de Android.** `cmd::run_program()`
   (nuevo) invoca el programa **sin shell**, con los argumentos uno a uno. Con
   `cmd /c` las rutas con espacios se parten (`D:\Mis Proyectos\Go + Wails

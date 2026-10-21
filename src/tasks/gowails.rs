@@ -704,18 +704,11 @@ fn newest_in(dir: &Path, ext: &str) -> Option<PathBuf> {
     best.map(|(_, p)| p)
 }
 
-/// APK **release** + opción de instalarlo en el teléfono.
+/// APK **release** + instalación automática si hay un móvil conectado.
 pub fn build_apk(ctx: &ProjectContext) -> Result<()> {
     println!("\n[INFO] Compilando Android APK (Release) con Wails...\n");
     let apk = build_android_apk(ctx, true)?;
-
-    let install = inquire::Confirm::new("¿Instalar el APK release en el dispositivo?")
-        .with_default(true)
-        .prompt()?;
-    if install {
-        install_apk(ctx, &apk)?;
-    }
-
+    install_apk(ctx, &apk)?;
     ui::pause();
     Ok(())
 }
@@ -778,22 +771,13 @@ pub fn build_aab(ctx: &ProjectContext) -> Result<()> {
 
 /// Instala un APK ya compilado en el teléfono y abre la app.
 ///
-/// **No aborta el build si no hay dispositivo**: la APK ya está compilada y
-/// ese es el resultado que importa. Antes el error de `select_device` (no hay
-/// teléfono conectado) terminaba el proceso y, como la ventana del menú se
-/// cierra sola al terminar, el mensaje se perdía.
+/// **Se instala solo si hay un dispositivo Android conectado**: si no lo hay,
+/// el paso se omite (la APK ya está compilada, que es lo que importa) y no se
+/// pregunta nada.
 fn install_apk(ctx: &ProjectContext, apk: &Path) -> Result<()> {
     let package = application_id(ctx);
     let activity = main_activity(ctx);
-
-    if let Err(e) = android_utils::install_apk(ctx, apk, &package, &activity) {
-        println!();
-        println!("[WARN] No se pudo instalar en el dispositivo:");
-        println!("       {}", e.to_string().replace('\n', "\n       "));
-        println!();
-    }
-
-    println!("[OK] APK disponible en: {}", apk.display());
+    android_utils::install_apk_if_device(ctx, apk, &package, &activity)?;
     Ok(())
 }
 

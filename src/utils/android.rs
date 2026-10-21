@@ -184,6 +184,54 @@ pub fn install_apk(
     Ok(())
 }
 
+/// Dispositivos físicos conectados **sin preguntar nada**.
+///
+/// Se usa para decidir si tiene sentido instalar: si no hay ninguno, la
+/// instalación se omite (la APK ya está compilada, eso es lo que importa).
+pub fn connected_devices(ctx: &ProjectContext) -> Vec<Device> {
+    let Some(adb) = ctx.adb_path.as_ref() else {
+        return Vec::new();
+    };
+    list_physical_devices(adb).unwrap_or_default()
+}
+
+/// Instala el APK **si hay un dispositivo físico conectado**.
+///
+/// Devuelve si se llegó a instalar. Sin dispositivo no es un error: el build
+/// ya terminó y la APK está lista; sólo se omite el paso y no se pregunta
+/// nada.
+///
+/// Con varios dispositivos conectados, `install_apk` pregunta cuál (a través
+/// de `select_device`).
+///
+/// ⚠️ **Nunca aborta el build**: si la instalación falla, se avisa y se sigue.
+/// La APK ya está compilada, que es lo que importa; y como la ventana del
+/// menú se cierra al terminar el proceso, un error aquí se perdería de vista.
+pub fn install_apk_if_device(
+    ctx: &ProjectContext,
+    apk: &Path,
+    package: &str,
+    activity: &str,
+) -> Result<bool> {
+    let devices = connected_devices(ctx);
+    if devices.is_empty() {
+        println!();
+        println!("[INFO] No hay ningun dispositivo Android conectado: no se instala.");
+        println!("[OK] APK disponible en: {}", apk.display());
+        return Ok(false);
+    }
+
+    println!("[INFO] Dispositivo Android detectado: {}", devices[0].serial);
+    if let Err(e) = install_apk(ctx, apk, package, activity) {
+        println!();
+        println!("[WARN] No se pudo instalar en el dispositivo:");
+        println!("       {}", e.to_string().replace('\n', "\n       "));
+        println!();
+    }
+    println!("[OK] APK disponible en: {}", apk.display());
+    Ok(true)
+}
+
 /// Lista los dispositivos físicos conectados vía `adb devices`.
 fn list_physical_devices(adb_path: &Path) -> Result<Vec<Device>> {
     let adb = adb_path.to_str().context("Ruta de adb inválida")?;
