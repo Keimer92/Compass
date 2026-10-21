@@ -897,6 +897,21 @@ variables, pero **no** forma parte del pipeline de build: la que se usa
 (`cmd::run_program_capture`) y si la salida contiene `could not import` se
 aborta con un mensaje claro, en vez de dejar que reviente el frontend.
 
+⚠️ **Al generador de bindings sólo se le pasan los `-tags`.** Reparte la
+cadena `-f` por espacios y se la pasa tal cual a `go list`, así que cualquier
+flag con valor compuesto lo rompe:
+
+```
+$ wails3 generate bindings -f '-tags production,android ... -ldflags="-w -s"'
+ERROR unsupported version of go: exit status 2: flag provided but not defined: -s
+```
+
+Ni con comillas funciona: el reparte no las respeta. Para generar los bindings
+sólo importan los **tags** (deciden qué ficheros de Go se analizan), así que
+Compass pasa `-tags production,android` (release) o `-tags android,debug`
+(debug) y nada más. Los flags deStripping (`-trimpath`, `-ldflags`) son para
+el binario final, y ahí sí se pasan como argumentos sueltos a `go build`.
+
 Detalles que importan:
 
 - ⚠️ **La ventana del menú se cierra al terminar el proceso.** La tarea se
