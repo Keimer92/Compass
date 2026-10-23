@@ -24,7 +24,7 @@ use crate::utils::cmd;
 use crate::utils::context::{ProjectContext, ProjectType};
 use crate::utils::platform;
 
-const COLS: usize = 2;
+const COLS: usize = 5;
 const CARD_W: u16 = 24;
 const CARD_H: u16 = 4;
 const FOOTER_H: u16 = 1;
@@ -220,7 +220,7 @@ impl MenuItem {
                 Self::WindowsDev => "gradlew :composeApp:run",
                 Self::AndroidDev => "gradlew :installDebug",
                 Self::WindowsBuild => "gradlew :packageDist",
-                Self::AndroidBuildArm64 => "assembleRelease + instalar",
+                Self::AndroidBuildArm64 => "assembleRelease",
                 Self::AndroidBuildArmv7 => "",
                 Self::AndroidBuildAll => "gradlew :bundleRelease",
                 Self::InstallDebug => "gradlew :installDebug",
@@ -235,18 +235,18 @@ impl MenuItem {
                 Self::AndroidHmr => "",
             },
             ProjectType::GoWails => match self {
-                Self::WindowsDev => "wails3 task dev",
-                Self::AndroidDev => "APK debug + instalar",
-                Self::AndroidHmr => "HMR (Vite + adb reverse)",
-                Self::WindowsBuild => "wails3 task build",
-                Self::AndroidBuildArm64 => "APK release + instalar",
+                Self::WindowsDev => "dev escritorio",
+                Self::AndroidDev => "APK debug",
+                Self::AndroidHmr => "HMR (Vite)",
+                Self::WindowsBuild => "build escritorio",
+                Self::AndroidBuildArm64 => "APK release",
                 Self::AndroidBuildArmv7 => "",
                 Self::AndroidBuildAll => "AAB release",
-                Self::InstallDebug => "APK debug + instalar",
+                Self::InstallDebug => "APK debug",
                 Self::Clean => "Limpia builds/deps",
                 Self::DebugAndroid => "logcat de la app",
                 Self::Signing => "Firmas y huellas",
-                Self::Git => "Init · gitignore · remoto",
+                Self::Git => "Init · gitignore",
                 Self::BuildWhatsApp => "Compila WhatsApp",
                 Self::Version => "build/config.yml",
                 Self::ConfigureTerminal => "Autocompletado",
@@ -728,6 +728,15 @@ fn create_card(item: &MenuItem, is_selected: bool, is_hovered: bool, project_typ
     let action = if desc.is_empty() { label } else { desc };
     let line1 = format!(" {}  {}", icon, action);
 
+    // En hover se muestra una segunda línea con el nombre corto de la tarjeta
+    // (la "información precisa" de lo que hace), para que al pasar el mouse
+    // quede claro qué se ejecutaría con Enter.
+    let line2 = if is_hovered {
+        format!(" {}", label)
+    } else {
+        String::new()
+    };
+
     // El texto marca el estado: reposo = color de sección, hover/selección =
     // más claro y en negrita, para que al pasar el mouse quede claro qué card
     // se ejecutaría con Enter.
@@ -742,6 +751,7 @@ fn create_card(item: &MenuItem, is_selected: bool, is_hovered: bool, project_typ
     if bold {
         line1_style = line1_style.add_modifier(Modifier::BOLD);
     }
+    let line2_style = Style::default().fg(theme.muted);
 
     let mut block = Block::default()
         .borders(Borders::ALL)
@@ -755,6 +765,7 @@ fn create_card(item: &MenuItem, is_selected: bool, is_hovered: bool, project_typ
 
     Paragraph::new(Text::from(vec![
         Line::from(vec![Span::styled(line1, line1_style)]),
+        Line::from(vec![Span::styled(line2, line2_style)]),
     ]))
     .alignment(Alignment::Center)
     .block(block)
