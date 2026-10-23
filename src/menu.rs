@@ -214,7 +214,7 @@ impl MenuItem {
                 Self::WindowsDev => "gradlew :composeApp:run",
                 Self::AndroidDev => "gradlew :installDebug",
                 Self::WindowsBuild => "gradlew :packageDist",
-                Self::AndroidBuildArm64 => "gradlew :assembleRelease",
+                Self::AndroidBuildArm64 => "assembleRelease + instalar",
                 Self::AndroidBuildArmv7 => "",
                 Self::AndroidBuildAll => "gradlew :bundleRelease",
                 Self::InstallDebug => "gradlew :installDebug",
