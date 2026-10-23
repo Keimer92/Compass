@@ -888,6 +888,13 @@ pub fn dev_android(ctx: &ProjectContext) -> Result<()> {
 
     println!("[OK] Vite detectado en localhost:{port}.");
     println!();
+
+    // ⚠️ **Parche del MIME type para HMR.** El WebView rechaza los módulos
+    // de Vite (`@vite/client`, `src/main.ts`) porque el asset server de Wails
+    // devuelve `application/octet-stream` para ellos. Sin el parche, la
+    // pantalla queda en blanco. Se aplica una sola vez (es idempotente).
+    patch_wails_bridge_mime(ctx);
+
     println!("[INFO] Desinstalando la versión anterior (evita el choque de firma");
     println!("[INFO] debug ↔ release que da INSTALL_FAILED_UPDATE_INCOMPATIBLE)...");
     let package = application_id(ctx);
@@ -910,6 +917,81 @@ pub fn dev_android(ctx: &ProjectContext) -> Result<()> {
     )?;
 
     Ok(())
+}
+
+/// Parchea `WailsBridge.java` para que sirva los archivos de dev (Vite HMR)
+/// con el MIME type correcto.
+///
+/// El asset server de Wails v3 devuelve `application/octet-stream` para los
+/// módulos de Vite (`@vite/client`, `src/main.ts`), y el WebView rechaza
+/// cargarlos como módulos JS → pantalla en blanco. Este parche añade un
+/// fallback por extensión.
+///
+/// El archivo está en `build/android/`, que `wails3 update build-assets`
+/// regenera; por eso el parche se reaplica cada vez que se lanza la HMR.
+fn patch_wails_bridge_mime(ctx: &ProjectContext) {
+    let path = ctx
+        .script_dir
+        .join("build")
+        .join("android")
+        .join("app")
+        .join("src")
+        .join("main")
+        .join("java")
+        .join("com")
+        .join("wails")
+        .join("app")
+        .join("WailsBridge.java");
+
+    let Ok(content) = std::fs::read_to_string(&path) else {
+        return;
+    };
+
+    // Idempotencia: si ya está parcheado, no tocar.
+    if content.contains("Fallback para HMR") {
+        return;
+    }
+
+    let old = r#"        try {
+            String mimeType = nativeGetAssetMimeType(path);
+            return mimeType != null ? mimeType : "application/octet-stream";
+        } catch (Exception e) {
+            return "application/octet-stream";
+        }"#;
+
+    let new = r#"        try {
+            String mimeType = nativeGetAssetMimeType(path);
+            if (mimeType != null) {
+                return mimeType;
+            }
+        } catch (Exception e) {
+            // fall through to the fallback below
+        }
+        // Fallback para HMR (dev mode): los módulos de Vite (`@vite/client`,
+        // `src/main.ts`) llegan al asset server con MIME `application/octet-stream`
+        // y el WebView los rechaza como módulos JS -> pantalla en blanco.
+        String lower = path.toLowerCase();
+        if (lower.endsWith(".ts") || lower.endsWith(".tsx")
+                || lower.endsWith(".js") || lower.endsWith(".jsx")
+                || lower.contains("@vite")) {
+            return "application/javascript";
+        }
+        if (lower.endsWith(".css")) {
+            return "text/css";
+        }
+        if (lower.endsWith(".json")) {
+            return "application/json";
+        }
+        if (lower.endsWith(".html")) {
+            return "text/html";
+        }
+        return "application/octet-stream";"#;
+
+    if let Some(pos) = content.find(old) {
+        let patched = format!("{}{}{}", &content[..pos], new, &content[pos + old.len()..]);
+        let _ = std::fs::write(&path, patched);
+        println!("[INFO] Parche MIME aplicado a WailsBridge.java (HMR).");
+    }
 }
 
 /// Limpieza: borra los artefactos de build (conserva las dependencias).
