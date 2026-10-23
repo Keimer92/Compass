@@ -895,6 +895,12 @@ pub fn dev_android(ctx: &ProjectContext) -> Result<()> {
     // pantalla queda en blanco. Se aplica una sola vez (es idempotente).
     patch_wails_bridge_mime(ctx);
 
+    println!("[WARN] HMR en Android es experimental en Wails v3: la pantalla puede");
+    println!("       quedar en blanco si el asset server no sirve algún módulo con");
+    println!("       el MIME correcto. Si pasa, usa chrome://inspect para ver el");
+    println!("       error exacto en la consola del WebView.");
+    println!();
+
     println!("[INFO] Desinstalando la versión anterior (evita el choque de firma");
     println!("[INFO] debug ↔ release que da INSTALL_FAILED_UPDATE_INCOMPATIBLE)...");
     let package = application_id(ctx);
