@@ -838,6 +838,70 @@ pub fn clean_targets(ctx: &ProjectContext) -> Vec<(String, PathBuf)> {
     ]
 }
 
+/// HMR en Android (`wails3 task android:dev`).
+///
+/// Reproduce el flujo descrito en el AGENTS del proyecto:
+///
+/// 1. Consola 1: `npm run dev` en `frontend/` (Vite, queda abierta).
+/// 2. Consola 2: esta tarea, que compila el `.so` con el proxy al Vite de la
+///    PC, publica el puerto con `adb reverse`, instala el APK de debug y
+///    arranca la app. El `adb reverse tcp:PORT tcp:PORT` lo hace la propia
+///    tarea, no hay que lanzarlo a mano.
+///
+/// Sin el Vite corriendo en `localhost:PORT`, la app abre pero no carga el
+/// frontend, así que se avisa antes de lanzar nada.
+pub fn dev_android(ctx: &ProjectContext) -> Result<()> {
+    ensure_wails_cli()?;
+
+    let port: u16 = std::env::var("WAILS_VITE_PORT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(9245);
+
+    // Comprueba que Vite esté escuchando en el puerto.
+    let vite_ok = std::net::TcpStream::connect_timeout(
+        &format!("127.0.0.1:{port}").parse().unwrap(),
+        std::time::Duration::from_secs(3),
+    )
+    .is_ok();
+
+    cmd::clear_screen();
+    println!("╔══════════════════════════════════════════════════╗");
+    println!("║       WAILS v3 - HMR EN ANDROID                  ║");
+    println!("╚══════════════════════════════════════════════════╝");
+    println!();
+    println!("[INFO] Puerto de Vite esperado: http://localhost:{port}");
+    println!();
+
+    if !vite_ok {
+        println!("[WARN] Vite no esta corriendo en el puerto {port}.");
+        println!();
+        println!("  Abre otra terminal, ve a frontend/ y ejecuta:");
+        println!("    npm run dev");
+        println!();
+        println!("  Cuando Vite esté corriendo, vuelve a lanzar esta tarjeta.");
+        println!("  (La tarea android:dev también lo comprueba, pero así lo ves antes.)");
+        println!();
+        ui::pause();
+        return Ok(());
+    }
+
+    println!("[OK] Vite detectado en localhost:{port}.");
+    println!();
+    println!("[INFO] Lanzando: wails3 task android:dev");
+    println!("[INFO] La tarea compila el .so, publica el puerto con `adb reverse`,");
+    println!("[INFO] instala la APK de debug y arranca la app.");
+    println!();
+
+    cmd::spawn_new_window_interactive(
+        "Wails Android HMR",
+        &ctx.script_dir,
+        "wails3 task android:dev",
+    )?;
+
+    Ok(())
+}
+
 /// Limpieza: borra los artefactos de build (conserva las dependencias).
 pub fn clean(ctx: &ProjectContext) -> Result<()> {
     cmd::clear_screen();

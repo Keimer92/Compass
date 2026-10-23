@@ -55,6 +55,7 @@ pub enum MenuItem {
     // DEV section
     WindowsDev,
     AndroidDev,
+    AndroidHmr,
     WindowsBuild,
     AndroidBuildArm64,
     AndroidBuildArmv7,
@@ -81,6 +82,7 @@ impl MenuItem {
         match self {
             Self::WindowsDev => "\u{1f5a5}",
             Self::AndroidDev => "\u{1f4f1}",
+            Self::AndroidHmr => "\u{1f525}",
             Self::WindowsBuild => "\u{1f4e6}",
             Self::AndroidBuildArm64 => "\u{1f680}",
             Self::AndroidBuildArmv7 => "\u{1f680}",
@@ -99,7 +101,7 @@ impl MenuItem {
 
     fn section(&self) -> &str {
         match self {
-            Self::WindowsDev | Self::AndroidDev | Self::WindowsBuild | Self::AndroidBuildArm64 | Self::AndroidBuildArmv7 | Self::AndroidBuildAll | Self::InstallDebug | Self::FlutterProfile => "DEV",
+            Self::WindowsDev | Self::AndroidDev | Self::AndroidHmr | Self::WindowsBuild | Self::AndroidBuildArm64 | Self::AndroidBuildArmv7 | Self::AndroidBuildAll | Self::InstallDebug | Self::FlutterProfile => "DEV",
             Self::Clean | Self::DebugAndroid | Self::Signing | Self::Version => "MNT",
             Self::Git | Self::BuildWhatsApp | Self::ConfigureTerminal => "CFG",
         }
@@ -119,6 +121,7 @@ impl MenuItem {
                 ProjectType::GoWails => "And. Debug",
                 _ => "Android",
             },
+            Self::AndroidHmr => "HMR",
             Self::WindowsBuild => match project_type {
                 ProjectType::Rust => "Build",
                 _ if platform::IS_WINDOWS => "Win Build",
@@ -175,6 +178,7 @@ impl MenuItem {
                 Self::BuildWhatsApp => "Compila WhatsApp",
                 Self::ConfigureTerminal => "Autocompletado",
                 Self::FlutterProfile => "",
+                Self::AndroidHmr => "",
             },
             ProjectType::Tauri => match self {
                 Self::WindowsDev => "Inicia el dev server",
@@ -192,6 +196,7 @@ impl MenuItem {
                 Self::Version => "Bump pkg/cargo/tauri",
                 Self::ConfigureTerminal => "Autocompletado",
                 Self::FlutterProfile => "",
+                Self::AndroidHmr => "",
             },
             ProjectType::Flutter => match self {
                 Self::WindowsDev => "flutter run windows",
@@ -209,6 +214,7 @@ impl MenuItem {
                 Self::Version => "",
                 Self::ConfigureTerminal => "Autocompletado",
                 Self::FlutterProfile => "flutter run --profile",
+                Self::AndroidHmr => "",
             },
             ProjectType::Kotlin => match self {
                 Self::WindowsDev => "gradlew :composeApp:run",
@@ -226,10 +232,12 @@ impl MenuItem {
                 Self::Version => "",
                 Self::ConfigureTerminal => "Autocompletado",
                 Self::FlutterProfile => "",
+                Self::AndroidHmr => "",
             },
             ProjectType::GoWails => match self {
                 Self::WindowsDev => "wails3 task dev",
                 Self::AndroidDev => "APK debug + instalar",
+                Self::AndroidHmr => "HMR (Vite + adb reverse)",
                 Self::WindowsBuild => "wails3 task build",
                 Self::AndroidBuildArm64 => "APK release + instalar",
                 Self::AndroidBuildArmv7 => "",
@@ -277,6 +285,7 @@ impl MenuState {
         let base = vec![
             MenuItem::WindowsDev,
             MenuItem::AndroidDev,
+            MenuItem::AndroidHmr,
             MenuItem::WindowsBuild,
             MenuItem::AndroidBuildArm64,
             MenuItem::AndroidBuildArmv7,
@@ -303,10 +312,11 @@ impl MenuState {
                     | MenuItem::DebugAndroid
                     | MenuItem::Signing
                     | MenuItem::FlutterProfile
+                    | MenuItem::AndroidHmr
                 ),
-                ProjectType::Tauri => !matches!(item, MenuItem::InstallDebug | MenuItem::FlutterProfile),
-                ProjectType::Flutter => !matches!(item, MenuItem::AndroidBuildArmv7 | MenuItem::Version | MenuItem::InstallDebug),
-                ProjectType::Kotlin => !matches!(item, MenuItem::AndroidBuildArmv7 | MenuItem::Version | MenuItem::FlutterProfile),
+                ProjectType::Tauri => !matches!(item, MenuItem::InstallDebug | MenuItem::FlutterProfile | MenuItem::AndroidHmr),
+                ProjectType::Flutter => !matches!(item, MenuItem::AndroidBuildArmv7 | MenuItem::Version | MenuItem::InstallDebug | MenuItem::AndroidHmr),
+                ProjectType::Kotlin => !matches!(item, MenuItem::AndroidBuildArmv7 | MenuItem::Version | MenuItem::FlutterProfile | MenuItem::AndroidHmr),
                 // Go + Wails: la firma la hace el Gradle de Wails con
                 // variables de entorno (ANDROID_KEYSTORE_*), que Compass
                 // exporta al compilar; la tarjeta gestiona el keystore y el
@@ -910,6 +920,7 @@ fn menu_item_to_task(item: MenuItem, ptype: ProjectType) -> &'static str {
         (MenuItem::WindowsDev, ProjectType::GoWails) => "windows-dev",
 
         (MenuItem::AndroidDev, _) => "android-dev",
+        (MenuItem::AndroidHmr, ProjectType::GoWails) => "android-hmr",
 
         (MenuItem::WindowsBuild, _) => "windows-build",
 
@@ -942,7 +953,7 @@ fn menu_item_to_task(item: MenuItem, ptype: ProjectType) -> &'static str {
 
         (MenuItem::BuildWhatsApp, _) => "whatsapp",
         (MenuItem::ConfigureTerminal, _) => "terminal",
-
+        
         _ => unreachable!(),
     }
 }

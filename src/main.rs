@@ -147,6 +147,10 @@ fn run_task_direct(ctx: &crate::utils::context::ProjectContext, task: &str) -> R
             crate::utils::context::ProjectType::Rust => anyhow::bail!("No aplicable a proyectos Rust"),
             crate::utils::context::ProjectType::GoWails => tasks::gowails::install_debug(ctx),
         },
+        "android-hmr" => match ctx.project_type {
+            crate::utils::context::ProjectType::GoWails => tasks::gowails::dev_android(ctx),
+            _ => anyhow::bail!("HMR sólo disponible para Go + Wails v3"),
+        },
         "windows-build" => match ctx.project_type {
             crate::utils::context::ProjectType::Tauri => tasks::windows::build(ctx),
             crate::utils::context::ProjectType::Flutter => tasks::flutter::build_windows(ctx),
