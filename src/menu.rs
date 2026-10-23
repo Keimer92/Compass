@@ -24,7 +24,7 @@ use crate::utils::cmd;
 use crate::utils::context::{ProjectContext, ProjectType};
 use crate::utils::platform;
 
-const COLS: usize = 3;
+const COLS: usize = 2;
 const CARD_W: u16 = 24;
 const CARD_H: u16 = 4;
 const FOOTER_H: u16 = 1;
@@ -722,28 +722,26 @@ fn create_card(item: &MenuItem, is_selected: bool, is_hovered: bool, project_typ
     let label = item.label(project_type);
     let desc = item.description(project_type);
 
-    let line1 = if section.is_empty() {
-        format!(" {}  {}", icon, label)
-    } else {
-        format!(" {} [{}] {}", icon, section, label)
-    };
+    // La card muestra **sólo** lo que hace (la descripción), no el nombre
+    // corto: así el usuario entiende la acción de un vistazo. Si la
+    // descripción está vacía (tarjetas que no aplican), se cae al nombre.
+    let action = if desc.is_empty() { label } else { desc };
+    let line1 = format!(" {}  {}", icon, action);
 
-    // El título también marca el estado, no sólo el borde.
-    let (label_color, bold) = if is_selected {
+    // El texto marca el estado: reposo = color de sección, hover/selección =
+    // más claro y en negrita, para que al pasar el mouse quede claro qué card
+    // se ejecutaría con Enter.
+    let (text_color, bold) = if is_selected {
         (section_color, true)
     } else if is_hovered {
         (theme.text, true)
     } else {
         (section_color, false)
     };
-    let mut line1_style = Style::default().fg(label_color);
+    let mut line1_style = Style::default().fg(text_color);
     if bold {
         line1_style = line1_style.add_modifier(Modifier::BOLD);
     }
-
-    // La descripción se aclara en hover: en reposo es `muted`, que sobre el
-    // panel neutro del hover queda casi ilegible, así que sube a `text`.
-    let desc_color = if is_hovered { theme.text } else { theme.muted };
 
     let mut block = Block::default()
         .borders(Borders::ALL)
@@ -757,7 +755,6 @@ fn create_card(item: &MenuItem, is_selected: bool, is_hovered: bool, project_typ
 
     Paragraph::new(Text::from(vec![
         Line::from(vec![Span::styled(line1, line1_style)]),
-        Line::from(vec![Span::styled(format!(" {}", desc), Style::default().fg(desc_color))]),
     ]))
     .alignment(Alignment::Center)
     .block(block)
