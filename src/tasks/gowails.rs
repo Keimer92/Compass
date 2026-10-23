@@ -947,8 +947,8 @@ fn patch_wails_bridge_mime(ctx: &ProjectContext) {
         return;
     };
 
-    // Idempotencia: si ya está parcheado, no tocar.
-    if content.contains("Fallback para HMR") {
+    // Idempotencia: si ya está parcheado (con MimeTypeMap), no tocar.
+    if content.contains("MimeTypeMap.getSingleton()") {
         return;
     }
 
@@ -959,31 +959,32 @@ fn patch_wails_bridge_mime(ctx: &ProjectContext) {
             return "application/octet-stream";
         }"#;
 
-    let new = r#"        try {
+    let new = r#"        // El asset server de Wails devuelve "application/octet-stream" para los
+        // módulos de Vite (@vite/client, src/main.ts) -> el WebView los rechaza.
+        // Por eso se resuelve PRIMERO el MIME por extensión, antes de confiar
+        // en nativeGetAssetMimeType. Se usa MimeTypeMap de Android para cubrir
+        // todos los tipos (.ts, .svelte, .css, .js, .json, ...) sin listarlos
+        // uno a uno.
+        String lower = path.toLowerCase();
+        int dot = lower.lastIndexOf('.');
+        if (dot >= 0 && dot < lower.length() - 1) {
+            String ext = lower.substring(dot + 1);
+            String mime = android.webkit.MimeTypeMap.getSingleton()
+                    .getMimeTypeFromExtension(ext);
+            if (mime != null && !mime.isEmpty()) {
+                return mime;
+            }
+        }
+        if (lower.contains("@vite")) {
+            return "application/javascript";
+        }
+        try {
             String mimeType = nativeGetAssetMimeType(path);
-            if (mimeType != null) {
+            if (mimeType != null && !mimeType.equals("application/octet-stream")) {
                 return mimeType;
             }
         } catch (Exception e) {
-            // fall through to the fallback below
-        }
-        // Fallback para HMR (dev mode): los módulos de Vite (`@vite/client`,
-        // `src/main.ts`) llegan al asset server con MIME `application/octet-stream`
-        // y el WebView los rechaza como módulos JS -> pantalla en blanco.
-        String lower = path.toLowerCase();
-        if (lower.endsWith(".ts") || lower.endsWith(".tsx")
-                || lower.endsWith(".js") || lower.endsWith(".jsx")
-                || lower.contains("@vite")) {
-            return "application/javascript";
-        }
-        if (lower.endsWith(".css")) {
-            return "text/css";
-        }
-        if (lower.endsWith(".json")) {
-            return "application/json";
-        }
-        if (lower.endsWith(".html")) {
-            return "text/html";
+            // fall through to the default below
         }
         return "application/octet-stream";"#;
 
