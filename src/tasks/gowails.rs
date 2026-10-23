@@ -888,6 +888,16 @@ pub fn dev_android(ctx: &ProjectContext) -> Result<()> {
 
     println!("[OK] Vite detectado en localhost:{port}.");
     println!();
+    println!("[INFO] Desinstalando la versión anterior (evita el choque de firma");
+    println!("[INFO] debug ↔ release que da INSTALL_FAILED_UPDATE_INCOMPATIBLE)...");
+    let package = application_id(ctx);
+    if let Some(adb) = ctx.adb_path.as_ref() {
+        let _ = cmd::run(
+            &adb.display().to_string(),
+            &["uninstall", &package],
+        );
+    }
+    println!();
     println!("[INFO] Lanzando: wails3 task android:dev");
     println!("[INFO] La tarea compila el .so, publica el puerto con `adb reverse`,");
     println!("[INFO] instala la APK de debug y arranca la app.");
