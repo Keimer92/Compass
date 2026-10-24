@@ -121,3 +121,19 @@ pub fn pause() {
     let mut input = String::new();
     io::stdin().read_line(&mut input).ok();
 }
+
+/// Como [`pause`], pero en vez de esperar a Enter cuenta regresiva y cierra
+/// automáticamente.
+///
+/// Se usa en las tareas de **compilación en modo debug** de Go + Wails v3:
+/// el build ya terminó bien, no hay nada que leer, así que la ventana se cierra
+/// sola pasados `seconds` segundos (en vez de quedarse colgada esperando un
+/// Enter que nadie va a pulsar).
+pub fn pause_for(seconds: u64) {
+    for remaining in (1..=seconds).rev() {
+        print!("\r  Cerrando en {} s...  ", remaining);
+        io::stdout().flush().ok();
+        std::thread::sleep(std::time::Duration::from_secs(1));
+    }
+    println!();
+}

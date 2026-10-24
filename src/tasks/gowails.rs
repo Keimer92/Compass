@@ -717,7 +717,8 @@ pub fn build_apk(ctx: &ProjectContext) -> Result<()> {
     println!("\n[INFO] Compilando Android APK (Release) con Wails...\n");
     let apk = build_android_apk(ctx, true)?;
     install_apk(ctx, &apk)?;
-    ui::pause();
+    // Release: la ventana se cierra sola a los 10 s tras compilar bien.
+    ui::pause_for(10);
     Ok(())
 }
 
@@ -726,7 +727,8 @@ pub fn install_debug(ctx: &ProjectContext) -> Result<()> {
     println!("\n[INFO] Compilando Android APK (Debug) con Wails...\n");
     let apk = build_android_apk(ctx, false)?;
     install_apk(ctx, &apk)?;
-    ui::pause();
+    // Modo debug: la ventana se cierra sola pasados 10 s.
+    ui::pause_for(10);
     Ok(())
 }
 
@@ -773,7 +775,8 @@ pub fn build_aab(ctx: &ProjectContext) -> Result<()> {
     println!("[OK] AAB generado: {}", dest.display());
     println!("[INFO] Un AAB no se instala directamente en el telefono; es para Play Store.");
 
-    ui::pause();
+    // Release: la ventana se cierra sola a los 10 s tras compilar bien.
+    ui::pause_for(10);
     Ok(())
 }
 

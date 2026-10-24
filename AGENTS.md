@@ -855,7 +855,7 @@ usaba `wails.json` y otro CLI, así que no se mezcla (`context::is_wails_v3`).
 | Win/Linux Build | `wails3 task package` → **instalador**: `bin/<APP>-<arch>-installer.exe` (NSIS) o `bin/<APP>-<arch>.msix` en Windows; `bin/<APP>-<arch>.AppImage` / `.deb` / `.rpm` en Linux. Revelado en el explorador |
 | APK (release) | Pipeline Android propio → `build/android/app/build/outputs/apk/release/`, copiada a `bin/<APP>.apk` y **opción de instalarla en el teléfono** |
 | AAB (release) | Lo mismo + `bundleRelease` → `bin/<APP>.aab` |
-| Install (debug) | APK debug + `adb install` + `am start` |
+| Install (debug) | APK debug + `adb install` + `am start`; la ventana se cierra sola a los 10 s tras compilar bien |
 | Debug Andr | `adb logcat --pid=<pid de la app>` (sin `grep`, así que funciona en Windows) |
 | Version | Bump de `version:` en `build/config.yml` (formato YAML, conserva indentación y comentario) |
 | Clean | `bin/`, `frontend/dist`, `frontend/bindings`, `build/android/app/build`, `build/android/.gradle`, `jniLibs/` |
@@ -1045,6 +1045,7 @@ Dos detalles que importan en la práctica:
 | `success_banner(title)` | Borde ┌─┐└─┘ con ✅ centrado |
 | `info_banner(title)` | Borde ┌─┐└─┘ con ℹ️ centrado |
 | `pause()` | Espera Enter (read_line, sin raw mode) |
+| `pause_for(secs)` | Cuenta regresiva y cierra automáticamente tras `secs` segundos. La usan **todas** las tareas de compilación (debug y release, todas las plataformas) al terminar con éxito, para que la ventana se cierre sola. |
 
 ### Signer prompts
 `signer.rs` usa `ui::ask_text()` y `ui::ask_password()` en vez de `inquire::Text`/`inquire::Password` para que el cursor aparezca después de los dos puntos en la misma línea.

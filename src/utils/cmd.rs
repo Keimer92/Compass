@@ -519,7 +519,7 @@ fn run_build_and_reveal_filtered(
         None
     };
     println!();
-    crate::utils::ui::pause();
+    crate::utils::ui::pause_for(10);
     Ok(BuildOutcome { success, artifact })
 }
 
