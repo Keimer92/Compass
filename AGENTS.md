@@ -852,13 +852,34 @@ usaba `wails.json` y otro CLI, así que no se mezcla (`context::is_wails_v3`).
 | Tarjeta | Qué hace |
 |---------|----------|
 | Windows/Linux | `wails3 task dev` en ventana interactiva (Vite en modo dev + hot reload) |
-| Win/Linux Build | `wails3 task build` → `bin/<APP_NAME>.exe` (o sin extensión en Linux), revelado |
+| Win/Linux Build | `wails3 task package` → **instalador**: `bin/<APP>-<arch>-installer.exe` (NSIS) o `bin/<APP>-<arch>.msix` en Windows; `bin/<APP>-<arch>.AppImage` / `.deb` / `.rpm` en Linux. Revelado en el explorador |
 | APK (release) | Pipeline Android propio → `build/android/app/build/outputs/apk/release/`, copiada a `bin/<APP>.apk` y **opción de instalarla en el teléfono** |
 | AAB (release) | Lo mismo + `bundleRelease` → `bin/<APP>.aab` |
 | Install (debug) | APK debug + `adb install` + `am start` |
 | Debug Andr | `adb logcat --pid=<pid de la app>` (sin `grep`, así que funciona en Windows) |
 | Version | Bump de `version:` en `build/config.yml` (formato YAML, conserva indentación y comentario) |
 | Clean | `bin/`, `frontend/dist`, `frontend/bindings`, `build/android/app/build`, `build/android/.gradle`, `jniLibs/` |
+
+**El build de escritorio produce un instalador, no el portable.** `build_desktop()`
+emite `wails3 task package` (que despacha a `windows:package` / `linux:package`
+según el host), no `wails3 task build`. Detalles que importan:
+
+- **Windows/NSIS es el formato por defecto** del Taskfile (`FORMAT` default
+  `nsis`). El instalador sale como `bin/<APP>-<arch>-installer.exe`.
+  `FORMAT=msix` produce `bin/<APP>-<arch>.msix`, pero Compass no lo expone en el
+  menú: para eso está la tarea del proyecto con su variable.
+- **`makensis` no suele estar en el PATH.** `winget install NSIS.NSIS` lo deja en
+  `C:\Program Files (x86)\NSIS\` y **sin** tocar el PATH, así que `makensis` a
+  secas falla. El Taskfile de Wails ya lo resuelve con un `MAKENSIS` que prueba
+  `command -v`, `Program Files (x86)` y `Program Files`; no hay que parchear nada.
+- ⚠️ **El filtro por nombre al revelar es load-bearing**: `package` compila el
+  binario como *dependencia* y lo deja en la misma carpeta `bin/`, así que "el
+  archivo más reciente" puede ser el portable (`<APP>.exe`). `build_desktop` usa
+  `cmd::run_build_and_reveal_named(..., &["installer", "msix", "msi"])` y así
+  revela el instalador incluso si el portable tuviera mtime posterior. Cubierto
+  por `utils::cmd::tests::newest_artifact_filter_by_name_ignores_the_portable_binary`.
+- En Linux el binario no lleva extensión, así que no hay ambigüedad: se filtra
+  por extensión del paquete (`AppImage`, `deb`, `rpm`).
 
 ⚠️ **Por qué el build de Android NO usa el Taskfile del proyecto**: las tareas
 `android:*` de la plantilla de Wails v3 están escritas en POSIX y su `case` de
@@ -1036,7 +1057,7 @@ compass --task context-menu-install
 compass  # abre menú interactivo
 ```
 
-Tareas sólo de Go + Wails: `--task package` (instalador NSIS/MSIX, `wails3 task package`).
+Tareas sólo de Go + Wails: `--task package` (alias de `windows-build`; ambos compilan el instalador NSIS/MSIX con `wails3 task package`).
 
 ## .gitignore Templates
 

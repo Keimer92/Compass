@@ -311,52 +311,60 @@ pub fn dev(ctx: &ProjectContext) -> Result<()> {
     Ok(())
 }
 
-/// Compila el binario de escritorio (`wails3 task build`) y lo revela.
+/// Compila el **instalador** de escritorio (`wails3 task package`) y lo revela.
 ///
-/// El Taskfile de la raíz despacha a `windows:build` / `linux:build` según el
-/// host, así que el mismo comando vale para los dos sistemas.
+/// Antes esta tarjeta emitía `wails3 task build`, que sólo dejaba el `.exe`
+/// portable. Para un release lo que se distribuye es el instalador:
+///
+/// | Host | Tarea | Artefacto en `bin/` |
+/// |------|-------|---------------------|
+/// | Windows | `windows:package` → NSIS (o MSIX con `FORMAT=msix`) | `<app>-<arch>-installer.exe` / `<app>-<arch>.msix` |
+/// | Linux | `linux:package` → AppImage/deb/rpm | `<app>-<arch>.AppImage`, `.deb`, `.rpm` |
+///
+/// El Taskfile de la raíz despacha a `windows:package` / `linux:package` según
+/// el host, así que el mismo comando vale para los dos sistemas.
+///
+/// ⚠️ **El filtro por nombre no es cosmético**: `package` compila primero el
+/// binario (es una dependencia de la tarea) y lo deja en la misma carpeta
+/// `bin/`, así que revelar "el archivo más reciente" podía enseñar el portable
+/// en vez del instalador. Con `-installer` / `.msix` sólo entra el entregable.
 pub fn build_desktop(ctx: &ProjectContext) -> Result<()> {
     ensure_wails_cli()?;
 
-    println!("\n[INFO] Compilando aplicacion de escritorio con Wails...\n");
+    println!("\n[INFO] Compilando instalador de escritorio con Wails...\n");
+    if platform::IS_WINDOWS {
+        println!("[INFO] Windows usa NSIS (`makensis` en el PATH). Para MSIX:");
+        println!("[INFO]   wails3 task package FORMAT=msix");
+        println!("[INFO]   (requiere `wails3 tool msix-install-tools`)");
+        println!();
+    }
 
     let bin = bin_dir(ctx);
-    // En Windows el binario es `.exe`; en Linux no lleva extensión, y la lista
-    // vacía significa "cualquier archivo" (ver `newest_artifact`).
-    let exts: &[&str] = if platform::IS_WINDOWS { &["exe"] } else { &[] };
 
-    let outcome = cmd::run_build_and_reveal_with_env_outcome(
-        "wails3 task build",
-        &ctx.script_dir,
-        &bin,
-        exts,
-        None,
-        &[],
-    )?;
-
-    if outcome.success && outcome.artifact.is_none() {
-        println!("[WARN] No se encontro el binario en: {}", bin.display());
+    // Windows: el instalador de NSIS es un `.exe` más, así que se distingue del
+    // binario portable por el nombre; el `.msix`/`.msi` se reconocen por su
+    // extensión. Linux: el binario no lleva extensión, así que basta con
+    // filtrar por la extensión del paquete.
+    if platform::IS_WINDOWS {
+        let exts: &[&str] = &["exe", "msix", "msi"];
+        let names: &[&str] = &["installer", "msix", "msi"];
+        cmd::run_build_and_reveal_named("wails3 task package", &ctx.script_dir, &bin, exts, names)?;
+    } else {
+        let exts: &[&str] = &["AppImage", "deb", "rpm"];
+        cmd::run_build_and_reveal("wails3 task package", &ctx.script_dir, &bin, exts, None)?;
     }
 
     Ok(())
 }
 
-/// Empaqueta el instalador de Windows (NSIS/MSIX): `wails3 task package`.
+/// Alias de [`build_desktop`].
 ///
-/// Necesita `makensis` (NSIS) o las herramientas de MSIX; por eso es una
-/// opción aparte del build, no la misma tarjeta.
+/// Existe sólo por el nombre del CLI (`--task package`). Antes eran dos rutas
+/// distintas (`build` y `package`), pero el build de escritorio ya produce el
+/// instalador, así que mantener dos implementaciones sólo servía para que se
+/// desincronizaran.
 pub fn package_desktop(ctx: &ProjectContext) -> Result<()> {
-    ensure_wails_cli()?;
-
-    println!("\n[INFO] Empaquetando instalador (wails3 task package)...\n");
-    println!("[INFO] NSIS requiere `makensis` en el PATH; MSIX, `wails3 tool msix-install-tools`.");
-    println!();
-
-    let bin = bin_dir(ctx);
-    let exts: &[&str] = if platform::IS_WINDOWS { &["exe", "msix"] } else { &[] };
-    cmd::run_build_and_reveal("wails3 task package", &ctx.script_dir, &bin, exts, None)?;
-
-    Ok(())
+    build_desktop(ctx)
 }
 
 // ───────────────────────────────────────────────────────────────────────────

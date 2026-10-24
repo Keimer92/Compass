@@ -124,6 +124,9 @@ impl MenuItem {
             Self::AndroidHmr => "HMR",
             Self::WindowsBuild => match project_type {
                 ProjectType::Rust => "Build",
+                // En Go + Wails el release ya no es un `.exe` portable: la
+                // tarea empaqueta el instalador (NSIS en Windows).
+                ProjectType::GoWails => "Installer",
                 _ if platform::IS_WINDOWS => "Win Build",
                 _ => "Linux Build",
             },
@@ -238,7 +241,13 @@ impl MenuItem {
                 Self::WindowsDev => "dev escritorio",
                 Self::AndroidDev => "APK debug",
                 Self::AndroidHmr => "HMR (Vite)",
-                Self::WindowsBuild => "build escritorio",
+                Self::WindowsBuild => {
+                    if platform::IS_WINDOWS {
+                        "instalador (.exe)"
+                    } else {
+                        "instalador (.deb)"
+                    }
+                }
                 Self::AndroidBuildArm64 => "APK release",
                 Self::AndroidBuildArmv7 => "",
                 Self::AndroidBuildAll => "AAB release",
