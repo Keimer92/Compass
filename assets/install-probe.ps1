@@ -73,11 +73,15 @@ $nombres = @{
     'agy'      = 'agy'
     'hermes'   = 'hermes'
     'kiro-cli' = 'Kiro-Cli'
+    'copilot'  = 'copilot'
 }
 
 $faltan = 0
 foreach ($herramienta in $nombres.Keys) {
     if (Get-Command -Name $herramienta -ErrorAction SilentlyContinue) { continue }
+    # Copilot CLI se instala por winget, que no usa `%LOCALAPPDATA%\<tool>\bin`
+    # sino su carpeta Links. Ahí está aunque el PATH de esta sesión no lo tenga.
+    if (Test-Path (Join-Path $env:LOCALAPPDATA "Microsoft\WinGet\Links\$herramienta.exe")) { continue }
     $carpeta = $nombres[$herramienta]
     if (Test-Path (Join-Path $env:LOCALAPPDATA "$carpeta\bin\$herramienta.exe")) { continue }
     if (Test-Path (Join-Path $env:LOCALAPPDATA "$carpeta\$herramienta.exe")) { continue }

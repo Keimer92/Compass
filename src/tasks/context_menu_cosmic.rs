@@ -529,6 +529,8 @@ const VIBE_TOOLS: &[VibeToolLinux] = &[
     // `--trust-all-tools` otorga confianza de sesión completa (YOLO mode de Kiro CLI).
     VibeToolLinux { title: "Kiro CLI", cli: "kiro-cli chat --trust-all-tools" },
     VibeToolLinux { title: "Hermes", cli: "hermes" },
+    // `--yolo` habilita todos los permisos (modo autónomo de GitHub Copilot CLI).
+    VibeToolLinux { title: "Copilot CLI", cli: "copilot --yolo" },
 ];
 
 struct VibeToolLinux {

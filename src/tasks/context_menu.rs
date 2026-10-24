@@ -182,9 +182,10 @@ enum InstallVia {
     PowerShell,
 }
 
-/// Orden solicitado: OpenCode → Kilo Code → Cline → Antigravity → Kiro CLI → Hermes.
+/// Orden solicitado: OpenCode → Kilo Code → Cline → Antigravity → Copilot CLI
+/// → Kiro CLI → Hermes.
 /// Los prefijos numéricos fuerzan ese orden porque Windows ordena las
-/// sub-claves de `shell` alfabéticamente (01 < 02 < 03 < 04 < 05 < 06).
+/// sub-claves de `shell` alfabéticamente (01 < 02 < … < 07).
 ///
 /// `cli` es lo que se ejecuta al elegir la entrada del menú; el primer token es
 /// el binario que [`resolve_tool_command`] busca en el PATH. Para Kiro CLI ese
@@ -192,7 +193,8 @@ enum InstallVia {
 ///
 /// Comandos de instalación verificados en la documentación oficial de cada
 /// producto (opencode.ai/download, kilo.ai/docs, docs.cline.bot,
-/// antigravity.google/docs y hermes-agent.nousresearch.com).
+/// antigravity.google/docs, kiro.dev, hermes-agent.nousresearch.com y
+/// docs.github.com/copilot/how-tos/copilot-cli).
 const VIBE_TOOLS: &[VibeTool] = &[
     VibeTool {
         key: "01OpenCode",
@@ -241,7 +243,29 @@ const VIBE_TOOLS: &[VibeTool] = &[
         install_via: InstallVia::PowerShell,
     },
     VibeTool {
-        key: "05KiroCli",
+        key: "05Copilot",
+        title: "Copilot CLI",
+        // `--yolo` habilita todos los permisos (equivale a `--allow-all`, o sea
+        // `--allow-all-tools --allow-all-paths --allow-all-urls`), que es el
+        // modo autónomo documentado en `copilot --help`.
+        cli: "copilot --yolo",
+        // A diferencia del resto, Copilot CLI se instala por winget: así lo pide
+        // su documentación de Windows (`winget install GitHub.Copilot`). Los
+        // `--accept-*` evitan los prompts interactivos de winget, que en esta
+        // ejecución no tienen a quién preguntar.
+        install: "winget install --id GitHub.Copilot --exact --accept-source-agreements --accept-package-agreements",
+        // winget no deja el binario en `%LOCALAPPDATA%\<tool>\bin`, sino que crea
+        // un enlace en su carpeta Links. Ahí está aunque el PATH aún no se haya
+        // refrescado en este proceso.
+        fallback: &[
+            "LOCALAPPDATA/Microsoft/WinGet/Links/copilot.exe",
+            "HOME/.local/bin/copilot",
+            "/usr/local/bin/copilot",
+        ],
+        install_via: InstallVia::Cmd,
+    },
+    VibeTool {
+        key: "06KiroCli",
         title: "Kiro CLI",
         // `--trust-all-tools` otorga confianza de sesión completa: equivale al
         // YOLO mode de Kiro CLI (documentado en kiro.dev/docs/cli/v3/permissions/).
@@ -255,7 +279,7 @@ const VIBE_TOOLS: &[VibeTool] = &[
         install_via: InstallVia::Cmd,
     },
     VibeTool {
-        key: "06Hermes",
+        key: "07Hermes",
         title: "Hermes",
         cli: "hermes",
         // Hermes arranca su TUI a pelo, sin flags: `hermes` a secas.
@@ -501,7 +525,7 @@ pub fn ensure_tools_installed() -> Result<()> {
         }
 
         println!("    Comando oficial: {}", tool.install);
-        println!("    (los tres primeros son npm; Antigravity y Hermes son instaladores nativos)");
+        println!("    (npm global, instalador nativo o winget, segun la herramienta)");
 
         // El prompt no lleva `[s/N]`: `ask_text` ya imprime el default entre
         // corchetes. Con `None` no habría default, y entonces Enter devuelve ""
@@ -576,8 +600,14 @@ mod tests {
             ("02KiloCode", "Kilo Code", "npm install -g @kilocode/cli", InstallVia::Cmd),
             ("03Cline", "Cline", "npm install -g cline", InstallVia::Cmd),
             ("04Antigravity", "Antigravity", "irm https://antigravity.google/cli/install.ps1 | iex", InstallVia::PowerShell),
-            ("05KiroCli", "Kiro CLI", "", InstallVia::Cmd),
-            ("06Hermes", "Hermes", "iex (irm https://hermes-agent.nousresearch.com/install.ps1)", InstallVia::PowerShell),
+            (
+                "05Copilot",
+                "Copilot CLI",
+                "winget install --id GitHub.Copilot --exact --accept-source-agreements --accept-package-agreements",
+                InstallVia::Cmd,
+            ),
+            ("06KiroCli", "Kiro CLI", "", InstallVia::Cmd),
+            ("07Hermes", "Hermes", "iex (irm https://hermes-agent.nousresearch.com/install.ps1)", InstallVia::PowerShell),
         ];
 
         assert_eq!(VIBE_TOOLS.len(), esperado.len(), "añade el test al añadir una herramienta");
@@ -595,7 +625,7 @@ mod tests {
     /// Enter sería un bucle sin salida.
     #[test]
     fn a_empty_install_means_detect_only_never_ask() {
-        let kiro = VIBE_TOOLS.iter().find(|t| t.key == "05KiroCli").unwrap();
+        let kiro = VIBE_TOOLS.iter().find(|t| t.key == "06KiroCli").unwrap();
         assert!(kiro.install.is_empty(), "Kiro CLI no debe ofrecer comando de instalación");
         assert!(
             !kiro.cli.is_empty(),
@@ -616,7 +646,7 @@ mod tests {
     /// busca el primer token de `cli`.
     #[test]
     fn kiro_binary_name_matches_its_installer() {
-        let kiro = VIBE_TOOLS.iter().find(|t| t.key == "05KiroCli").unwrap();
+        let kiro = VIBE_TOOLS.iter().find(|t| t.key == "06KiroCli").unwrap();
         let ejecutable = kiro.cli.split_whitespace().next().unwrap();
         assert_eq!(ejecutable, "kiro-cli");
 
@@ -740,8 +770,8 @@ mod tests {
                     tool.install
                 ),
                 InstallVia::Cmd => assert!(
-                    tool.install.starts_with("npm "),
-                    "{} usa cmd, que sólo entiende bien npm (o winget): {}",
+                    tool.install.starts_with("npm ") || tool.install.starts_with("winget "),
+                    "{} usa cmd, que sólo entiende bien npm o winget: {}",
                     tool.title,
                     tool.install
                 ),

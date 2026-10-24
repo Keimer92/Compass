@@ -356,7 +356,7 @@ tasks/
   ├─ git.rs     — manage() [submenú unificado: init / .gitignore / conectar con remoto / estado]; templates de .gitignore por tipo
   ├─ signer.rs  — dominio único de firmas: manage() [submenú], android_layout(), detect()/SigningInfo [autodetección], Props (parseo de properties), crear/importar/manual, patch_build_gradle(), huellas (keytool), respaldos, base64 + secretos de GitHub Actions, verify_apk() [apksigner]
   ├─ terminal.rs — configure() [perfil PSReadLine según la versión instalada]
-  ├─ context_menu.rs — install/uninstall/toggle para Compass + Vibe Coding (menú cascada con ExtendedSubCommandsKey: OpenCode, Kilo Code, Cline, Antigravity, Kiro CLI, Hermes)
+  ├─ context_menu.rs — install/uninstall/toggle para Compass + Vibe Coding (menú cascada con ExtendedSubCommandsKey: OpenCode, Kilo Code, Cline, Antigravity, Kiro CLI, Hermes, Copilot CLI)
   ├─ context_menu_cosmic.rs — install/uninstall para COSMIC Files (context_actions, COSMIC ≥ 1.0.10)
   └─ whatsapp.rs — build()
   └─ version.rs — bump() [port de versionar.bat: Tauri/Rust, todo-o-nada]
@@ -441,7 +441,7 @@ módulo recalcula estas rutas (antes estaban copiadas en cuatro sitios).
 |---------|---------|----------------|
 | **Compass** | `"<exe_path>" "%1"` | `HKCR\Directory\shell\zz_Compass` |
 
-### Vibe Coding (menú cascada: 6 agentes)
+### Vibe Coding (menú cascada: 7 agentes)
 
 Usa el método **`ExtendedSubCommandsKey`** (el oficial de Windows para menús cascada, mismo que usa Command Prompt y PowerShell).
 
@@ -457,8 +457,9 @@ HKCU\Software\Classes\Directory\ContextMenus\VibeCoding\shell
   02KiloCode     → command
   03Cline        → command
   04Antigravity  → command
-  05KiroCli      → command
-  06Hermes       → command
+  05Copilot      → command
+  06KiroCli      → command
+  07Hermes       → command
 ```
 
 ⚠️ Las sub-entradas **no** cuelgan de `zz_VibeCoding\shell`: cuelgan de `Directory\ContextMenus\VibeCoding\shell` (ruta compartida con `Directory\Background`), y `zz_VibeCoding` sólo lleva el puntero `ExtendedSubCommandsKey`. Buscar en el sitio equivocado es lo que hacía que `install.bat` reinstallara el menú en cada ejecución.
@@ -469,18 +470,19 @@ HKCU\Software\Classes\Directory\ContextMenus\VibeCoding\shell
 | 02 | **Kilo Code** | `cmd.exe /c start "Kilo Code" /D "%V" cmd.exe /c "kilo --auto"` | Abre Kilo Code en YOLO mode (aprueba todo automáticamente) |
 | 03 | **Cline** | `cmd.exe /c start "Cline" /D "%V" cmd.exe /c "cline --auto-approve true"` | Abre Cline con aprobación global de herramientas sin prompts |
 | 04 | **Antigravity** | `cmd.exe /c start "Antigravity" /D "%V" cmd.exe /c "agy --dangerously-skip-permissions"` | Abre Antigravity omitiendo todos los prompts de permisos |
-| 05 | **Kiro CLI** | `cmd.exe /c start "Kiro CLI" /D "%V" cmd.exe /c "kiro-cli chat --trust-all-tools"` | Abre Kiro CLI con confianza total de sesión (YOLO mode). El binario es **`kiro-cli`**, no `kiro` |
-| 06 | **Hermes** | `cmd.exe /c start "Hermes" /D "%V" cmd.exe /c "hermes"` | Abre Hermes (Nous Research), sin flags: su TUI arranca a pelo |
+| 05 | **Copilot CLI** | `cmd.exe /c start "Copilot CLI" /D "%V" cmd.exe /c "copilot --yolo"` | Abre GitHub Copilot CLI con todos los permisos (`--yolo` = `--allow-all-tools --allow-all-paths --allow-all-urls`) |
+| 06 | **Kiro CLI** | `cmd.exe /c start "Kiro CLI" /D "%V" cmd.exe /c "kiro-cli chat --trust-all-tools"` | Abre Kiro CLI con confianza total de sesión (YOLO mode). El binario es **`kiro-cli`**, no `kiro` |
+| 07 | **Hermes** | `cmd.exe /c start "Hermes" /D "%V" cmd.exe /c "hermes"` | Abre Hermes (Nous Research), sin flags: su TUI arranca a pelo |
 
 ⚠️ **Kiro CLI no tiene comando de instalación**: se instala con su `.exe` (o `winget install Kiro-CLI`), no desde la terminal. Por eso `install` va **vacío** en su entrada de `VIBE_TOOLS`, y eso significa explícitamente **"detectar e instalar el submenú, pero no preguntar por instalarlo"**. `ensure_tools_installed()` salta el bucle de preguntas cuando `install` está vacío y sólo avisa. Preguntar algo a lo que no se puede responder con un Enter sería un bucle sin salida. Cubierto por `a_empty_install_means_detect_only_never_ask`.
 
 ⚠️ Kiro rompe el patrón de rutas del resto: su instalador lo deja en `%LOCALAPPDATA%\Kiro-Cli\kiro-cli.exe`, **plano y sin subcarpeta `bin`**, al contrario que `%LOCALAPPDATA%\agy\bin` y `%LOCALAPPDATA%\hermes\bin`. La sonda de `install.bat` lo tiene en un mapa `$nombres` por eso.
 
-⚠️ **Hermes y Antigravity no se detectan sólo por el PATH.** Sus instaladores nativos dejan el binario en su propia carpeta (`%LOCALAPPDATA%\hermes\bin`, `%LOCALAPPDATA%\agy\bin`) y no siempre lo agregan al PATH del usuario. Por eso `VibeTool::fallback` declara rutas alternativas con prefijo `LOCALAPPDATA/` o `HOME/`, que `fallback_candidates()` expande. **Los npm globales no necesitan nada de esto** (npm sí modifica el PATH), y hay un test que lo comprueba.
+⚠️ **Hermes, Antigravity y Copilot CLI no se detectan sólo por el PATH.** Los instaladores nativos de Hermes y Antigravity dejan el binario en su propia carpeta (`%LOCALAPPDATA%\hermes\bin`, `%LOCALAPPDATA%\agy\bin`) y no siempre lo agregan al PATH del usuario; winget lo deja en `%LOCALAPPDATA%\Microsoft\WinGet\Links`. Por eso `VibeTool::fallback` declara rutas alternativas con prefijo `LOCALAPPDATA/` o `HOME/`, que `fallback_candidates()` expande. **Los npm globales no necesitan nada de esto** (npm sí modifica el PATH), y hay un test que lo comprueba (`native_installers_declare_a_localappdata_fallback`).
 
 ### Instalación de las herramientas (`vibe-setup`)
 
-`ensure_tools_installed()` detecta cuáles de las 6 faltan. **Sólo pregunta por las que tienen instalador**: Kiro CLI se avisa pero no se pregunta, porque va con `.exe`. El comando de instalación vive en `VibeTool::install`, verificado en la documentación oficial de cada producto:
+`ensure_tools_installed()` detecta cuáles de las 7 faltan. **Sólo pregunta por las que tienen instalador**: Kiro CLI se avisa pero no se pregunta, porque va con `.exe`. El comando de instalación vive en `VibeTool::install`, verificado en la documentación oficial de cada producto:
 
 | Herramienta | `install` | `install_via` |
 |---|---|---|
@@ -490,8 +492,9 @@ HKCU\Software\Classes\Directory\ContextMenus\VibeCoding\shell
 | Antigravity | `irm https://antigravity.google/cli/install.ps1 \| iex` | `PowerShell` |
 | Kiro CLI | *(ninguno: `.exe`)* | — |
 | Hermes | `iex (irm https://hermes-agent.nousresearch.com/install.ps1)` | `PowerShell` |
+| Copilot CLI | `winget install --id GitHub.Copilot --exact --accept-source-agreements --accept-package-agreements` | `Cmd` |
 
-⚠️ **`install_via` no es cosmético**: en Windows `npm` es `npm.cmd` y su shim `npm.ps1` lo bloquea la ExecutionPolicy por defecto, así que los npm van por `cmd /c`. Y `irm | iex` es sintaxis de PowerShell, que en `cmd` no existe.
+⚠️ **`install_via` no es cosmético**: en Windows `npm` es `npm.cmd` y su shim `npm.ps1` lo bloquea la ExecutionPolicy por defecto, así que los npm van por `cmd /c`. Y `irm | iex` es sintaxis de PowerShell, que en `cmd` no existe. `winget` también va por `cmd /c`: es un `.exe`, y los `--accept-*` evitan sus prompts interactivos (en esta ejecución no hay a quién preguntar).
 
 ⚠️ El default de la pregunta es **no**. `ask_text` imprime el default entre corchetes, así que el prompt no debe llevar su propio `[s/N]`. Con `None` no habría default y Enter devolvería "" (igual de no, pero la pregunta no se responde con la barra espaciadora). `es_si` acepta `s`/`si`/`sí`/`y`/`yes`.
 
@@ -512,6 +515,7 @@ HKCU\Software\Classes\Directory\ContextMenus\VibeCoding\shell
 - **Antigravity CLI**: binario nativo (no npm) instalado por `irm https://antigravity.google/cli/install.ps1 | iex` → `%LOCALAPPDATA%\agy\bin\agy.exe`. No siempre está en PATH; `resolve_tool_command()` hace fallback a esa ruta si `Get-Command agy` falla.
 - **Hermes CLI** (Nous Research): instalador nativo `iex (irm https://hermes-agent.nousresearch.com/install.ps1)`. En Windows nativo vive bajo `%LOCALAPPDATA%\hermes\bin` (el README lo dice explícitamente), en Linux el `install.sh` lo deja en `~/.local/bin`. Mismo caso de fallback que Antigravity. `hermes` arranca su TUI sin flags; `hermes-acp` es el servidor ACP para editores y no va al menú.
 - **Kiro CLI** (AWS): se instala con su `.exe` (`winget install Kiro-CLI` o el instalador de kiro.dev), **no hay comando de terminal**. El ejecutable queda en `%LOCALAPPDATA%\Kiro-Cli\kiro-cli.exe` — nótese que **no** sigue el patrón `…\<tool>\bin` del resto, por eso la sonda de `install.bat` lo lleva en un mapa. El subcomando para chatear es `kiro-cli chat`; `--tui` fuerza la interfaz nueva y `--legacy-ui` la antigua. `install` va vacío en `VIBE_TOOLS`, que significa "detectar, nunca preguntar por instalarlo".
+- **Copilot CLI** (GitHub): se instala con `winget install --id GitHub.Copilot --exact` (paquete `GitHub.Copilot`), **no por npm**. Con `--yolo` arranca con todos los permisos concedidos (`--allow-all` = `--allow-all-tools --allow-all-paths --allow-all-urls`); sin flags la TUI pide confirmación por herramienta. ⚠️ winget **no** sigue el patrón `%LOCALAPPDATA%\<tool>\bin`: crea el enlace en `%LOCALAPPDATA%\Microsoft\WinGet\Links\copilot.exe`, y ésa es la ruta que declara `VibeTool::fallback` y la que comprueba la sonda de `install.bat`. Ojo también con el shim que instala VS Code en `%ProgramFiles%\Microsoft VS Code\bin\copilot-shim\`, que está antes en el PATH y responde igual, así que `Get-Command copilot` puede acertar aunque winget aún no haya refrescado el PATH.
 - `install.bat` instala/actualiza Vibe Coding con detección de "ya instalado".
 - El menú interactivo `toggle()` gestiona Compass + Vibe Coding + "Instalar todos" / "Desinstalar todos".
 - **Idempotencia**: `install()` compara tanto el comando (`command_is_current()`) como el texto visible (`label_is()`), así un cambio de nombre fuerza el reinstall aunque el comando ya sea correcto.
