@@ -118,7 +118,7 @@ impl MenuItem {
                 _ => "Linux",
             },
             Self::AndroidDev => match project_type {
-                ProjectType::GoWails => "And. Debug",
+                ProjectType::GoWails => "And. Dev",
                 _ => "Android",
             },
             Self::AndroidHmr => "HMR",
@@ -239,7 +239,7 @@ impl MenuItem {
             },
             ProjectType::GoWails => match self {
                 Self::WindowsDev => "dev escritorio",
-                Self::AndroidDev => "APK debug",
+                Self::AndroidDev => "APK dev",
                 Self::AndroidHmr => "HMR (Vite)",
                 Self::WindowsBuild => {
                     if platform::IS_WINDOWS {
@@ -251,7 +251,7 @@ impl MenuItem {
                 Self::AndroidBuildArm64 => "APK release",
                 Self::AndroidBuildArmv7 => "",
                 Self::AndroidBuildAll => "AAB release",
-                Self::InstallDebug => "APK debug",
+                Self::InstallDebug => "APK dev",
                 Self::Clean => "Limpia builds/deps",
                 Self::DebugAndroid => "logcat de la app",
                 Self::Signing => "Firmas y huellas",

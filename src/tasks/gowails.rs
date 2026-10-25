@@ -293,6 +293,30 @@ fn npm_run(dir: &Path, script: &str) -> Result<()> {
 pub fn dev(ctx: &ProjectContext) -> Result<()> {
     ensure_wails_cli()?;
 
+    // El binario de dev (`wails3 dev`) no genera el `.syso` (icono/version de
+    // Windows) por defecto, así que el `.exe` sale con el icono genérico de Go.
+    // Se genera antes, en el directorio del proyecto, para que `go build` (que
+    // hace `wails3 dev` internamente) lo embeba. Es best-effort: si falla (p.ej.
+    // no hay icono), el dev sigue funcionando, sólo sin icono.
+    let _ = cmd::run_in_dir(
+        "wails3",
+        &[
+            "generate",
+            "syso",
+            "-arch",
+            "amd64",
+            "-icon",
+            "build/windows/icon.ico",
+            "-manifest",
+            "build/windows/wails.exe.manifest",
+            "-info",
+            "build/windows/info.json",
+            "-out",
+            "wails_windows_amd64.syso",
+        ],
+        &ctx.script_dir,
+    );
+
     cmd::clear_screen();
     println!("╔══════════════════════════════════════════════════╗");
     println!("║          WAILS v3 - DEV (ESCRITORIO)             ║");
@@ -371,7 +395,7 @@ pub fn package_desktop(ctx: &ProjectContext) -> Result<()> {
 // Android
 // ───────────────────────────────────────────────────────────────────────────
 
-/// Compila el APK (debug o release) con el pipeline nativo de Compass.
+/// Compila el APK (dev o release) con el pipeline nativo de Compass.
 ///
 /// Devuelve la ruta del APK generado.
 fn build_android_apk(ctx: &ProjectContext, release: bool) -> Result<PathBuf> {
@@ -540,10 +564,10 @@ fn build_android_apk(ctx: &ProjectContext, release: bool) -> Result<PathBuf> {
     ensure_sdk_properties(ctx, &android)?;
 
     // La firma release llega al Gradle por variables de entorno. Sin ellas,
-    // Wails firma con la llave de debug (que Play Store rechaza).
+    // Wails firma con la llave de dev (que Play Store rechaza).
     let signing = if release { signing_env(ctx) } else { None };
     if release && signing.is_none() {
-        println!("[WARN] No hay keystore de release configurado; la APK se firmará con la llave de debug.");
+        println!("[WARN] No hay keystore de release configurado; la APK se firmará con la llave de dev.");
         println!("       Configúralo en la tarjeta Signing (o con --task sign).");
     }
 
@@ -586,7 +610,7 @@ fn build_android_apk(ctx: &ProjectContext, release: bool) -> Result<PathBuf> {
 /// def keystoreFile = System.getenv("ANDROID_KEYSTORE_FILE")
 /// ```
 ///
-/// y, si está vacío, firma el release con la llave de **debug**. Compass
+/// y, si está vacío, firma el release con la llave de **dev**. Compass
 /// guarda la configuración en `android-signing/keystore.properties` (la
 /// gestiona la tarjeta *Signing*) y la exporta aquí, para que el usuario no
 /// tenga que definir variables a mano en cada build.
@@ -722,12 +746,12 @@ pub fn build_apk(ctx: &ProjectContext) -> Result<()> {
     Ok(())
 }
 
-/// APK **debug** + instalación y arranque en el teléfono.
+/// APK **dev** + instalación y arranque en el teléfono.
 pub fn install_debug(ctx: &ProjectContext) -> Result<()> {
-    println!("\n[INFO] Compilando Android APK (Debug) con Wails...\n");
+    println!("\n[INFO] Compilando Android APK (Dev) con Wails...\n");
     let apk = build_android_apk(ctx, false)?;
     install_apk(ctx, &apk)?;
-    // Modo debug: la ventana se cierra sola pasados 10 s.
+    // Modo dev: la ventana se cierra sola pasados 10 s.
     ui::pause_for(10);
     Ok(())
 }
@@ -855,7 +879,7 @@ pub fn clean_targets(ctx: &ProjectContext) -> Vec<(String, PathBuf)> {
 ///
 /// 1. Consola 1: `npm run dev` en `frontend/` (Vite, queda abierta).
 /// 2. Consola 2: esta tarea, que compila el `.so` con el proxy al Vite de la
-///    PC, publica el puerto con `adb reverse`, instala el APK de debug y
+///    PC, publica el puerto con `adb reverse`, instala el APK de dev y
 ///    arranca la app. El `adb reverse tcp:PORT tcp:PORT` lo hace la propia
 ///    tarea, no hay que lanzarlo a mano.
 ///
@@ -913,7 +937,7 @@ pub fn dev_android(ctx: &ProjectContext) -> Result<()> {
     println!();
 
     println!("[INFO] Desinstalando la versión anterior (evita el choque de firma");
-    println!("[INFO] debug ↔ release que da INSTALL_FAILED_UPDATE_INCOMPATIBLE)...");
+    println!("[INFO] debug ↔ dev que da INSTALL_FAILED_UPDATE_INCOMPATIBLE)...");
     let package = application_id(ctx);
     if let Some(adb) = ctx.adb_path.as_ref() {
         let _ = cmd::run(
@@ -924,7 +948,7 @@ pub fn dev_android(ctx: &ProjectContext) -> Result<()> {
     println!();
     println!("[INFO] Lanzando: wails3 task android:dev");
     println!("[INFO] La tarea compila el .so, publica el puerto con `adb reverse`,");
-    println!("[INFO] instala la APK de debug y arranca la app.");
+    println!("[INFO] instala la APK de dev y arranca la app.");
     println!();
 
     cmd::spawn_new_window_interactive(

@@ -880,6 +880,11 @@ según el host), no `wails3 task build`. Detalles que importan:
   por `utils::cmd::tests::newest_artifact_filter_by_name_ignores_the_portable_binary`.
 - En Linux el binario no lleva extensión, así que no hay ambigüedad: se filtra
   por extensión del paquete (`AppImage`, `deb`, `rpm`).
+- **El binario de dev lleva el icono de la app.** `wails3 dev` no genera el
+  `.syso` (icono/version de Windows) por defecto, así que el `.exe` salía con el
+  icono genérico de Go. `gowails::dev()` ejecuta antes `wails3 generate syso`
+  (best-effort, con las rutas de `build/windows/`) para que `go build` lo embeba.
+  El `.syso` queda en la raíz del proyecto y está en el `.gitignore`.
 
 ⚠️ **Por qué el build de Android NO usa el Taskfile del proyecto**: las tareas
 `android:*` de la plantilla de Wails v3 están escritas en POSIX y su `case` de
