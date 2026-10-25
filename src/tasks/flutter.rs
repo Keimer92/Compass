@@ -119,12 +119,13 @@ pub fn build_windows(ctx: &ProjectContext) -> Result<()> {
     // Flutter no escribe los artefactos en una ruta fija por plataforma, así que
     // se busca de forma recursiva bajo build/ en vez de hardcodear la de Windows.
     let release_dir = ctx.script_dir.join("build");
+    let rename = read_flutter_app_meta(ctx).map(|(name, ver)| format!("{} v{}", name, ver));
     cmd::run_build_and_reveal(
         &format!("flutter build {target} --release"),
         &ctx.script_dir,
         &release_dir,
         crate::utils::platform::desktop_artifact_exts(),
-        None,
+        rename.as_deref(),
     )?;
 
     Ok(())

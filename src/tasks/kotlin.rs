@@ -332,7 +332,7 @@ pub fn build_windows(ctx: &ProjectContext) -> Result<()> {
         // KMP genera un binario sin extensión en Linux; con la lista de Windows
         // ("exe") no encontraría nada y nunca se revelaría el artefacto.
         platform::desktop_artifact_exts(),
-        None,
+        read_kotlin_app_meta(ctx).map(|(name, ver)| format!("{} v{}", name, ver)).as_deref(),
     )?;
 
     Ok(())

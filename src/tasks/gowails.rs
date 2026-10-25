@@ -101,6 +101,40 @@ fn bin_dir(ctx: &ProjectContext) -> PathBuf {
     ctx.script_dir.join(dir)
 }
 
+/// Lee `productName` y `version` de `build/config.yml` (Wails v3).
+fn read_wails_app_meta(ctx: &ProjectContext) -> Option<(String, String)> {
+    let conf_path = ctx.script_dir.join("build").join("config.yml");
+    let content = std::fs::read_to_string(&conf_path).ok()?;
+    let mut name = None;
+    let mut version = None;
+    let mut in_info = false;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed == "info:" {
+            in_info = true;
+            continue;
+        }
+        if in_info && !trimmed.is_empty() && !line.starts_with(' ') && !line.starts_with('\t') {
+            in_info = false;
+        }
+        if !in_info {
+            continue;
+        }
+        if let Some((k, v)) = trimmed.split_once(':') {
+            let key = k.trim();
+            // Quita comentarios y comillas del valor YAML simple.
+            let val = v.split('#').next().unwrap_or(v).trim();
+            let val = val.trim_matches('"').trim_matches('\'').to_string();
+            if key == "productName" && name.is_none() {
+                name = Some(val);
+            } else if key == "version" && version.is_none() {
+                version = Some(val);
+            }
+        }
+    }
+    Some((name?, version?))
+}
+
 /// Carpeta del proyecto Android de Wails (`build/android`).
 fn android_dir(ctx: &ProjectContext) -> PathBuf {
     ctx.script_dir.join("build").join("android")
@@ -369,13 +403,15 @@ pub fn build_desktop(ctx: &ProjectContext) -> Result<()> {
     // binario portable por el nombre; el `.msix`/`.msi` se reconocen por su
     // extensión. Linux: el binario no lleva extensión, así que basta con
     // filtrar por la extensión del paquete.
+    let rename = read_wails_app_meta(ctx).map(|(name, ver)| format!("{} v{}", name, ver));
+
     if platform::IS_WINDOWS {
         let exts: &[&str] = &["exe", "msix", "msi"];
         let names: &[&str] = &["installer", "msix", "msi"];
-        cmd::run_build_and_reveal_named("wails3 task package", &ctx.script_dir, &bin, exts, names)?;
+        cmd::run_build_and_reveal_named("wails3 task package", &ctx.script_dir, &bin, exts, names, rename.as_deref())?;
     } else {
         let exts: &[&str] = &["AppImage", "deb", "rpm"];
-        cmd::run_build_and_reveal("wails3 task package", &ctx.script_dir, &bin, exts, None)?;
+        cmd::run_build_and_reveal("wails3 task package", &ctx.script_dir, &bin, exts, rename.as_deref())?;
     }
 
     Ok(())

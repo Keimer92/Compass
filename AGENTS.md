@@ -592,7 +592,7 @@ Todos los builds **release** de Android (APK/AAB) renombran el artefacto resulta
 | Flutter | `pubspec.yaml` → `name` | `version` (sin `+build`) | `my_app-v2.0.0.aab` |
 | Kotlin | `build.gradle.kts` → `versionName` | `res/values/strings.xml` → `app_name` | `SongSync-v1.0.0.apk` |
 
-El sanitizado reemplaza espacios y caracteres especiales por `_`. Los builds de **Windows** (exe/msi) y **Rust** NO renombran (el nombre del producto ya viene del build).
+El sanitizado reemplaza espacios y caracteres especiales por `_`. Los builds de **Android** (APK/AAB) renombran a `<AppName>-v<version>.<ext>` (sanitizado). A partir de ahora los builds de **escritorio** (Tauri, Flutter, Kotlin, Rust y Go+Wails) también renombran el artefacto revelado a `<nombre real> v<version>.<ext>` (sin sanitizar, con espacios), p. ej. `School Tracker v1.0.1.exe`. En Go+Wails el nombre sale de `build/config.yml` (`info.productName` + `info.version`).
 
 **Importante**: la llamada a Explorer es `explorer.exe ("/select,`"" + $f.FullName + "`"")` — el path debe ir
 **entre comillas dobles embebidas** (`/select,"ruta con espacios"`). `explorer.exe /select,<path>` sin esas comillas

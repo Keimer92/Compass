@@ -485,13 +485,14 @@ pub fn run_build_and_reveal_named(
     folder: &std::path::Path,
     exts: &[&str],
     name_contains: &[&str],
+    rename_to: Option<&str>,
 ) -> Result<()> {
     let _ = run_build_and_reveal_filtered(
         command,
         dir,
         folder,
         exts,
-        None,
+        rename_to,
         &[],
         Some(name_contains),
     )?;
