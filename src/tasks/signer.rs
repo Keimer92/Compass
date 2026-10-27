@@ -21,16 +21,32 @@
 //!
 //! Todo se ofrece desde un único submenú, [`manage`].
 
+use std::io::{self, stdout};
+use std::sync::atomic::{AtomicBool, Ordering};
+
+use anyhow::{Context, Result};
+use chrono::Local;
+use crossterm::{
+    event::{Event, KeyCode, KeyEventKind, MouseButton, MouseEventKind},
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    execute,
+};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-
-use anyhow::{Context, Result};
-use chrono::Local;
 use inquire::Select;
+use ratatui::{
+    backend::CrosstermBackend,
+    layout::{Alignment, Rect},
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+    widgets::{Block, BorderType, Borders, Clear, Paragraph},
+    Frame, Terminal,
+};
 use regex::Regex;
 
+use crate::theme::{self, Theme};
 use crate::utils::{
     cmd,
     context::{kotlin_android_dir, ProjectContext, ProjectType},
@@ -535,10 +551,496 @@ fn guess_secret(name: &str, info: &SigningInfo, keystore_b64: Option<&str>) -> S
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// Menú unificado
+// TUI de cards para el menú de firmas (mismo estilo que el menú principal)
 // ───────────────────────────────────────────────────────────────────────────
 
-/// Submenú único de firmas (antes: tarjetas Configure + Keystore + SHA1).
+static TRACE: AtomicBool = AtomicBool::new(false);
+
+fn trace_event(msg: &str) {
+    if !TRACE.load(Ordering::Relaxed) {
+        return;
+    }
+    let log = std::env::temp_dir().join("compass-signing-tui.log");
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log)
+    {
+        use std::io::Write;
+        let _ = writeln!(f, "{msg}");
+    }
+}
+
+const SIGNING_COLS: usize = 5;
+const SIGNING_CARD_W: u16 = 26;
+const SIGNING_CARD_H: u16 = 5;
+const SIGNING_FOOTER_H: u16 = 1;
+
+/// Opciones del submenú de firmas, en el orden en que aparecen en pantalla.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SigningItem {
+    Status,
+    CreateKeystore,
+    ImportKeystore,
+    ManualConfig,
+    Fingerprints,
+    GithubSecrets,
+    Backup,
+    Restore,
+    ListBackups,
+    VerifyApk,
+    Back,
+}
+
+impl SigningItem {
+    fn icon(&self) -> &str {
+        match self {
+            Self::Status => "\u{1f4ca}",
+            Self::CreateKeystore => "\u{1f511}",
+            Self::ImportKeystore => "\u{1f4e4}",
+            Self::ManualConfig => "\u{270f}",
+            Self::Fingerprints => "\u{1f532}",
+            Self::GithubSecrets => "\u{1f510}",
+            Self::Backup => "\u{1f4be}",
+            Self::Restore => "\u{1f5d1}",
+            Self::ListBackups => "\u{1f4cb}",
+            Self::VerifyApk => "\u{2705}",
+            Self::Back => "\u{21a9}",
+        }
+    }
+
+    fn label(&self) -> &str {
+        match self {
+            Self::Status => "Estado de la firma",
+            Self::CreateKeystore => "Crear keystore",
+            Self::ImportKeystore => "Importar keystore",
+            Self::ManualConfig => "Configuracion manual",
+            Self::Fingerprints => "Huellas (SHA-1/SHA-256)",
+            Self::GithubSecrets => "Secretos de GitHub Actions",
+            Self::Backup => "Respaldar keystore",
+            Self::Restore => "Restaurar respaldo",
+            Self::ListBackups => "Listar respaldos",
+            Self::VerifyApk => "Verificar APK",
+            Self::Back => "Volver al menu principal",
+        }
+    }
+
+    fn description(&self) -> &str {
+        match self {
+            Self::Status => "Autodeteccion de keystore y Gradle",
+            Self::CreateKeystore => "Generar un keystore nuevo",
+            Self::ImportKeystore => "Importar keystore existente",
+            Self::ManualConfig => "Escribir keystore.properties a mano",
+            Self::Fingerprints => "Huellas SHA-1, SHA-256 y MD5",
+            Self::GithubSecrets => "Valores para secretos de CI",
+            Self::Backup => "Copia de keystore + properties",
+            Self::Restore => "Restaurar desde un respaldo",
+            Self::ListBackups => "Ver respaldos disponibles",
+            Self::VerifyApk => "apksigner vs keystore configurado",
+            Self::Back => "Regresa al menu principal",
+        }
+    }
+
+    fn section(&self) -> &str {
+        "MNT"
+    }
+}
+
+/// Resultado de un evento del TUI de firmas.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SigningAction {
+    Run(SigningItem),
+    Quit,
+}
+
+/// Estado del navegador de cards de firmas.
+#[derive(Debug, Clone)]
+pub struct SigningState {
+    pub items: Vec<SigningItem>,
+    pub selected: usize,
+    pub hovered: Option<usize>,
+    pub theme: Theme,
+    pub trace: bool,
+}
+
+impl SigningState {
+    pub fn new(theme: Theme) -> Self {
+        let items = vec![
+            SigningItem::Status,
+            SigningItem::CreateKeystore,
+            SigningItem::ImportKeystore,
+            SigningItem::ManualConfig,
+            SigningItem::Fingerprints,
+            SigningItem::GithubSecrets,
+            SigningItem::Backup,
+            SigningItem::Restore,
+            SigningItem::ListBackups,
+            SigningItem::VerifyApk,
+            SigningItem::Back,
+        ];
+        Self {
+            items,
+            selected: 0,
+            hovered: None,
+            theme,
+            trace: false,
+        }
+    }
+
+    fn prev(&mut self) {
+        if self.selected > 0 {
+            self.selected -= 1;
+        }
+    }
+
+    fn next(&mut self) {
+        if self.selected + 1 < self.items.len() {
+            self.selected += 1;
+        }
+    }
+}
+
+/// Dimensiones de un grupo de cards (misma logica que el menu principal).
+#[derive(Debug, Clone, Copy)]
+struct GroupSize {
+    cards: usize,
+    rows: usize,
+    height: u16,
+}
+
+fn calc_signing_group_sizes(cards: &[SigningItem]) -> Vec<GroupSize> {
+    let mut groups = Vec::new();
+    let mut start = 0;
+    while start < cards.len() {
+        let mut count = 0;
+        while start + count < cards.len() && count < SIGNING_COLS {
+            count += 1;
+        }
+        let rows = (count as u16 + SIGNING_COLS as u16 - 1) / SIGNING_COLS as u16;
+        let height = rows * SIGNING_CARD_H + 1;
+        groups.push(GroupSize { cards: count, rows, height });
+        start += count;
+    }
+    groups
+}
+
+fn calc_signing_total_height(cards: &[SigningItem]) -> u16 {
+    let groups = calc_signing_group_sizes(cards);
+    groups.iter().map(|g| g.height).sum::<u16>() + (groups.len().saturating_sub(1) as u16)
+}
+
+/// Crea una card de ratatui para un elemento de firmas.
+fn create_signing_card(
+    item: SigningItem,
+    is_selected: bool,
+    is_hovered: bool,
+    theme: &Theme,
+) -> Paragraph<'static> {
+    let section_color = theme.section(item.section());
+    let icon = item.icon();
+    let label = item.label();
+    let desc = item.description();
+
+    let mut lines: Vec<Line<'static>> = Vec::new();
+
+    let mut line1_spans: Vec<Span<'static>> = vec![Span::raw(format!(" {icon}  "))];
+    if is_selected {
+        line1_spans.push(Span::styled(
+            label.to_string(),
+            Style::default().fg(section_color).add_modifier(Modifier::BOLD),
+        ));
+    } else if is_hovered {
+        line1_spans.push(Span::styled(label.to_string(), Style::default().fg(theme.text)));
+    } else {
+        line1_spans.push(Span::styled(label.to_string(), Style::default().fg(theme.muted)));
+    }
+    lines.push(Line::from(line1_spans));
+
+    lines.push(Line::from(Span::styled(
+        format!("   {desc}"),
+        Style::default().fg(theme.muted),
+    )));
+
+    lines.push(Line::from(Span::styled(
+        " ".repeat(SIGNING_CARD_W as usize - 2),
+        Style::default().fg(theme.border),
+    )));
+
+    let indicator = if is_selected {
+        ">>> SELECCIONADO <<<"
+    } else if is_hovered {
+        "--- hover ---"
+    } else {
+        ""
+    };
+    if !indicator.is_empty() {
+        lines.push(Line::from(Span::styled(
+            format!("  {indicator}"),
+            Style::default().fg(section_color).add_modifier(Modifier::BOLD),
+        )));
+    }
+
+    let border_style = if is_selected {
+        Style::default().fg(section_color).add_modifier(Modifier::BOLD)
+    } else if is_hovered {
+        Style::default().fg(theme.text)
+    } else {
+        Style::default().fg(theme.border)
+    };
+
+    let bg = if is_selected {
+        Some(theme.selected_bg(item.section()))
+    } else if is_hovered {
+        Some(theme.hover_bg)
+    } else {
+        None
+    };
+
+    Paragraph::new(lines)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(border_style)
+                .style(Style::default().bg(bg.unwrap_or(Color::Reset))),
+        )
+        .alignment(Alignment::Left)
+}
+
+/// Calcula en que card cae una posicion del raton (x, y).
+fn signing_card_at(cards: &[SigningItem], x: u16, y: u16, area: Rect) -> Option<usize> {
+    let groups = calc_signing_group_sizes(cards);
+    let total_h = calc_signing_total_height(cards);
+
+    let content_width = area.width as usize;
+    let content_height = area.height as usize;
+
+    let card_w = SIGNING_CARD_W as usize;
+    let card_h = SIGNING_CARD_H as usize;
+    let cols = SIGNING_COLS;
+
+    let total_card_w = cols * card_w;
+    let total_card_h = total_h as usize;
+
+    let offset_x = content_width.saturating_sub(total_card_w) / 2;
+    let offset_y = content_height.saturating_sub(total_card_h) / 2;
+
+    if x < offset_x as u16 || x >= (offset_x + total_card_w) as u16 {
+        return None;
+    }
+    if y < offset_y as u16 || y >= (offset_y + total_card_h) as u16 {
+        return None;
+    }
+
+    let rel_x = (x as usize) - offset_x;
+    let rel_y = (y as usize) - offset_y;
+
+    let col = rel_x / card_w;
+    let row_in_group = rel_y / card_h;
+
+    let mut card_index = 0;
+    let mut y_acc = 0;
+    for group in &groups {
+        if rel_y < y_acc + group.height as usize {
+            let row_in_group_adj = rel_y - y_acc;
+            let card_row = row_in_group_adj / card_h as usize;
+            if card_row < group.rows as usize {
+                let idx = card_row * cols + col;
+                if idx < group.cards {
+                    return Some(card_index + idx);
+                }
+            }
+            return None;
+        }
+        y_acc += group.height as usize;
+        card_index += group.cards;
+    }
+
+    None
+}
+
+/// Dibuja todas las cards de firmas en el frame.
+fn render_signing_cards(
+    frame: &mut Frame,
+    area: Rect,
+    cards: &[SigningItem],
+    state: &SigningState,
+) {
+    let groups = calc_signing_group_sizes(cards);
+    let total_h = calc_signing_total_height(cards);
+
+    let content_width = area.width as usize;
+    let content_height = area.height as usize;
+
+    let card_w = SIGNING_CARD_W as usize;
+    let card_h = SIGNING_CARD_H as usize;
+    let cols = SIGNING_COLS;
+
+    let total_card_w = cols * card_w;
+    let total_card_h = total_h as usize;
+
+    let offset_x = content_width.saturating_sub(total_card_w) / 2;
+    let offset_y = content_height.saturating_sub(total_card_h) / 2;
+
+    let mut card_index = 0;
+    let mut y_acc = 0;
+    for group in &groups {
+        let x_start = offset_x as u16;
+        let y_start = (offset_y as u16).saturating_add(y_acc as u16);
+
+        for i in 0..group.cards {
+            let col = i % cols;
+            let row = i / cols;
+            let card_x = x_start.saturating_add((col * card_w) as u16);
+            let card_y = y_start.saturating_add((row * card_h) as u16);
+            let card_area = Rect::new(card_x, card_y, card_w as u16, card_h as u16);
+
+            let item = cards[card_index];
+            let is_selected = card_index == state.selected;
+            let is_hovered = state.hovered.map_or(false, |h| h == card_index);
+
+            let card = create_signing_card(item, is_selected, is_hovered, &state.theme);
+            frame.render_widget(card, card_area);
+            card_index += 1;
+        }
+        y_acc += group.height as usize;
+    }
+}
+
+/// Configura la terminal para el TUI de firmas.
+fn setup_signing_terminal() -> anyhow::Result<Terminal<CrosstermBackend<io::Stdout>>> {
+    let mut stdout = io::stdout();
+    execute!(stdout, EnterAlternateScreen)?;
+    enable_raw_mode()?;
+    let backend = CrosstermBackend::new(stdout);
+    let terminal = Terminal::new(backend)?;
+    Ok(terminal)
+}
+
+/// Restaura la terminal despues del TUI de firmas.
+fn restore_signing_terminal(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+) -> anyhow::Result<()> {
+    disable_raw_mode()?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    terminal.show_cursor()?;
+    Ok(())
+}
+
+/// Dibuja el menu completo de firmas con cabeca y pie.
+fn draw_signing_menu(frame: &mut Frame, state: &mut SigningState, ctx: &ProjectContext) {
+    let area = frame.area();
+    let theme = state.theme;
+
+    // Fondo de toda la pantalla (como el menu principal).
+    let background = Block::default().style(Style::default().bg(theme.background));
+    frame.render_widget(background, area);
+
+    // Cabecera: titulo
+    let title = Paragraph::new(vec![
+        Line::from(Span::styled(
+            "  FIRMAS / KEYSTORE  ",
+            Style::default().fg(theme.brand).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(Span::styled(
+            format!("  Proyecto: {}", ctx.script_dir.display()),
+            Style::default().fg(theme.muted),
+        )),
+    ])
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(theme.border)),
+    );
+    let title_area = Rect::new(area.left() + 2, area.top() + 1, area.width.saturating_sub(4), 5);
+    frame.render_widget(title, title_area);
+
+    // Cards
+    let cards_area = Rect::new(
+        area.left(),
+        area.top() + 6,
+        area.width,
+        area.height.saturating_sub(6 + SIGNING_FOOTER_H),
+    );
+    render_signing_cards(frame, cards_area, &state.items, state);
+
+    // Pie: instrucciones
+    let footer_text = "  Flechas / WASD: navegar  Enter: ejecutar  Esc: volver";
+    let footer = Paragraph::new(Span::styled(
+        footer_text,
+        Style::default().fg(theme.muted),
+    ));
+    let footer_area = Rect::new(
+        area.left() + 2,
+        area.top() + area.height.saturating_sub(SIGNING_FOOTER_H + 1),
+        area.width.saturating_sub(4),
+        SIGNING_FOOTER_H,
+    );
+    frame.render_widget(footer, footer_area);
+}
+
+/// Maneja eventos de teclado y raton del TUI de firmas.
+fn handle_signing_event(
+    state: &mut SigningState,
+    area: Rect,
+) -> anyhow::Result<SigningAction> {
+    if crossterm::event::poll(std::time::Duration::from_millis(50))? {
+        if let Event::Key(key) = crossterm::event::read()? {
+            if key.kind == KeyEventKind::Press {
+                match key.code {
+                    KeyCode::Esc | KeyCode::Char('q') => return Ok(SigningAction::Quit),
+                    KeyCode::Up | KeyCode::Char('k') | KeyCode::Char('K') => state.prev(),
+                    KeyCode::Down | KeyCode::Char('j') | KeyCode::Char('J') => state.next(),
+                    KeyCode::Left | KeyCode::Char('h') | KeyCode::Char('H') => state.prev(),
+                    KeyCode::Right | KeyCode::Char('l') | KeyCode::Char('L') => state.next(),
+                    KeyCode::Enter => {
+                        let item = state.items[state.selected];
+                        return Ok(SigningAction::Run(item));
+                    }
+                    _ => {}
+                }
+            }
+        } else if let Event::Mouse(mouse) = crossterm::event::read()? {
+            match mouse.kind {
+                MouseEventKind::Down(MouseButton::Left) => {
+                    if let Some(idx) = signing_card_at(&state.items, mouse.column, mouse.row, area) {
+                        state.selected = idx;
+                        state.hovered = Some(idx);
+                        return Ok(SigningAction::Run(state.items[idx]));
+                    }
+                }
+                MouseEventKind::Moved => {
+                    if let Some(idx) = signing_card_at(&state.items, mouse.column, mouse.row, area) {
+                        state.hovered = Some(idx);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    Ok(SigningAction::Run(state.items[state.selected]))
+}
+
+/// Ejecuta la accion de firmas seleccionada.
+fn run_signing_action(item: SigningItem, ctx: &ProjectContext) -> Result<()> {
+    match item {
+        SigningItem::Status => show_status(ctx),
+        SigningItem::CreateKeystore => create_keystore(ctx),
+        SigningItem::ImportKeystore => import_keystore(ctx),
+        SigningItem::ManualConfig => manual_configure(ctx),
+        SigningItem::Fingerprints => show_fingerprints(ctx),
+        SigningItem::GithubSecrets => github_secrets(ctx),
+        SigningItem::Backup => backup(ctx),
+        SigningItem::Restore => restore(ctx),
+        SigningItem::ListBackups => list_backups(ctx),
+        SigningItem::VerifyApk => verify_apk(ctx),
+        SigningItem::Back => Ok(()),
+    }
+}
+
+/// Submenú único de firmas (antes: tarjetas Configure + Keystore + SHA1),
+/// ahora con la misma interfaz de cards clickables del menú principal.
 pub fn manage(ctx: &ProjectContext) -> Result<()> {
     if ctx.project_type == ProjectType::Rust {
         cmd::clear_screen();
@@ -547,48 +1049,42 @@ pub fn manage(ctx: &ProjectContext) -> Result<()> {
         return Ok(());
     }
 
-    loop {
-        cmd::clear_screen();
-        println!("╔══════════════════════════════════════════════════╗");
-        println!("║              FIRMAS / KEYSTORE                   ║");
-        println!("╚══════════════════════════════════════════════════╝");
-        println!();
+    let theme = theme::load();
+    let mut state = SigningState::new(theme);
+    state.trace = TRACE.load(Ordering::Relaxed);
 
-        let options = vec![
-            "1. Estado de la firma (autodetección)",
-            "2. Crear un keystore nuevo",
-            "3. Usar un keystore existente",
-            "4. Configurar manualmente (sin crear archivo)",
-            "5. Huellas SHA-1 / SHA-256",
-            "6. Secretos para GitHub Actions",
-            "7. Respaldar keystore",
-            "8. Restaurar desde respaldo",
-            "9. Ver respaldos disponibles",
-            "10. Verificar firma de un APK",
-            "11. Volver al menú principal",
-        ];
+    let mut terminal = setup_signing_terminal()?;
+    cmd::set_console_title(&platform::dir_display_name(&ctx.script_dir));
 
-        let choice = Select::new("Selecciona una opción:", options)
-            .with_vim_mode(true)
-            .prompt()?;
+    let result = (|| -> anyhow::Result<SigningAction> {
+        loop {
+            let area = terminal.size()?;
+            terminal.draw(|f| draw_signing_menu(f, &mut state, ctx))?;
 
-        cmd::clear_screen();
-
-        match choice {
-            s if s.starts_with("1.") => show_status(ctx)?,
-            s if s.starts_with("2.") => create_keystore(ctx)?,
-            s if s.starts_with("3.") => import_keystore(ctx)?,
-            s if s.starts_with("4.") => manual_configure(ctx)?,
-            s if s.starts_with("5.") => show_fingerprints(ctx)?,
-            s if s.starts_with("6.") => show_secrets(ctx)?,
-            s if s.starts_with("7.") => backup_keystore(ctx)?,
-            s if s.starts_with("8.") => restore_keystore(ctx)?,
-            s if s.starts_with("9.") => list_backups(ctx)?,
-            s if s.starts_with("10.") => verify_apk(ctx)?,
-            _ => break,
+            match handle_signing_event(&mut state, area)? {
+                SigningAction::Quit => return Ok(SigningAction::Quit),
+                SigningAction::Run(item) => {
+                    if item == SigningItem::Back {
+                        return Ok(SigningAction::Run(item));
+                    }
+                    // Restaurar la terminal para ejecutar la accion (que usa println / inquire)
+                    restore_signing_terminal(&mut terminal)?;
+                    let action_result = run_signing_action(item, ctx);
+                    // Volver a configurar la terminal para el TUI
+                    let mut new_terminal = setup_signing_terminal()?;
+                    terminal = new_terminal;
+                    cmd::set_console_title(&platform::dir_display_name(&ctx.script_dir));
+                    action_result?;
+                }
+            }
         }
+    })();
+
+    let _ = restore_signing_terminal(&mut terminal);
+    match result? {
+        SigningAction::Quit | SigningAction::Run(SigningItem::Back) => Ok(()),
+        _ => unreachable!("manage solo retorna en Quit o Back"),
     }
-    Ok(())
 }
 
 fn require_layout(ctx: &ProjectContext) -> Result<AndroidLayout> {
