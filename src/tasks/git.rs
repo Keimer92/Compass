@@ -7,16 +7,35 @@
 //! sola tarjeta **Git**, junto con una opción nueva para enlazar el proyecto con
 //! GitHub (vía URL o vía `gh repo create`).
 
+use std::io::{self};
 use std::path::Path;
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::Result;
+use crossterm::{
+    event::{
+        DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, MouseButton,
+        MouseEventKind,
+    },
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    execute,
+};
 use inquire::Select;
+use ratatui::{
+    backend::CrosstermBackend,
+    layout::{Alignment, Rect},
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+    widgets::{Block, BorderType, Borders, Paragraph},
+    Frame, Terminal,
+};
 
+use crate::theme::{self, Theme};
 use crate::utils::{
     cmd,
     context::{ProjectContext, ProjectType},
-    ui,
+    platform, ui,
 };
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -798,30 +817,502 @@ fn write_gitignore(ctx: &ProjectContext) -> Result<()> {
 
 /// Menú unificado de Git (absorbe las antiguas tarjetas Git Init y .gitignore).
 pub fn manage(ctx: &ProjectContext) -> Result<()> {
-    loop {
-        cmd::clear_screen();
-        ui::box_banner("GIT");
-        println!();
-        let options = vec![
-            "1. Inicializar repositorio (git init + main + primer commit)",
-            "2. Crear/actualizar .gitignore",
-            "3. Conectar con un repositorio remoto (GitHub)",
-            "4. Ver estado (rama, remoto, cambios)",
-            "5. Volver al menú principal",
-        ];
-        let choice = Select::new("Selecciona una acción:", options)
-            .with_vim_mode(true)
-            .prompt()?;
+    let theme = theme::load();
+    let mut state = GitState::new(*theme);
+    state.trace = TRACE.load(Ordering::Relaxed);
 
-        match choice {
-            s if s.starts_with("1.") => init(ctx)?,
-            s if s.starts_with("2.") => write_gitignore(ctx)?,
-            s if s.starts_with("3.") => connect_remote(ctx)?,
-            s if s.starts_with("4.") => show_status(ctx)?,
-            _ => break,
+    let mut terminal = setup_git_terminal()?;
+    cmd::set_console_title(&platform::dir_display_name(&ctx.script_dir));
+
+    let result = (|| -> anyhow::Result<GitAction> {
+        loop {
+            let size = terminal.size()?;
+            let area = Rect::new(0, 0, size.width, size.height);
+            terminal.draw(|f| draw_git_menu(f, &mut state, ctx))?;
+
+            match handle_git_event(&mut state, area)? {
+                GitAction::Quit => return Ok(GitAction::Quit),
+                GitAction::Continue => {}
+                GitAction::Run(item) => {
+                    if item == GitItem::Back {
+                        return Ok(GitAction::Run(item));
+                    }
+                    restore_git_terminal(&mut terminal)?;
+                    let action_result = run_git_action(item, ctx);
+                    let new_terminal = setup_git_terminal()?;
+                    terminal = new_terminal;
+                    cmd::set_console_title(&platform::dir_display_name(&ctx.script_dir));
+                    action_result?;
+                }
+            }
+        }
+    })();
+
+    let _ = restore_git_terminal(&mut terminal);
+    match result? {
+        GitAction::Quit | GitAction::Run(GitItem::Back) => Ok(()),
+        _ => unreachable!("manage solo retorna en Quit o Back"),
+    }
+}
+
+/// TUI de cards para el menú de Git (mismo estilo que el menú principal)
+static TRACE: AtomicBool = AtomicBool::new(false);
+
+#[allow(dead_code)]
+fn trace_event(msg: &str) {
+    if !TRACE.load(Ordering::Relaxed) {
+        return;
+    }
+    let log = std::env::temp_dir().join("compass-git-tui.log");
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log)
+    {
+        use std::io::Write;
+        let _ = writeln!(f, "{msg}");
+    }
+}
+
+const GIT_COLS: usize = 5;
+const GIT_CARD_W: u16 = 26;
+const GIT_CARD_H: u16 = 5;
+const GIT_FOOTER_H: u16 = 1;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GitItem {
+    Init,
+    Gitignore,
+    ConnectRemote,
+    Status,
+    Back,
+}
+
+impl GitItem {
+    fn icon(&self) -> &str {
+        match self {
+            Self::Init => "\u{1f4c1}",
+            Self::Gitignore => "\u{1f6ab}",
+            Self::ConnectRemote => "\u{1f517}",
+            Self::Status => "\u{1f4ca}",
+            Self::Back => "\u{21a9}",
         }
     }
+
+    fn label(&self) -> &str {
+        match self {
+            Self::Init => "Inicializar repositorio",
+            Self::Gitignore => "Crear/actualizar .gitignore",
+            Self::ConnectRemote => "Conectar con remoto",
+            Self::Status => "Ver estado",
+            Self::Back => "Volver al menu principal",
+        }
+    }
+
+    fn description(&self) -> &str {
+        match self {
+            Self::Init => "git init + main + primer commit",
+            Self::Gitignore => "Plantilla por tipo de proyecto",
+            Self::ConnectRemote => "Enlazar con GitHub (URL o gh)",
+            Self::Status => "Rama, remoto y cambios",
+            Self::Back => "Regresa al menu principal",
+        }
+    }
+
+    fn section(&self) -> &str {
+        "MNT"
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GitAction {
+    Run(GitItem),
+    Quit,
+    Continue,
+}
+
+#[derive(Debug, Clone)]
+pub struct GitState {
+    pub items: Vec<GitItem>,
+    pub selected: usize,
+    pub hovered: Option<usize>,
+    pub theme: Theme,
+    pub trace: bool,
+}
+
+impl GitState {
+    pub fn new(theme: Theme) -> Self {
+        let items = vec![
+            GitItem::Init,
+            GitItem::Gitignore,
+            GitItem::ConnectRemote,
+            GitItem::Status,
+            GitItem::Back,
+        ];
+        Self {
+            items,
+            selected: 0,
+            hovered: None,
+            theme,
+            trace: false,
+        }
+    }
+
+    fn prev(&mut self) {
+        if self.selected > 0 {
+            self.selected -= 1;
+        }
+    }
+
+    fn next(&mut self) {
+        if self.selected + 1 < self.items.len() {
+            self.selected += 1;
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct GroupSize {
+    cards: usize,
+    rows: usize,
+    height: u16,
+}
+
+fn calc_git_group_sizes(cards: &[GitItem]) -> Vec<GroupSize> {
+    let mut groups = Vec::new();
+    let mut start = 0;
+    while start < cards.len() {
+        let mut count = 0;
+        while start + count < cards.len() && count < GIT_COLS {
+            count += 1;
+        }
+        let rows = (count as u16 + GIT_COLS as u16 - 1) / GIT_COLS as u16;
+        let height = rows * GIT_CARD_H + 1;
+        groups.push(GroupSize { cards: count, rows: rows as usize, height });
+        start += count;
+    }
+    groups
+}
+
+fn calc_git_total_height(cards: &[GitItem]) -> u16 {
+    let groups = calc_git_group_sizes(cards);
+    groups.iter().map(|g| g.height).sum::<u16>() + (groups.len().saturating_sub(1) as u16)
+}
+
+fn create_git_card(
+    item: GitItem,
+    is_selected: bool,
+    is_hovered: bool,
+    theme: &Theme,
+) -> Paragraph<'static> {
+    let section_color = theme.section(item.section());
+    let icon = item.icon();
+    let label = item.label();
+    let desc = item.description();
+
+    let mut lines: Vec<Line<'static>> = Vec::new();
+
+    let mut line1_spans: Vec<Span<'static>> = vec![Span::raw(format!(" {icon}  "))];
+    if is_selected {
+        line1_spans.push(Span::styled(
+            label.to_string(),
+            Style::default().fg(section_color).add_modifier(Modifier::BOLD),
+        ));
+    } else if is_hovered {
+        line1_spans.push(Span::styled(label.to_string(), Style::default().fg(theme.text)));
+    } else {
+        line1_spans.push(Span::styled(label.to_string(), Style::default().fg(theme.muted)));
+    }
+    lines.push(Line::from(line1_spans));
+
+    lines.push(Line::from(Span::styled(
+        format!("   {desc}"),
+        Style::default().fg(theme.muted),
+    )));
+
+    lines.push(Line::from(Span::styled(
+        " ".repeat(GIT_CARD_W as usize - 2),
+        Style::default().fg(theme.border),
+    )));
+
+    let indicator = if is_selected {
+        ">>> SELECCIONADO <<<"
+    } else if is_hovered {
+        "--- hover ---"
+    } else {
+        ""
+    };
+    if !indicator.is_empty() {
+        lines.push(Line::from(Span::styled(
+            format!("  {indicator}"),
+            Style::default().fg(section_color).add_modifier(Modifier::BOLD),
+        )));
+    }
+
+    let border_style = if is_selected {
+        Style::default().fg(section_color).add_modifier(Modifier::BOLD)
+    } else if is_hovered {
+        Style::default().fg(theme.text)
+    } else {
+        Style::default().fg(theme.border)
+    };
+
+    let bg = if is_selected {
+        Some(theme.selected_bg(item.section()))
+    } else if is_hovered {
+        Some(theme.hover_bg)
+    } else {
+        None
+    };
+
+    Paragraph::new(lines)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(border_style)
+                .style(Style::default().bg(bg.unwrap_or(Color::Reset))),
+        )
+        .alignment(Alignment::Left)
+}
+
+fn git_card_at(cards: &[GitItem], x: u16, y: u16, area: Rect) -> Option<usize> {
+    let groups = calc_git_group_sizes(cards);
+    let total_h = calc_git_total_height(cards);
+
+    let content_width = area.width as usize;
+    let content_height = area.height as usize;
+
+    let card_w = GIT_CARD_W as usize;
+    let card_h = GIT_CARD_H as usize;
+    let cols = GIT_COLS;
+
+    let total_card_w = cols * card_w;
+    let total_card_h = total_h as usize;
+
+    let offset_x = content_width.saturating_sub(total_card_w) / 2;
+    let offset_y = content_height.saturating_sub(total_card_h) / 2;
+
+    if x < offset_x as u16 || x >= (offset_x + total_card_w) as u16 {
+        return None;
+    }
+    if y < offset_y as u16 || y >= (offset_y + total_card_h) as u16 {
+        return None;
+    }
+
+    let rel_x = (x as usize) - offset_x;
+    let rel_y = (y as usize) - offset_y;
+
+    let col = rel_x / card_w;
+
+    let mut card_index = 0;
+    let mut y_acc = 0;
+    for group in &groups {
+        if rel_y < y_acc + group.height as usize {
+            let row_in_group_adj = rel_y - y_acc;
+            let card_row = row_in_group_adj / card_h as usize;
+            if card_row < group.rows as usize {
+                let idx = card_row * cols + col;
+                if idx < group.cards {
+                    return Some(card_index + idx);
+                }
+            }
+            return None;
+        }
+        y_acc += group.height as usize;
+        card_index += group.cards;
+    }
+
+    None
+}
+
+fn render_git_cards(
+    frame: &mut Frame,
+    area: Rect,
+    cards: &[GitItem],
+    state: &GitState,
+) {
+    let groups = calc_git_group_sizes(cards);
+    let total_h = calc_git_total_height(cards);
+
+    let content_width = area.width as usize;
+    let content_height = area.height as usize;
+
+    let card_w = GIT_CARD_W as usize;
+    let card_h = GIT_CARD_H as usize;
+    let cols = GIT_COLS;
+
+    let total_card_w = cols * card_w;
+    let total_card_h = total_h as usize;
+
+    let offset_x = content_width.saturating_sub(total_card_w) / 2;
+    let offset_y = content_height.saturating_sub(total_card_h) / 2;
+
+    let mut card_index = 0;
+    let mut y_acc = 0;
+    for group in &groups {
+        let x_start = offset_x as u16;
+        let y_start = (offset_y as u16).saturating_add(y_acc as u16);
+
+        for i in 0..group.cards {
+            let col = i % cols;
+            let row = i / cols;
+            let card_x = x_start.saturating_add((col * card_w) as u16);
+            let card_y = y_start.saturating_add((row * card_h) as u16);
+            let card_area = Rect::new(card_x, card_y, card_w as u16, card_h as u16);
+
+            let item = cards[card_index];
+            let is_selected = card_index == state.selected;
+            let is_hovered = state.hovered.map_or(false, |h| h == card_index);
+
+            let card = create_git_card(item, is_selected, is_hovered, &state.theme);
+            frame.render_widget(card, card_area);
+            card_index += 1;
+        }
+        y_acc += group.height as usize;
+    }
+}
+
+fn setup_git_terminal() -> anyhow::Result<Terminal<CrosstermBackend<io::Stdout>>> {
+    let mut stdout = io::stdout();
+    enable_raw_mode()?;
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    let backend = CrosstermBackend::new(stdout);
+    let terminal = Terminal::new(backend)?;
+    Ok(terminal)
+}
+
+fn restore_git_terminal(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+) -> anyhow::Result<()> {
+    disable_raw_mode()?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
+    terminal.show_cursor()?;
     Ok(())
+}
+
+fn git_cards_area(area: Rect) -> Rect {
+    Rect::new(
+        area.left(),
+        area.top() + 6,
+        area.width,
+        area.height.saturating_sub(6 + GIT_FOOTER_H),
+    )
+}
+
+fn draw_git_menu(frame: &mut Frame, state: &mut GitState, ctx: &ProjectContext) {
+    let area = frame.area();
+    let theme = state.theme;
+
+    let background = Block::default().style(Style::default().bg(theme.background));
+    frame.render_widget(background, area);
+
+    let title = Paragraph::new(vec![
+        Line::from(Span::styled(
+            "  GIT  ",
+            Style::default().fg(theme.brand).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(Span::styled(
+            format!("  Proyecto: {}", ctx.script_dir.display()),
+            Style::default().fg(theme.muted),
+        )),
+    ])
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(theme.border)),
+    );
+    let title_area = Rect::new(area.left() + 2, area.top() + 1, area.width.saturating_sub(4), 5);
+    frame.render_widget(title, title_area);
+
+    let cards_area = git_cards_area(area);
+    render_git_cards(frame, cards_area, &state.items, state);
+
+    let footer_text = "  Flechas / WASD: navegar  Enter: ejecutar  Esc: volver";
+    let footer = Paragraph::new(Span::styled(
+        footer_text,
+        Style::default().fg(theme.muted),
+    ));
+    let footer_area = Rect::new(
+        area.left() + 2,
+        area.top() + area.height.saturating_sub(GIT_FOOTER_H + 1),
+        area.width.saturating_sub(4),
+        GIT_FOOTER_H,
+    );
+    frame.render_widget(footer, footer_area);
+}
+
+fn handle_git_event(
+    state: &mut GitState,
+    area: Rect,
+) -> anyhow::Result<GitAction> {
+    if crossterm::event::poll(std::time::Duration::from_millis(50))? {
+        let event = crossterm::event::read()?;
+        return Ok(handle_git_input(state, area, event));
+    }
+    Ok(GitAction::Continue)
+}
+
+fn handle_git_input(
+    state: &mut GitState,
+    area: Rect,
+    event: Event,
+) -> GitAction {
+    match event {
+        Event::Key(key) if key.kind == KeyEventKind::Press => match key.code {
+            KeyCode::Esc | KeyCode::Char('q') => GitAction::Quit,
+            KeyCode::Up | KeyCode::Char('k' | 'K') | KeyCode::Left | KeyCode::Char('h' | 'H') => {
+                state.prev();
+                GitAction::Continue
+            }
+            KeyCode::Down | KeyCode::Char('j' | 'J') | KeyCode::Right | KeyCode::Char('l' | 'L') => {
+                state.next();
+                GitAction::Continue
+            }
+            KeyCode::Enter => GitAction::Run(state.items[state.selected]),
+            _ => GitAction::Continue,
+        },
+        Event::Mouse(mouse) => {
+            match mouse.kind {
+                MouseEventKind::Up(MouseButton::Left) => {
+                    if let Some(idx) = git_card_at(
+                        &state.items,
+                        mouse.column,
+                        mouse.row,
+                        git_cards_area(area),
+                    ) {
+                        state.selected = idx;
+                        state.hovered = Some(idx);
+                        return GitAction::Run(state.items[idx]);
+                    }
+                }
+                MouseEventKind::Moved
+                | MouseEventKind::Drag(MouseButton::Left)
+                | MouseEventKind::Down(MouseButton::Left) => {
+                    state.hovered = git_card_at(
+                        &state.items,
+                        mouse.column,
+                        mouse.row,
+                        git_cards_area(area),
+                    );
+                }
+                _ => {}
+            }
+            GitAction::Continue
+        }
+        _ => GitAction::Continue,
+    }
+}
+
+fn run_git_action(item: GitItem, ctx: &ProjectContext) -> Result<()> {
+    match item {
+        GitItem::Init => init(ctx),
+        GitItem::Gitignore => write_gitignore(ctx),
+        GitItem::ConnectRemote => connect_remote(ctx),
+        GitItem::Status => show_status(ctx),
+        GitItem::Back => Ok(()),
+    }
 }
 
 #[cfg(test)]
