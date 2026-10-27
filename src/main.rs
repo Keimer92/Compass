@@ -76,22 +76,24 @@ fn main() -> Result<()> {
 
     // ── Instancia única por directorio ──
     //
-    // Si Compass ya está abierto para este directorio, mostramos un banner
-    // nativo del sistema avisando y salimos sin abrir otra instancia.
-    // El lock se mantiene vivo mientras este proceso corre y se elimina al salir.
-    let _instance_lock = match utils::instance_lock::try_acquire(&dir) {
-        Ok(Some(lock)) => lock,
-        Ok(None) => {
-            // Ya hay una instancia corriendo: el banner ya se mostró.
-            return Ok(());
-        }
-        Err(e) => {
-            eprintln!("[WARN] No se pudo verificar instancia única: {}", e);
-            // Continuamos sin lock (no bloqueamos el arranque por un error de I/O).
-            utils::instance_lock::InstanceLock {
-                lock_path: std::path::PathBuf::new(),
+    // Sólo aplica a la TUI (sin --task). Los procesos hijo que ejecutan tareas
+    // (`compass --task ...`) no deben bloquearse: si lo hicieran, las cards del
+    // menú principal dejarían de funcionar porque el lock del padre ya está
+    // tomado.
+    let _instance_lock = if cli.task.is_none() {
+        match utils::instance_lock::try_acquire(&dir) {
+            Ok(Some(lock)) => Some(lock),
+            Ok(None) => {
+                // Ya hay una instancia corriendo: el banner ya se mostró.
+                return Ok(());
+            }
+            Err(e) => {
+                eprintln!("[WARN] No se pudo verificar instancia única: {}", e);
+                None
             }
         }
+    } else {
+        None
     };
 
     let ctx = match utils::context::detect() {
