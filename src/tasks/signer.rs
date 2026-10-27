@@ -1001,6 +1001,8 @@ fn handle_signing_event(
                     }
                     _ => { return Ok(SigningAction::Run(state.items[state.selected])); }
                 }
+            } else {
+                return Ok(SigningAction::Run(state.items[state.selected]));
             }
         } else if let Event::Mouse(mouse) = crossterm::event::read()? {
             match mouse.kind {
@@ -1024,6 +1026,8 @@ fn handle_signing_event(
                 }
                 _ => { return Ok(SigningAction::Run(state.items[state.selected])); }
             }
+        } else {
+            return Ok(SigningAction::Run(state.items[state.selected]));
         }
         // Si no hubo evento reconocido, continuamos el loop sin ejecutar nada
         // (no retornamos SigningAction::Run para evitar ejecuciones automáticas)
