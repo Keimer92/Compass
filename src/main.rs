@@ -74,6 +74,26 @@ fn main() -> Result<()> {
 
     std::env::set_current_dir(&dir)?;
 
+    // ── Instancia única por directorio ──
+    //
+    // Si Compass ya está abierto para este directorio, mostramos un banner
+    // nativo del sistema avisando y salimos sin abrir otra instancia.
+    // El lock se mantiene vivo mientras este proceso corre y se elimina al salir.
+    let _instance_lock = match utils::instance_lock::try_acquire(&dir) {
+        Ok(Some(lock)) => lock,
+        Ok(None) => {
+            // Ya hay una instancia corriendo: el banner ya se mostró.
+            return Ok(());
+        }
+        Err(e) => {
+            eprintln!("[WARN] No se pudo verificar instancia única: {}", e);
+            // Continuamos sin lock (no bloqueamos el arranque por un error de I/O).
+            utils::instance_lock::InstanceLock {
+                lock_path: std::path::PathBuf::new(),
+            }
+        }
+    };
+
     let ctx = match utils::context::detect() {
         Ok(c) => c,
         Err(e) => {

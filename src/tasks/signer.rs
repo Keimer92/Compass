@@ -27,7 +27,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use anyhow::{Context, Result};
 use chrono::Local;
 use crossterm::{
-    event::{Event, KeyCode, KeyEventKind, MouseButton, MouseEventKind},
+    event::{
+        DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, MouseButton,
+        MouseEventKind,
+    },
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
     execute,
 };
@@ -652,6 +655,7 @@ impl SigningItem {
 pub enum SigningAction {
     Run(SigningItem),
     Quit,
+    Continue,
 }
 
 /// Estado del navegador de cards de firmas.
@@ -826,15 +830,18 @@ fn signing_card_at(cards: &[SigningItem], x: u16, y: u16, area: Rect) -> Option<
     let offset_x = content_width.saturating_sub(total_card_w) / 2;
     let offset_y = content_height.saturating_sub(total_card_h) / 2;
 
-    if x < offset_x as u16 || x >= (offset_x + total_card_w) as u16 {
+    let grid_x = area.left().saturating_add(offset_x as u16);
+    let grid_y = area.top().saturating_add(offset_y as u16);
+
+    if x < grid_x || x >= grid_x.saturating_add(total_card_w as u16) {
         return None;
     }
-    if y < offset_y as u16 || y >= (offset_y + total_card_h) as u16 {
+    if y < grid_y || y >= grid_y.saturating_add(total_card_h as u16) {
         return None;
     }
 
-    let rel_x = (x as usize) - offset_x;
-    let rel_y = (y as usize) - offset_y;
+    let rel_x = (x - grid_x) as usize;
+    let rel_y = (y - grid_y) as usize;
 
     let col = rel_x / card_w;
     let _row_in_group = rel_y / card_h;
@@ -886,8 +893,8 @@ fn render_signing_cards(
     let mut card_index = 0;
     let mut y_acc = 0;
     for group in &groups {
-        let x_start = offset_x as u16;
-        let y_start = (offset_y as u16).saturating_add(y_acc as u16);
+        let x_start = area.left().saturating_add(offset_x as u16);
+        let y_start = area.top().saturating_add(offset_y as u16).saturating_add(y_acc as u16);
 
         for i in 0..group.cards {
             let col = i % cols;
@@ -911,8 +918,8 @@ fn render_signing_cards(
 /// Configura la terminal para el TUI de firmas.
 fn setup_signing_terminal() -> anyhow::Result<Terminal<CrosstermBackend<io::Stdout>>> {
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
     enable_raw_mode()?;
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
     let terminal = Terminal::new(backend)?;
     Ok(terminal)
@@ -923,7 +930,11 @@ fn restore_signing_terminal(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
 ) -> anyhow::Result<()> {
     disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        DisableMouseCapture
+    )?;
     terminal.show_cursor()?;
     Ok(())
 }
@@ -958,12 +969,7 @@ fn draw_signing_menu(frame: &mut Frame, state: &mut SigningState, ctx: &ProjectC
     frame.render_widget(title, title_area);
 
     // Cards
-    let cards_area = Rect::new(
-        area.left(),
-        area.top() + 6,
-        area.width,
-        area.height.saturating_sub(6 + SIGNING_FOOTER_H),
-    );
+    let cards_area = signing_cards_area(area);
     render_signing_cards(frame, cards_area, &state.items, state);
 
     // Pie: instrucciones
@@ -981,66 +987,76 @@ fn draw_signing_menu(frame: &mut Frame, state: &mut SigningState, ctx: &ProjectC
     frame.render_widget(footer, footer_area);
 }
 
+fn signing_cards_area(area: Rect) -> Rect {
+    Rect::new(
+        area.left(),
+        area.top() + 6,
+        area.width,
+        area.height.saturating_sub(6 + SIGNING_FOOTER_H),
+    )
+}
+
 /// Maneja eventos de teclado y raton del TUI de firmas.
 fn handle_signing_event(
     state: &mut SigningState,
     area: Rect,
 ) -> anyhow::Result<SigningAction> {
     if crossterm::event::poll(std::time::Duration::from_millis(50))? {
-        if let Event::Key(key) = crossterm::event::read()? {
-            if key.kind == KeyEventKind::Press {
-                match key.code {
-                    KeyCode::Esc | KeyCode::Char('q') => return Ok(SigningAction::Quit),
-                    KeyCode::Up | KeyCode::Char('k') | KeyCode::Char('K') => { state.prev(); return Ok(SigningAction::Run(state.items[state.selected])); }
-                    KeyCode::Down | KeyCode::Char('j') | KeyCode::Char('J') => { state.next(); return Ok(SigningAction::Run(state.items[state.selected])); }
-                    KeyCode::Left | KeyCode::Char('h') | KeyCode::Char('H') => { state.prev(); return Ok(SigningAction::Run(state.items[state.selected])); }
-                    KeyCode::Right | KeyCode::Char('l') | KeyCode::Char('L') => { state.next(); return Ok(SigningAction::Run(state.items[state.selected])); }
-                    KeyCode::Enter => {
-                        let item = state.items[state.selected];
-                        return Ok(SigningAction::Run(item));
-                    }
-                    _ => { return Ok(SigningAction::Run(state.items[state.selected])); }
-                }
-            } else {
-                return Ok(SigningAction::Run(state.items[state.selected]));
+        let event = crossterm::event::read()?;
+        return Ok(handle_signing_input(state, area, event));
+    }
+    Ok(SigningAction::Continue)
+}
+
+fn handle_signing_input(
+    state: &mut SigningState,
+    area: Rect,
+    event: Event,
+) -> SigningAction {
+    match event {
+        Event::Key(key) if key.kind == KeyEventKind::Press => match key.code {
+            KeyCode::Esc | KeyCode::Char('q') => SigningAction::Quit,
+            KeyCode::Up | KeyCode::Char('k' | 'K') | KeyCode::Left | KeyCode::Char('h' | 'H') => {
+                state.prev();
+                SigningAction::Continue
             }
-        } else if let Event::Mouse(mouse) = crossterm::event::read()? {
+            KeyCode::Down | KeyCode::Char('j' | 'J') | KeyCode::Right | KeyCode::Char('l' | 'L') => {
+                state.next();
+                SigningAction::Continue
+            }
+            KeyCode::Enter => SigningAction::Run(state.items[state.selected]),
+            _ => SigningAction::Continue,
+        },
+        Event::Mouse(mouse) => {
             match mouse.kind {
-                MouseEventKind::Down(MouseButton::Left) => {
-                    if let Some(idx) = signing_card_at(&state.items, mouse.column, mouse.row, area) {
+                MouseEventKind::Up(MouseButton::Left) => {
+                    if let Some(idx) = signing_card_at(
+                        &state.items,
+                        mouse.column,
+                        mouse.row,
+                        signing_cards_area(area),
+                    ) {
                         state.selected = idx;
                         state.hovered = Some(idx);
-                        return Ok(SigningAction::Run(state.items[idx]));
-                    } else {
-                        // No card at mouse position, do nothing
-                        return Ok(SigningAction::Quit);
+                        return SigningAction::Run(state.items[idx]);
                     }
                 }
-                MouseEventKind::Moved => {
-                    if let Some(idx) = signing_card_at(&state.items, mouse.column, mouse.row, area) {
-                        state.hovered = Some(idx);
-                        return Ok(SigningAction::Run(state.items[state.selected]));
-                    } else {
-                        return Ok(SigningAction::Run(state.items[state.selected]));
-                    }
+                MouseEventKind::Moved
+                | MouseEventKind::Drag(MouseButton::Left)
+                | MouseEventKind::Down(MouseButton::Left) => {
+                    state.hovered = signing_card_at(
+                        &state.items,
+                        mouse.column,
+                        mouse.row,
+                        signing_cards_area(area),
+                    );
                 }
-                _ => { return Ok(SigningAction::Run(state.items[state.selected])); }
+                _ => {}
             }
-        } else {
-            return Ok(SigningAction::Run(state.items[state.selected]));
+            SigningAction::Continue
         }
-        // Si no hubo evento reconocido, continuamos el loop sin ejecutar nada
-        // (no retornamos SigningAction::Run para evitar ejecuciones automáticas)
+        _ => SigningAction::Continue,
     }
-    // Solo retornamos None para indicar "ningún evento procesado", el caller decidirá
-    // Si el caller quiere cerrar, debe manejarlo aparte
-    //
-                       
-    // Regresamos un resultado que indica "no hay evento" para que el caller sepa continuar
-    // Pero como la firma requiere un Result<SigningAction>, usamos un enfoque diferente:
-    // Retornamos Ok con una acción especial o usamos un Option. 
-    // Para mantener compatibilidad, retornamos la acción actual solo si hubo teclas específicas.
-    // Actually, the simplest fix: remove the unconditional return at the end.
 }
 
 /// Ejecuta la accion de firmas seleccionada.
@@ -1085,6 +1101,7 @@ pub fn manage(ctx: &ProjectContext) -> Result<()> {
 
             match handle_signing_event(&mut state, area)? {
                 SigningAction::Quit => return Ok(SigningAction::Quit),
+                SigningAction::Continue => {}
                 SigningAction::Run(item) => {
                     if item == SigningItem::Back {
                         return Ok(SigningAction::Run(item));
@@ -2150,6 +2167,65 @@ pub fn parse_apksigner_certs(text: &str) -> Vec<(String, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn signing_navigation_does_not_run_an_action_until_enter() {
+        let mut state = SigningState::new(*theme::DEFAULT);
+        let area = Rect::new(0, 0, 120, 40);
+        let down = Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Down,
+            crossterm::event::KeyModifiers::NONE,
+        ));
+
+        assert_eq!(
+            handle_signing_input(&mut state, area, down),
+            SigningAction::Continue
+        );
+        assert_eq!(state.selected, 1);
+        assert_eq!(
+            handle_signing_input(
+                &mut state,
+                area,
+                Event::Key(crossterm::event::KeyEvent::new(
+                    KeyCode::Enter,
+                    crossterm::event::KeyModifiers::NONE,
+                )),
+            ),
+            SigningAction::Run(SigningItem::CreateKeystore)
+        );
+    }
+
+    #[test]
+    fn signing_mouse_hover_and_click_use_the_card_grid_coordinates() {
+        let mut state = SigningState::new(*theme::DEFAULT);
+        let area = Rect::new(0, 0, 160, 50);
+        let mouse_event = |kind| {
+            Event::Mouse(crossterm::event::MouseEvent {
+                kind,
+                column: 53,
+                row: 20,
+                modifiers: crossterm::event::KeyModifiers::NONE,
+            })
+        };
+
+        assert_eq!(
+            handle_signing_input(
+                &mut state,
+                area,
+                mouse_event(MouseEventKind::Moved),
+            ),
+            SigningAction::Continue
+        );
+        assert_eq!(state.hovered, Some(1));
+        assert_eq!(
+            handle_signing_input(
+                &mut state,
+                area,
+                mouse_event(MouseEventKind::Up(MouseButton::Left)),
+            ),
+            SigningAction::Run(SigningItem::CreateKeystore)
+        );
+    }
 
     #[test]
     fn props_roundtrip() {
