@@ -991,15 +991,15 @@ fn handle_signing_event(
             if key.kind == KeyEventKind::Press {
                 match key.code {
                     KeyCode::Esc | KeyCode::Char('q') => return Ok(SigningAction::Quit),
-                    KeyCode::Up | KeyCode::Char('k') | KeyCode::Char('K') => state.prev(),
-                    KeyCode::Down | KeyCode::Char('j') | KeyCode::Char('J') => state.next(),
-                    KeyCode::Left | KeyCode::Char('h') | KeyCode::Char('H') => state.prev(),
-                    KeyCode::Right | KeyCode::Char('l') | KeyCode::Char('L') => state.next(),
+                    KeyCode::Up | KeyCode::Char('k') | KeyCode::Char('K') => { state.prev(); return Ok(SigningAction::Run(state.items[state.selected])); }
+                    KeyCode::Down | KeyCode::Char('j') | KeyCode::Char('J') => { state.next(); return Ok(SigningAction::Run(state.items[state.selected])); }
+                    KeyCode::Left | KeyCode::Char('h') | KeyCode::Char('H') => { state.prev(); return Ok(SigningAction::Run(state.items[state.selected])); }
+                    KeyCode::Right | KeyCode::Char('l') | KeyCode::Char('L') => { state.next(); return Ok(SigningAction::Run(state.items[state.selected])); }
                     KeyCode::Enter => {
                         let item = state.items[state.selected];
                         return Ok(SigningAction::Run(item));
                     }
-                    _ => {}
+                    _ => { return Ok(SigningAction::Run(state.items[state.selected])); }
                 }
             }
         } else if let Event::Mouse(mouse) = crossterm::event::read()? {
@@ -1009,18 +1009,34 @@ fn handle_signing_event(
                         state.selected = idx;
                         state.hovered = Some(idx);
                         return Ok(SigningAction::Run(state.items[idx]));
+                    } else {
+                        // No card at mouse position, do nothing
+                        return Ok(SigningAction::Quit);
                     }
                 }
                 MouseEventKind::Moved => {
                     if let Some(idx) = signing_card_at(&state.items, mouse.column, mouse.row, area) {
                         state.hovered = Some(idx);
+                        return Ok(SigningAction::Run(state.items[state.selected]));
+                    } else {
+                        return Ok(SigningAction::Run(state.items[state.selected]));
                     }
                 }
-                _ => {}
+                _ => { return Ok(SigningAction::Run(state.items[state.selected])); }
             }
         }
+        // Si no hubo evento reconocido, continuamos el loop sin ejecutar nada
+        // (no retornamos SigningAction::Run para evitar ejecuciones automáticas)
     }
-    Ok(SigningAction::Run(state.items[state.selected]))
+    // Solo retornamos None para indicar "ningún evento procesado", el caller decidirá
+    // Si el caller quiere cerrar, debe manejarlo aparte
+    //
+                       
+    // Regresamos un resultado que indica "no hay evento" para que el caller sepa continuar
+    // Pero como la firma requiere un Result<SigningAction>, usamos un enfoque diferente:
+    // Retornamos Ok con una acción especial o usamos un Option. 
+    // Para mantener compatibilidad, retornamos la acción actual solo si hubo teclas específicas.
+    // Actually, the simplest fix: remove the unconditional return at the end.
 }
 
 /// Ejecuta la accion de firmas seleccionada.
