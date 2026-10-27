@@ -21,7 +21,7 @@
 //!
 //! Todo se ofrece desde un único submenú, [`manage`].
 
-use std::io::{self, stdout};
+use std::io::{self};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Context, Result};
@@ -41,7 +41,7 @@ use ratatui::{
     layout::{Alignment, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Clear, Paragraph},
+    widgets::{Block, BorderType, Borders, Paragraph},
     Frame, Terminal,
 };
 use regex::Regex;
@@ -556,6 +556,7 @@ fn guess_secret(name: &str, info: &SigningInfo, keystore_b64: Option<&str>) -> S
 
 static TRACE: AtomicBool = AtomicBool::new(false);
 
+#[allow(dead_code)]
 fn trace_event(msg: &str) {
     if !TRACE.load(Ordering::Relaxed) {
         return;
@@ -718,7 +719,7 @@ fn calc_signing_group_sizes(cards: &[SigningItem]) -> Vec<GroupSize> {
         }
         let rows = (count as u16 + SIGNING_COLS as u16 - 1) / SIGNING_COLS as u16;
         let height = rows * SIGNING_CARD_H + 1;
-        groups.push(GroupSize { cards: count, rows, height });
+        groups.push(GroupSize { cards: count, rows: rows as usize, height });
         start += count;
     }
     groups
@@ -836,7 +837,7 @@ fn signing_card_at(cards: &[SigningItem], x: u16, y: u16, area: Rect) -> Option<
     let rel_y = (y as usize) - offset_y;
 
     let col = rel_x / card_w;
-    let row_in_group = rel_y / card_h;
+    let _row_in_group = rel_y / card_h;
 
     let mut card_index = 0;
     let mut y_acc = 0;
@@ -1030,9 +1031,9 @@ fn run_signing_action(item: SigningItem, ctx: &ProjectContext) -> Result<()> {
         SigningItem::ImportKeystore => import_keystore(ctx),
         SigningItem::ManualConfig => manual_configure(ctx),
         SigningItem::Fingerprints => show_fingerprints(ctx),
-        SigningItem::GithubSecrets => github_secrets(ctx),
-        SigningItem::Backup => backup(ctx),
-        SigningItem::Restore => restore(ctx),
+        SigningItem::GithubSecrets => show_secrets(ctx),
+        SigningItem::Backup => backup_keystore(ctx),
+        SigningItem::Restore => restore_keystore(ctx),
         SigningItem::ListBackups => list_backups(ctx),
         SigningItem::VerifyApk => verify_apk(ctx),
         SigningItem::Back => Ok(()),
@@ -1050,7 +1051,7 @@ pub fn manage(ctx: &ProjectContext) -> Result<()> {
     }
 
     let theme = theme::load();
-    let mut state = SigningState::new(theme);
+    let mut state = SigningState::new(*theme);
     state.trace = TRACE.load(Ordering::Relaxed);
 
     let mut terminal = setup_signing_terminal()?;
@@ -1058,7 +1059,8 @@ pub fn manage(ctx: &ProjectContext) -> Result<()> {
 
     let result = (|| -> anyhow::Result<SigningAction> {
         loop {
-            let area = terminal.size()?;
+            let size = terminal.size()?;
+            let area = Rect::new(0, 0, size.width, size.height);
             terminal.draw(|f| draw_signing_menu(f, &mut state, ctx))?;
 
             match handle_signing_event(&mut state, area)? {
@@ -1071,7 +1073,7 @@ pub fn manage(ctx: &ProjectContext) -> Result<()> {
                     restore_signing_terminal(&mut terminal)?;
                     let action_result = run_signing_action(item, ctx);
                     // Volver a configurar la terminal para el TUI
-                    let mut new_terminal = setup_signing_terminal()?;
+                    let new_terminal = setup_signing_terminal()?;
                     terminal = new_terminal;
                     cmd::set_console_title(&platform::dir_display_name(&ctx.script_dir));
                     action_result?;

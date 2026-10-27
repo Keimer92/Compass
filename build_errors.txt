@@ -1,13 +1,2 @@
    Compiling compass v0.1.0 (D:\Mis Proyectos\Rust\Compass)
-error: unexpected closing delimiter: `}`
-    --> src\tasks\signer.rs:1085:1
-     |
-1081 |     match result? {
-     |                   - this opening brace...
-...
-1084 |     }
-     |     - ...matches this closing brace
-1085 | }
-     | ^ unexpected closing delimiter
-
-error: could not compile `compass` (bin "compass") due to 1 previous error
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.83s
