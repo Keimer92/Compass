@@ -520,7 +520,13 @@ fn run_build_and_reveal_filtered(
         None
     };
     println!();
-    crate::utils::ui::pause_for(10);
+    if success {
+        crate::utils::ui::pause_for(10);
+    } else {
+        // En caso de error, esperar a que el usuario presione Enter para que
+        // pueda leer los errores antes de que la ventana se cierre.
+        crate::utils::ui::pause();
+    }
     Ok(BuildOutcome { success, artifact })
 }
 

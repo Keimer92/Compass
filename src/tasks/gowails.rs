@@ -775,21 +775,47 @@ fn newest_in(dir: &Path, ext: &str) -> Option<PathBuf> {
 /// APK **release** + instalación automática si hay un móvil conectado.
 pub fn build_apk(ctx: &ProjectContext) -> Result<()> {
     println!("\n[INFO] Compilando Android APK (Release) con Wails...\n");
-    let apk = build_android_apk(ctx, true)?;
-    install_apk(ctx, &apk)?;
-    // Release: la ventana se cierra sola a los 10 s tras compilar bien.
-    ui::pause_for(10);
-    Ok(())
+    let result = (|| -> Result<PathBuf> {
+        let apk = build_android_apk(ctx, true)?;
+        install_apk(ctx, &apk)?;
+        Ok(apk)
+    })();
+    match result {
+        Ok(_) => {
+            ui::pause_for(10);
+            Ok(())
+        }
+        Err(e) => {
+            println!();
+            println!("{}", e);
+            println!();
+            ui::pause();
+            Err(e)
+        }
+    }
 }
 
 /// APK **dev** + instalación y arranque en el teléfono.
 pub fn install_debug(ctx: &ProjectContext) -> Result<()> {
     println!("\n[INFO] Compilando Android APK (Dev) con Wails...\n");
-    let apk = build_android_apk(ctx, false)?;
-    install_apk(ctx, &apk)?;
-    // Modo dev: la ventana se cierra sola pasados 10 s.
-    ui::pause_for(10);
-    Ok(())
+    let result = (|| -> Result<PathBuf> {
+        let apk = build_android_apk(ctx, false)?;
+        install_apk(ctx, &apk)?;
+        Ok(apk)
+    })();
+    match result {
+        Ok(_) => {
+            ui::pause_for(10);
+            Ok(())
+        }
+        Err(e) => {
+            println!();
+            println!("{}", e);
+            println!();
+            ui::pause();
+            Err(e)
+        }
+    }
 }
 
 /// AAB **release** para Play Store.
@@ -805,39 +831,51 @@ pub fn build_aab(ctx: &ProjectContext) -> Result<()> {
     ensure_sdk_properties(ctx, &android)?;
 
     // Reutiliza el pipeline de la APK para tener `libwails.so` y el overlay.
-    build_android_apk(ctx, true)?;
+    let result = (|| -> Result<PathBuf> {
+        build_android_apk(ctx, true)?;
 
-    if !gradle(&android, "bundleRelease", signing_env(ctx).as_deref().unwrap_or(&[]))? {
-        anyhow::bail!("[ERROR] Gradle fallo en `bundleRelease`.");
+        if !gradle(&android, "bundleRelease", signing_env(ctx).as_deref().unwrap_or(&[]))? {
+            anyhow::bail!("[ERROR] Gradle fallo en `bundleRelease`.");
+        }
+
+        let aab_dir = android
+            .join("app")
+            .join("build")
+            .join("outputs")
+            .join("bundle")
+            .join("release");
+        let aab = newest_in(&aab_dir, "aab").ok_or_else(|| {
+            anyhow::anyhow!(
+                "[ERROR] Gradle terminó bien pero no se encontró el AAB en: {}",
+                aab_dir.display()
+            )
+        })?;
+
+        let bin = bin_dir(ctx);
+        std::fs::create_dir_all(&bin).ok();
+        let dest = bin.join(format!("{}.aab", app_name(ctx)));
+        if let Err(e) = std::fs::copy(&aab, &dest) {
+            println!("[WARN] No se pudo copiar el AAB a {}: {}", dest.display(), e);
+        }
+
+        Ok(aab)
+    })();
+    match result {
+        Ok(_) => {
+            println!();
+            println!("[OK] AAB generado correctamente.");
+            println!("[INFO] Un AAB no se instala directamente en el telefono; es para Play Store.");
+            ui::pause_for(10);
+            Ok(())
+        }
+        Err(e) => {
+            println!();
+            println!("{}", e);
+            println!();
+            ui::pause();
+            Err(e)
+        }
     }
-
-    let aab_dir = android
-        .join("app")
-        .join("build")
-        .join("outputs")
-        .join("bundle")
-        .join("release");
-    let aab = newest_in(&aab_dir, "aab").ok_or_else(|| {
-        anyhow::anyhow!(
-            "[ERROR] Gradle terminó bien pero no se encontró el AAB en: {}",
-            aab_dir.display()
-        )
-    })?;
-
-    let bin = bin_dir(ctx);
-    std::fs::create_dir_all(&bin).ok();
-    let dest = bin.join(format!("{}.aab", app_name(ctx)));
-    if let Err(e) = std::fs::copy(&aab, &dest) {
-        println!("[WARN] No se pudo copiar el AAB a {}: {}", dest.display(), e);
-    }
-
-    println!();
-    println!("[OK] AAB generado: {}", dest.display());
-    println!("[INFO] Un AAB no se instala directamente en el telefono; es para Play Store.");
-
-    // Release: la ventana se cierra sola a los 10 s tras compilar bien.
-    ui::pause_for(10);
-    Ok(())
 }
 
 /// Instala un APK ya compilado en el teléfono y abre la app.
