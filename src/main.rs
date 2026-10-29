@@ -195,6 +195,10 @@ fn run_task_direct(ctx: &crate::utils::context::ProjectContext, task: &str) -> R
             crate::utils::context::ProjectType::Python => tasks::python::reload(ctx),
             _ => anyhow::bail!("HMR sólo disponible para Go + Wails v3 o Python ASGI"),
         },
+        "go-hmr" => match ctx.project_type {
+            crate::utils::context::ProjectType::Go => tasks::go::reload(ctx),
+            _ => anyhow::bail!("La recarga con Air sólo está disponible para proyectos Go puros"),
+        },
         "windows-build" => match ctx.project_type {
             crate::utils::context::ProjectType::Tauri => tasks::windows::build(ctx),
             crate::utils::context::ProjectType::Flutter => tasks::flutter::build_windows(ctx),

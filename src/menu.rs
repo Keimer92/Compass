@@ -310,8 +310,8 @@ impl MenuItem {
             },
             ProjectType::Go => match self {
                 Self::WindowsDev => "go run .",
+                Self::AndroidHmr => "air (rebuild + restart)",
                 Self::AndroidDev => "",
-                Self::AndroidHmr => "",
                 Self::WindowsBuild => "go build",
                 Self::AndroidBuildArm64 => "",
                 Self::AndroidBuildArmv7 => "",
@@ -439,7 +439,6 @@ impl MenuState {
                 ProjectType::Go => !matches!(
                     item,
                     MenuItem::AndroidDev
-                        | MenuItem::AndroidHmr
                         | MenuItem::AndroidBuildArm64
                         | MenuItem::AndroidBuildArmv7
                         | MenuItem::AndroidBuildAll
@@ -1141,6 +1140,7 @@ fn menu_item_to_task(item: MenuItem, ptype: ProjectType) -> &'static str {
         (MenuItem::AndroidDev, _) => "android-dev",
         (MenuItem::AndroidHmr, ProjectType::GoWails) => "android-hmr",
         (MenuItem::AndroidHmr, ProjectType::Python) => "android-hmr",
+        (MenuItem::AndroidHmr, ProjectType::Go) => "go-hmr",
 
         (MenuItem::WindowsBuild, _) => "windows-build",
 
@@ -1317,6 +1317,7 @@ mod tests {
             MenuItem::WindowsDev,
             MenuItem::AndroidHmr,
             MenuItem::WindowsBuild,
+            MenuItem::AndroidHmr,
             MenuItem::Tests,
             MenuItem::Clean,
             MenuItem::Version,
@@ -1357,6 +1358,10 @@ mod tests {
         assert_eq!(
             menu_item_to_task(MenuItem::Tests, ProjectType::Go),
             "go-test"
+        );
+        assert_eq!(
+            menu_item_to_task(MenuItem::AndroidHmr, ProjectType::Go),
+            "go-hmr"
         );
     }
 
