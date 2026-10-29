@@ -29,8 +29,6 @@ use crate::utils::platform;
 
 /// Alto de una card: borde superior + una línea de contenido + borde inferior.
 const CARD_H: u16 = 3;
-/// Ancho máximo de la columna de cards; se estrecha con la terminal.
-const CARD_MAX_W: u16 = 64;
 const FOOTER_H: u16 = 1;
 const TABS_H: u16 = 1;
 
@@ -427,18 +425,22 @@ fn layout(area: Rect, warn: bool) -> UiLayout {
     ])
     .areas(area);
 
-    let list_w = CARD_MAX_W.min(list.width);
-    let list_x = list.x + (list.width.saturating_sub(list_w)) / 2;
+    // La columna de cards se adapta al ancho de la ventana: ocupa todo el
+    // espacio disponible salvo un margen a la izquierda y, si cabe, el hueco
+    // más la barra de scroll a la derecha.
+    let margin = if list.width > 4 { 1 } else { 0 };
+    let bar_room = if list.width >= 8 { 2 } else { 0 };
+    let list_w = list.width.saturating_sub(margin + bar_room);
     let list_rect = Rect {
-        x: list_x,
+        x: list.x + margin,
         width: list_w,
         ..list
     };
     // La barra va una columna a la derecha de las cards para no pisar su
     // borde; si no cabe, se omite (dibujado y `card_at` la ignoran).
-    let scrollbar = if list.width >= list_w + 2 {
+    let scrollbar = if bar_room == 2 {
         Rect {
-            x: list_x + list_w + 1,
+            x: list_rect.right() + 1,
             y: list.y,
             width: 1,
             height: list.height,
@@ -787,13 +789,22 @@ fn draw_menu(frame: &mut Frame, state: &mut MenuState, ctx: &ProjectContext) {
     state.ui = Some(ui);
 }
 
+/// Etiquetas de la barra de pestañas, con su cuenta de cards.
+///
+/// Las comparten el dibujado y [`tab_at`]: si el texto y las cuentas cambian,
+/// el hit-testing del ratón sigue apuntando a la pestaña correcta.
+fn tab_titles(state: &MenuState) -> [String; 2] {
+    [
+        format!(
+            " DESARROLLO · MNT {} ",
+            state.tabs[Tab::DevMnt.index()].len()
+        ),
+        format!(" CONFIGURACION {} ", state.tabs[Tab::Cfg.index()].len()),
+    ]
+}
+
 fn render_tabs(frame: &mut Frame, area: Rect, state: &MenuState, theme: &Theme) {
-    let dev_count = state.tabs[Tab::DevMnt.index()].len();
-    let cfg_count = state.tabs[Tab::Cfg.index()].len();
-    let titles = vec![
-        Line::from(format!(" DESARROLLO · MNT {dev_count} ")),
-        Line::from(format!(" CONFIGURACION {cfg_count} ")),
-    ];
+    let titles: Vec<Line> = tab_titles(state).into_iter().map(Line::from).collect();
     // El acento del tab activo es el de *su* sección (DEV para la 1, CFG para
     // la 2), para conservar la identidad cromática de cada tema.
     let active = match state.tab {
@@ -806,6 +817,30 @@ fn render_tabs(frame: &mut Frame, area: Rect, state: &MenuState, theme: &Theme) 
         .style(Style::default().fg(theme.muted))
         .highlight_style(Style::default().fg(active).add_modifier(Modifier::BOLD));
     frame.render_widget(tabs, area);
+}
+
+/// Pestaña bajo las coordenadas del mouse, o `None` si el clic no cae en una.
+///
+/// El ancho de cada etiqueta es su cuenta de caracteres (todas son de ancho 1)
+/// y entre ambas va el divisor `" │ "`. Es la misma disposición que pinta
+/// [`render_tabs`].
+fn tab_at(col: u16, row: u16, state: &MenuState) -> Option<Tab> {
+    let ui = state.ui?;
+    if !ui.tabs.contains(Position::new(col, row)) {
+        return None;
+    }
+    let titles = tab_titles(state);
+    let start = ui.tabs.x as usize;
+    let col = col as usize;
+    let dev_end = start + titles[0].chars().count();
+    if col < dev_end {
+        return Some(Tab::DevMnt);
+    }
+    let cfg_start = dev_end + " │ ".chars().count();
+    if col >= cfg_start && col < cfg_start + titles[1].chars().count() {
+        return Some(Tab::Cfg);
+    }
+    None
 }
 
 fn render_cards(
@@ -841,6 +876,7 @@ fn render_cards(
             state.hover == Some(idx),
             project_type,
             theme,
+            ui.list.width,
         );
         frame.render_widget(card, rect);
     }
@@ -1071,6 +1107,7 @@ fn create_card(
     is_hovered: bool,
     project_type: ProjectType,
     theme: &Theme,
+    width: u16,
 ) -> Paragraph<'static> {
     let key = item.color_key();
     let accent = theme.card_accent(key);
@@ -1110,9 +1147,10 @@ fn create_card(
 
     let mut spans = vec![Span::styled(format!(" {icon}  {label}"), label_style)];
     if !desc.is_empty() {
-        // Prefijo fijo + relleno: el centrado con emojis de ancho ambiguo
-        // descuadra el texto, y el truncado lo hace el propio `Rect`.
-        let inner_w = CARD_MAX_W.saturating_sub(2) as usize;
+        // Prefijo fijo + relleno hasta el ancho real de la card: el centrado
+        // con emojis de ancho ambiguo descuadra el texto, y el truncado lo
+        // hace el propio `Rect`.
+        let inner_w = width.saturating_sub(2) as usize;
         let used = spans[0].content.chars().count() + desc.chars().count() + 1;
         let pad = inner_w.saturating_sub(used).max(1);
         spans.push(Span::raw(" ".repeat(pad)));
@@ -1233,6 +1271,14 @@ fn handle_event(state: &mut MenuState) -> anyhow::Result<MenuAction> {
             // el primer Down puede ser consumido al recuperar el foco de la terminal
             // después de que una ventana secundaria se cierra.
             if let MouseEventKind::Up(MouseButton::Left) = mouse.kind {
+                // Las pestañas también responden al ratón: un clic en su
+                // etiqueta cambia de pestaña (sin ejecutar nada).
+                if let Some(tab) = tab_at(mouse.column, mouse.row, state) {
+                    trace_event(&format!("  -> clic en pestana {:?}", tab));
+                    state.set_tab(tab);
+                    state.hover = None;
+                    return Ok(MenuAction::Continue);
+                }
                 if let Some(idx) = card_at(mouse.column, mouse.row, state) {
                     trace_event(&format!("  -> click en card idx={}", idx));
                     state.jump_to(idx);
@@ -1386,13 +1432,17 @@ mod tests {
         MenuItem::ConfigureTerminal,
     ];
 
+    /// Ancho de render de las pruebas de estilo; en la TUI real la card ocupa
+    /// el ancho útil de la ventana.
+    const TEST_CARD_W: u16 = 64;
+
     /// Renderiza una card en un buffer nuevo y devuelve `(fg, bg)` del centro.
     fn card_style(
         item: MenuItem,
         is_selected: bool,
         is_hovered: bool,
     ) -> (Option<Color>, Option<Color>) {
-        let area = Rect::new(0, 0, CARD_MAX_W, CARD_H);
+        let area = Rect::new(0, 0, TEST_CARD_W, CARD_H);
         let mut buf = Buffer::empty(area);
         create_card(
             &item,
@@ -1400,6 +1450,7 @@ mod tests {
             is_hovered,
             ProjectType::Rust,
             crate::theme::DEFAULT,
+            TEST_CARD_W,
         )
         .render(area, &mut buf);
         // (1, 1) es la esquina superior izquierda interior: siempre parte de la
@@ -1699,6 +1750,53 @@ mod tests {
         assert_eq!(card_at(ui.list.x + 2, last_row, &s), None);
     }
 
+    /// La barra de pestañas responde al ratón: cada columna de una etiqueta
+    /// mapea a su pestaña, y un clic ahí cambia de pestaña sin ejecutar nada.
+    #[test]
+    fn tab_at_maps_columns_to_each_tab() {
+        let mut s = MenuState::new(ProjectType::GoWails, crate::theme::DEFAULT);
+        let ui = layout(Rect::new(0, 0, 80, 20), false);
+        s.ui = Some(ui);
+
+        let titles = tab_titles(&s);
+        let dev_w = titles[0].chars().count() as u16;
+        let cfg_start = ui.tabs.x + dev_w + " │ ".chars().count() as u16;
+        let row = ui.tabs.y;
+
+        assert_eq!(tab_at(ui.tabs.x, row, &s), Some(Tab::DevMnt));
+        assert_eq!(tab_at(ui.tabs.x + dev_w - 1, row, &s), Some(Tab::DevMnt));
+        assert_eq!(tab_at(cfg_start, row, &s), Some(Tab::Cfg));
+        assert_eq!(tab_at(cfg_start + 1, row, &s), Some(Tab::Cfg));
+
+        // El divisor y las filas fuera de la barra no pertenecen a nadie.
+        assert_eq!(tab_at(ui.tabs.x + dev_w, row, &s), None);
+        assert_eq!(tab_at(ui.tabs.x, row + 1, &s), None);
+
+        // Clic en la segunda pestaña: cambia de pestaña.
+        let clicked = tab_at(cfg_start, row, &s).expect("clic sobre CONFIGURACION");
+        s.set_tab(clicked);
+        assert_eq!(s.tab, Tab::Cfg);
+    }
+
+    /// Las cards se adaptan al ancho de la ventana: no hay un ancho fijo de 64
+    /// columnas, sólo el margen y la barra de scroll fuera de la card.
+    #[test]
+    fn cards_adapt_to_the_window_width() {
+        let narrow = layout(Rect::new(0, 0, 60, 20), false);
+        let wide = layout(Rect::new(0, 0, 160, 20), false);
+
+        assert!(
+            wide.list.width > narrow.list.width + 80,
+            "la columna debe crecer con la terminal"
+        );
+        assert_eq!(narrow.list.x, 1, "margen izquierdo de una columna");
+        assert_eq!(wide.list.x, 1);
+        // Sólo quedan fuera de la card el margen izquierdo y el hueco + barra.
+        assert_eq!(wide.list.right() + 2, 160);
+        assert_eq!(wide.scrollbar.x, wide.list.right() + 1);
+        assert_eq!(wide.scrollbar.width, 1);
+    }
+
     /// La card seleccionada usa **su** tinte (`card_bg`), no el de la sección.
     #[test]
     fn selected_uses_the_card_own_tint() {
@@ -1710,7 +1808,7 @@ mod tests {
     /// con otro tema, la misma card cambia de color.
     #[test]
     fn selected_background_follows_the_active_theme() {
-        let area = Rect::new(0, 0, CARD_MAX_W, CARD_H);
+        let area = Rect::new(0, 0, TEST_CARD_W, CARD_H);
         let mut buf = Buffer::empty(area);
         let dracula = crate::theme::by_name("Dracula").unwrap();
         create_card(
@@ -1719,6 +1817,7 @@ mod tests {
             false,
             ProjectType::Rust,
             dracula,
+            TEST_CARD_W,
         )
         .render(area, &mut buf);
         let bg = buf[(1, 1)].style().bg;

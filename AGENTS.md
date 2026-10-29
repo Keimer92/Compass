@@ -51,11 +51,14 @@ resto → `Cfg`). `MenuState::new` filtra por tipo de proyecto y luego ordena lo
 pestaña, `tabs: [TabRange; 2]` son rangos sobre él y `selected` sigue siendo un
 índice **global**.
 
-Cards de **3 líneas** (`CARD_H = 3`: borde + contenido + borde), 64 columnas de
-ancho máximo (`CARD_MAX_W`), centradas. El contenido es una sola línea con el
-icono y la etiqueta en el acento de la card y la descripción en `muted`
-(`text` si está hovereada). Se alinean a la izquierda: centrar texto con emoji
-de ancho ambiguo (⚙) descuadra la card.
+Cards de **3 líneas** (`CARD_H = 3`: borde + contenido + borde) que **se adaptan
+al ancho de la ventana**: la columna ocupa todo el ancho disponible salvo un
+margen de una columna a la izquierda y el hueco + la barra de scroll a la
+derecha (el ancho real se pasa a `create_card` para calcular el relleno entre
+etiqueta y descripción). El contenido es una sola línea con el icono y la
+etiqueta en el acento de la card y la descripción en `muted` (`text` si está
+hovereada). Se alinean a la izquierda: centrar texto con emoji de ancho ambiguo
+(⚙) descuadra la card.
 
 **Scroll** propio, en pasos de card completa (`MenuState.scroll: u16`): se
 pinta cada card recortando su `Rect` contra el viewport, y `ensure_visible()`
@@ -108,7 +111,10 @@ Enter ejecutaría.
 | `Ctrl+T` | abre el modal de temas |
 | rueda del ratón | mueve la selección (`∓1`), así nunca contradice lo que se ve |
 | clic izquierdo | ejecuta la card bajo el cursor (`hover` se actualiza con la actividad del ratón) |
+| clic en una pestaña | cambia a esa pestaña sin ejecutar nada |
 
+El hit-testing de las pestañas usa `tab_titles()` (las mismas etiquetas con su
+cuenta) y `tab_at()`, así que clicar una etiqueta nunca apunta a la otra.
 `set_tab()` recuerda la selección de cada pestaña (`remember: [usize; 2]`) y
 `ensure_visible()` se llama tras mover la selección, al cambiar de pestaña y en
 `Event::Resize`.
@@ -239,12 +245,14 @@ menu.rs
   │     contextual al arrancar, la tarjeta era redundante (las tareas `context-menu*`
   │     por CLI siguen disponibles)
   ├─ ratatui TUI en **dos pestañas** (`DESARROLLO · MNT` | `CONFIGURACIÓN`) con las
-  │   cards en **columna vertical** de 3 líneas, **scroll** y un color por card
+  │   cards en **columna vertical** de 3 líneas que se adapta al ancho de la
+  │   ventana, **scroll** y un color por card; pestañas clicables con el ratón
   ├─ Filtro por tipo de proyecto (Rust oculta Android/Signing)
   ├─ layout(area, warn) — función pura (header/tabs/list/scrollbar/footer) que
   │   comparten el dibujo y el hit-testing del ratón
   ├─ handle_event(): devuelve MenuAction (Run | Quit); teclado (Tab/←→, ↑↓ con
-  │   salto de pestaña) + mouse (rueda mueve la selección, clic ejecuta)
+  │   salto de pestaña) + mouse (rueda mueve la selección, clic en pestaña
+  │   cambia de pestaña, clic en card ejecuta)
   ├─ Sin botón Salir: `Esc` cierra el programa (`MenuAction::Quit`)
   └─ run(): loop: draw → handle → restore → execute → re-enter
 
