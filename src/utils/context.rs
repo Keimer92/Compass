@@ -9,16 +9,26 @@ pub enum ProjectType {
     Tauri,
     Flutter,
     Kotlin,
+    Python,
     Rust,
     /// Go + Wails v3 (`go.mod` con `wailsapp/wails` + `Taskfile.yml`).
     GoWails,
+}
+
+fn is_python_project(d: &Path) -> bool {
+    let Ok(pyproject) = std::fs::read_to_string(d.join("pyproject.toml")) else {
+        return false;
+    };
+    pyproject.lines().any(|line| {
+        matches!(line.trim(), "[project]" | "[tool.poetry]")
+    })
 }
 
 impl ProjectType {
     pub fn whatsapp_path(&self, root: &PathBuf) -> PathBuf {
         match self {
             Self::Tauri => root.join("src-tauri").join("whatsapp-engine"),
-            Self::Flutter | Self::Kotlin | Self::Rust | Self::GoWails => {
+            Self::Flutter | Self::Kotlin | Self::Python | Self::Rust | Self::GoWails => {
                 root.join("whatsapp_engine")
             }
         }
@@ -87,6 +97,7 @@ pub fn detect() -> Result<ProjectContext> {
         .is_some(),
         ProjectType::Flutter => platform::find_gradlew(&script_dir.join("android")).is_some(),
         ProjectType::Kotlin => platform::find_gradlew(&script_dir).is_some(),
+        ProjectType::Python => false,
         ProjectType::Rust => false,
         // Wails v3 deja el proyecto Gradle en `build/android/`.
         ProjectType::GoWails => platform::find_gradlew(&script_dir.join("build").join("android"))
@@ -109,8 +120,8 @@ pub fn detect() -> Result<ProjectContext> {
 
 /// ¿Este directorio (sin mirar hacia arriba) es la raíz de un proyecto?
 ///
-/// El orden es el de siempre: Flutter → Tauri → KMP → Rust, con `package.json`
-/// como fallback a Tauri para proyectos JS/Node con frontend.
+/// Los proyectos Python se reconocen por metadatos de empaquetado en
+/// `pyproject.toml`, no por la presencia aislada de cualquier fichero `.py`.
 pub fn classify_dir(d: &Path) -> Option<ProjectType> {
     if d.join("pubspec.yaml").exists() {
         return Some(ProjectType::Flutter);
@@ -130,6 +141,9 @@ pub fn classify_dir(d: &Path) -> Option<ProjectType> {
     }
     if d.join("package.json").exists() {
         return Some(ProjectType::Tauri);
+    }
+    if is_python_project(d) {
+        return Some(ProjectType::Python);
     }
     if d.join("Cargo.toml").exists() {
         return Some(ProjectType::Rust);
@@ -164,7 +178,7 @@ fn detect_project_root() -> Result<(PathBuf, ProjectType)> {
     }
 
     anyhow::bail!(
-        "No se encontró un proyecto Tauri, Flutter/Dart, Kotlin Multiplatform, Rust o Go/Wails en este directorio ni en sus padres.\n\
+        "No se encontró un proyecto Tauri, Flutter/Dart, Kotlin Multiplatform, Python, Rust o Go/Wails en este directorio ni en sus padres.\n\
          Usa el selector con 'compass --pick' para elegir la carpeta del proyecto."
     );
 }
@@ -175,6 +189,7 @@ fn type_label(pt: ProjectType) -> &'static str {
         ProjectType::Tauri => "Tauri",
         ProjectType::Flutter => "Flutter",
         ProjectType::Kotlin => "Kotlin",
+        ProjectType::Python => "Python",
         ProjectType::Rust => "Rust",
         ProjectType::GoWails => "Go + Wails",
     }
@@ -402,4 +417,23 @@ fn detect_android_home() -> Option<PathBuf> {
     }
 
     candidates.into_iter().find(|c| c.exists())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn python_detection_requires_project_metadata() {
+        let root = env::temp_dir().join(format!("compass-python-detect-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("pyproject.toml"), "[tool.ruff]\nline-length = 88\n").unwrap();
+        assert_ne!(classify_dir(&root), Some(ProjectType::Python));
+
+        std::fs::write(root.join("pyproject.toml"), "[project]\nname = \"demo\"\n").unwrap();
+        assert_eq!(classify_dir(&root), Some(ProjectType::Python));
+        std::fs::write(root.join("pyproject.toml"), "[tool.poetry]\nname = \"demo\"\n").unwrap();
+        assert_eq!(classify_dir(&root), Some(ProjectType::Python));
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }

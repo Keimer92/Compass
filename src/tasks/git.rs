@@ -684,6 +684,42 @@ Desktop.ini
 # --- Logs ---
 *.log
 "#,
+        ProjectType::Python => r#"# ============================================
+# .gitignore para Python
+# ============================================
+
+# --- Python bytecode y caches ---
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- Entornos virtuales ---
+.venv/
+venv/
+ENV/
+
+# --- Build / packaging ---
+build/
+dist/
+*.egg-info/
+
+# --- Secrets / local config ---
+.env
+.env.*
+!.env.example
+
+# --- IDE / OS / logs ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log
+"#,
     }
 }
 
@@ -731,6 +767,11 @@ fn print_preserved(project_type: ProjectType) {
             println!("  - frontend/src/ (código del frontend)");
             println!("  - frontend/package.json + package-lock.json");
         }
+        ProjectType::Python => {
+            println!("  - pyproject.toml");
+            println!("  - código Python y pruebas");
+            println!("  - requirements*.txt / lockfiles si existen");
+        }
     }
 }
 
@@ -764,6 +805,12 @@ fn print_instructions(project_type: ProjectType) {
             println!("  3. npm install  (en frontend/)");
             println!("  4. wails3 task dev  (Desktop) / wails3 task build");
         }
+        ProjectType::Python => {
+            println!("  1. git clone <repo>");
+            println!("  2. python -m venv .venv");
+            println!("  3. instala las dependencias del proyecto");
+            println!("  4. ejecuta el entry point del proyecto");
+        }
     }
 }
 
@@ -774,6 +821,7 @@ fn gitignore_banner(project_type: ProjectType) -> &'static str {
         ProjectType::Flutter => "CREAR .gitignore PARA FLUTTER/DART",
         ProjectType::Kotlin => "CREAR .gitignore PARA KOTLIN MULTIPLATFORM",
         ProjectType::GoWails => "CREAR .gitignore PARA GO + WAILS",
+        ProjectType::Python => "CREAR .gitignore PARA PYTHON",
     }
 }
 
@@ -1325,6 +1373,8 @@ mod tests {
         assert!(gitignore_content(ProjectType::Tauri).contains("src-tauri/target/"));
         assert!(gitignore_content(ProjectType::Flutter).contains(".dart_tool/"));
         assert!(gitignore_content(ProjectType::Kotlin).contains(".gradle/"));
+        assert!(gitignore_content(ProjectType::Python).contains("__pycache__/"));
+        assert!(gitignore_content(ProjectType::Python).contains(".venv/"));
     }
 
     /// Ninguna plantilla debe ignorar el código fuente.
@@ -1335,6 +1385,7 @@ mod tests {
             ProjectType::Tauri,
             ProjectType::Flutter,
             ProjectType::Kotlin,
+            ProjectType::Python,
         ] {
             for line in gitignore_content(pt).lines() {
                 let l = line.trim();

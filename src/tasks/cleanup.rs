@@ -189,6 +189,20 @@ fn quick_targets(ctx: &ProjectContext) -> Vec<(String, PathBuf)> {
                 ("Android .gradle".into(), android.join(".gradle")),
             ]
         }
+        ProjectType::Python => {
+            let mut targets = vec![
+                ("build/".into(), root.join("build")),
+                ("dist/".into(), root.join("dist")),
+            ];
+            for name in ["__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"] {
+                targets.extend(
+                    crate::tasks::python::find_dirs_named(root, name)
+                        .into_iter()
+                        .map(|path| (format!("{name}/"), path)),
+                );
+            }
+            targets
+        }
     }
 }
 
@@ -247,6 +261,22 @@ fn full_targets(ctx: &ProjectContext) -> Vec<(String, PathBuf)> {
                 ("Android .gradle".into(), android.join(".gradle")),
                 ("frontend/node_modules/".into(), root.join("frontend/node_modules")),
             ]
+        }
+        ProjectType::Python => {
+            let mut targets = vec![
+                ("build/".into(), root.join("build")),
+                ("dist/".into(), root.join("dist")),
+                (".venv/".into(), root.join(".venv")),
+                ("venv/".into(), root.join("venv")),
+            ];
+            for name in ["__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"] {
+                targets.extend(
+                    crate::tasks::python::find_dirs_named(root, name)
+                        .into_iter()
+                        .map(|path| (format!("{name}/"), path)),
+                );
+            }
+            targets
         }
     }
 }
@@ -325,6 +355,25 @@ fn selectable_targets(ctx: &ProjectContext) -> Vec<Candidate> {
                 ),
             ]
         }
+        ProjectType::Python => {
+            let mut targets: Vec<Candidate> = [
+                ("build/", root.join("build"), false),
+                ("dist/", root.join("dist"), false),
+                (".venv/", root.join(".venv"), true),
+                ("venv/", root.join("venv"), true),
+            ]
+            .into_iter()
+            .map(|(label, path, deps)| c(label, path, deps))
+            .collect();
+            for name in ["__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"] {
+                targets.extend(
+                    crate::tasks::python::find_dirs_named(root, name)
+                        .into_iter()
+                        .map(|path| c(&format!("{name}/"), path, false)),
+                );
+            }
+            targets
+        }
     }
 }
 
@@ -360,6 +409,7 @@ fn full_clean(ctx: &ProjectContext) -> Result<()> {
         ProjectType::Kotlin => crate::tasks::kotlin::clean(ctx),
         ProjectType::Rust => crate::tasks::rust::clean(ctx),
         ProjectType::GoWails => crate::tasks::gowails::clean(ctx),
+        ProjectType::Python => crate::tasks::python::clean(ctx),
     }
 }
 
@@ -398,7 +448,7 @@ fn report_sizes(ctx: &ProjectContext) -> Result<()> {
 
     println!();
     println!("[TIP] La rápida conserva dependencias; la completa las borra, así que");
-    println!("      restaurarlas después (npm install / cargo build / pub get) tarda más.");
+    println!("      restaurarlas después (venv / npm install / cargo build / pub get) tarda más.");
     ui::pause();
     Ok(())
 }
@@ -498,7 +548,7 @@ pub fn manage(ctx: &ProjectContext) -> Result<()> {
         println!();
         let options = vec![
             "1. Rápida — borra builds y caches (conserva dependencias)",
-            "2. Completa — borra además dependencias (node_modules, target)",
+            "2. Completa — borra además dependencias (venv, node_modules, target)",
             "3. Elegir qué borrar (lista y marca)",
             "4. Ver tamaños (sin borrar nada)",
             "5. Volver al menú principal",
@@ -676,6 +726,7 @@ mod tests {
             ProjectType::Flutter,
             ProjectType::Kotlin,
             ProjectType::Rust,
+            ProjectType::Python,
         ] {
             for (label, path) in quick_targets(&fake_ctx(pt)) {
                 let p = path.to_string_lossy().replace('\\', "/");
@@ -688,6 +739,13 @@ mod tests {
                     "{pt:?}: la rápida no debe borrar todo target/ (entrada '{label}')"
                 );
             }
+            let python = fake_ctx(ProjectType::Python);
+            assert!(quick_targets(&python)
+                .iter()
+                .all(|(_, path)| !path.ends_with(".venv") && !path.ends_with("venv")));
+            assert!(full_targets(&python)
+                .iter()
+                .any(|(_, path)| path.ends_with(".venv")));
         }
     }
 
@@ -721,6 +779,7 @@ mod tests {
             ProjectType::Flutter,
             ProjectType::Kotlin,
             ProjectType::Rust,
+            ProjectType::Python,
         ] {
             let cands = selectable_targets(&fake_ctx(pt));
             for a in &cands {
@@ -748,6 +807,7 @@ mod tests {
             ProjectType::Flutter,
             ProjectType::Kotlin,
             ProjectType::Rust,
+            ProjectType::Python,
         ] {
             let mut labels: Vec<String> = selectable_targets(&fake_ctx(pt))
                 .into_iter()

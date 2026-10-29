@@ -13,6 +13,7 @@ const RE_TOML: &str = r#"(?m)^version\s*=\s*"([^"]+)""#;
 const RE_YAML: &str = r#"(?m)^[ \t]*version:[ \t]*"([^"]+)""#;
 /// Escritura en YAML: el grupo 1 es la indentación, que se conserva.
 const RE_YAML_REPLACE: &str = r#"(?m)^([ \t]*)version:[ \t]*"[^"]+""#;
+const RE_PYPROJECT_VERSION: &str = r#"(?m)^([ \t]*version[ \t]*=[ \t]*")[^"]+(".*)$"#;
 const RE_PACKAGE: &str = r"(?m)^\[package\]\s*$";
 const RE_NEW_VERSION: &str = r"^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$";
 
@@ -22,6 +23,7 @@ enum Format {
     Json,
     Toml,
     Yaml,
+    Pyproject,
 }
 
 struct VersionFile {
@@ -50,7 +52,10 @@ pub fn bump(ctx: &ProjectContext) -> Result<()> {
                 ctx.script_dir.join("src-tauri").join("tauri.conf.json"),
                 Format::Json,
             ),
-            (ctx.script_dir.join("src-tauri").join("Cargo.toml"), Format::Toml),
+            (
+                ctx.script_dir.join("src-tauri").join("Cargo.toml"),
+                Format::Toml,
+            ),
         ],
         ProjectType::Rust => vec![(ctx.script_dir.join("Cargo.toml"), Format::Toml)],
         // Wails v3 lleva la versión en `build/config.yml` (bloque `info:`).
@@ -58,6 +63,7 @@ pub fn bump(ctx: &ProjectContext) -> Result<()> {
             ctx.script_dir.join("build").join("config.yml"),
             Format::Yaml,
         )],
+        ProjectType::Python => vec![(ctx.script_dir.join("pyproject.toml"), Format::Pyproject)],
         ProjectType::Flutter | ProjectType::Kotlin => {
             println!("[INFO] No aplicable: en Flutter/Kotlin la version se gestiona en pubspec.yaml / gradle.");
             println!();
@@ -77,21 +83,34 @@ pub fn bump(ctx: &ProjectContext) -> Result<()> {
             .trim_start_matches('\u{feff}')
             .to_string();
 
-        let re = Regex::new(match format {
-            Format::Json => RE_JSON,
-            Format::Toml => RE_TOML,
-            Format::Yaml => RE_YAML,
-        })?;
-        if let Some(cap) = re.captures(&text) {
+        let current = if format == Format::Pyproject {
+            pyproject_version(&text)
+        } else {
+            let re = Regex::new(match format {
+                Format::Json => RE_JSON,
+                Format::Toml => RE_TOML,
+                Format::Yaml => RE_YAML,
+                Format::Pyproject => unreachable!(),
+            })?;
+            re.captures(&text).map(|cap| cap[1].to_string())
+        };
+        if let Some(current) = current {
             files.push(VersionFile {
                 path,
                 format,
-                current: Some(cap[1].to_string()),
+                current: Some(current),
                 text,
             });
             continue;
         }
 
+        if format == Format::Pyproject {
+            bail!(
+                "No se encontró una versión estática dentro de `[project]` o `[tool.poetry]` en {}. \
+                 Los proyectos con version dinámica deben actualizarla en su sistema de build.",
+                path.display()
+            );
+        }
         // Sin campo version: comprobar que se puede INSERTAR de forma segura.
         if format == Format::Yaml {
             // En YAML insertar a ciegas rompería el bloque `info:`; se exige
@@ -124,7 +143,10 @@ pub fn bump(ctx: &ProjectContext) -> Result<()> {
                 );
             }
             if text.find('{').is_none() {
-                bail!("No se encontro el inicio del objeto JSON: {}", path.display());
+                bail!(
+                    "No se encontro el inicio del objeto JSON: {}",
+                    path.display()
+                );
             }
         }
         files.push(VersionFile {
@@ -141,6 +163,7 @@ pub fn bump(ctx: &ProjectContext) -> Result<()> {
         match ctx.project_type {
             ProjectType::Tauri => "TAURI",
             ProjectType::GoWails => "GO + WAILS",
+            ProjectType::Python => "PYTHON",
             _ => "RUST",
         }
     );
@@ -186,6 +209,7 @@ pub fn bump(ctx: &ProjectContext) -> Result<()> {
                     re.replace(&f.text, format!("${{1}}version: \"{}\"", new).as_str())
                         .into_owned()
                 }
+                Format::Pyproject => replace_pyproject_version(&f.text, &new)?,
             },
             None => {
                 added += 1;
@@ -208,13 +232,67 @@ pub fn bump(ctx: &ProjectContext) -> Result<()> {
             .with_context(|| format!("No se pudo escribir: {}", f.path.display()))?;
     }
 
-    println!("[OK] Version actualizada a {} en {} archivo(s).", new, files.len());
+    println!(
+        "[OK] Version actualizada a {} en {} archivo(s).",
+        new,
+        files.len()
+    );
     if added > 0 {
-        println!("[OK] Se inserto el campo version en {} archivo(s) que no lo tenian.", added);
+        println!(
+            "[OK] Se inserto el campo version en {} archivo(s) que no lo tenian.",
+            added
+        );
     }
     println!();
     pause();
     Ok(())
+}
+
+fn toml_section_range(text: &str, name: &str) -> Option<(usize, usize)> {
+    let mut offset = 0;
+    let mut start = None;
+    for line in text.split_inclusive('\n') {
+        let trimmed = line.trim();
+        if start.is_none() {
+            if trimmed == name {
+                start = Some(offset + line.len());
+            }
+        } else if trimmed.starts_with('[') && trimmed.ends_with(']') {
+            return Some((start?, offset));
+        }
+        offset += line.len();
+    }
+    start.map(|s| (s, text.len()))
+}
+
+fn pyproject_version(text: &str) -> Option<String> {
+    let re = Regex::new(RE_TOML).ok()?;
+    for section in ["[project]", "[tool.poetry]"] {
+        let Some((start, end)) = toml_section_range(text, section) else {
+            continue;
+        };
+        if let Some(cap) = re.captures(&text[start..end]) {
+            return Some(cap[1].to_string());
+        }
+    }
+    None
+}
+
+fn replace_pyproject_version(text: &str, version: &str) -> Result<String> {
+    let re = Regex::new(RE_PYPROJECT_VERSION)?;
+    for name in ["[project]", "[tool.poetry]"] {
+        let Some((start, end)) = toml_section_range(text, name) else {
+            continue;
+        };
+        let section = &text[start..end];
+        if re.is_match(section) {
+            let updated = re
+                .replace(section, format!("${{1}}{}${{2}}", version).as_str())
+                .into_owned();
+            return Ok(format!("{}{}{}", &text[..start], updated, &text[end..]));
+        }
+    }
+    bail!("No se encontró una versión estática en [project] ni [tool.poetry]")
 }
 
 #[cfg(test)]
@@ -242,6 +320,25 @@ mod tests {
         let text = "info:\n  # version: \"9.9.9\"\n  version: \"0.0.1\"\n";
         let re = Regex::new(RE_YAML).unwrap();
         assert_eq!(re.captures(text).unwrap().get(1).unwrap().as_str(), "0.0.1");
+    }
+
+    #[test]
+    fn pyproject_version_update_is_limited_to_project_section() {
+        let text = "[build-system]\nversion = \"8.0.0\"\n\n[project]\nname = \"demo\"\nversion = \"1.0.0\" # release\n\n[tool.other]\nversion = \"2.0.0\"\n";
+        assert_eq!(pyproject_version(text).as_deref(), Some("1.0.0"));
+        let updated = replace_pyproject_version(text, "1.1.0").unwrap();
+        assert!(updated.contains("version = \"1.1.0\" # release"));
+        assert!(updated.contains("[build-system]\nversion = \"8.0.0\""));
+        assert!(updated.contains("[tool.other]\nversion = \"2.0.0\""));
+    }
+
+    #[test]
+    fn poetry_version_updates_its_own_section() {
+        let text = "[tool.poetry]\nname = \"demo\"\nversion = \"1.0.0\"\n\n[tool.other]\nversion = \"2.0.0\"\n";
+        assert_eq!(pyproject_version(text).as_deref(), Some("1.0.0"));
+        let updated = replace_pyproject_version(text, "1.1.0").unwrap();
+        assert!(updated.contains("[tool.poetry]\nname = \"demo\"\nversion = \"1.1.0\""));
+        assert!(updated.contains("[tool.other]\nversion = \"2.0.0\""));
     }
 }
 

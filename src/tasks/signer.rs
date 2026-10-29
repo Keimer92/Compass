@@ -115,7 +115,7 @@ pub fn android_layout(ctx: &ProjectContext) -> Option<AndroidLayout> {
             signing_dir: kotlin_android_dir(ctx),
             patch_gradle: true,
         },
-        ProjectType::Rust => return None,
+        ProjectType::Rust | ProjectType::Python => return None,
         // Wails v3: el módulo Android es `build/android/app` y su Gradle ya
         // lee la firma del entorno (`ANDROID_KEYSTORE_FILE`, ...), así que no
         // se parchea. El keystore y el `.properties` viven en
@@ -1079,7 +1079,7 @@ fn run_signing_action(item: SigningItem, ctx: &ProjectContext) -> Result<()> {
 /// Submenú único de firmas (antes: tarjetas Configure + Keystore + SHA1),
 /// ahora con la misma interfaz de cards clickables del menú principal.
 pub fn manage(ctx: &ProjectContext) -> Result<()> {
-    if ctx.project_type == ProjectType::Rust {
+    if matches!(ctx.project_type, ProjectType::Rust | ProjectType::Python) {
         cmd::clear_screen();
         println!("[INFO] No aplicable a proyectos Rust.");
         ui::pause();
@@ -1186,6 +1186,7 @@ fn show_status(ctx: &ProjectContext) -> Result<()> {
         ProjectType::Flutter => "Flutter",
         ProjectType::Kotlin => "Kotlin/KMP",
         ProjectType::Rust => "Rust",
+        ProjectType::Python => "Python",
         ProjectType::GoWails => "Go + Wails",
     };
     println!("  Proyecto : {}", type_label);

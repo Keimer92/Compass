@@ -10,7 +10,7 @@ use anyhow::Result;
 #[derive(Parser)]
 #[command(
     name = "compass",
-    about = "Compass - Multiplataforma (Tauri/Flutter/KMP)",
+    about = "Compass - Multiplataforma (Tauri/Flutter/KMP/Python)",
     version = "0.1.0",
 )]
 struct Cli {
@@ -161,6 +161,7 @@ fn run_task_direct(ctx: &crate::utils::context::ProjectContext, task: &str) -> R
             crate::utils::context::ProjectType::Kotlin => tasks::kotlin::run_windows(ctx),
             crate::utils::context::ProjectType::Rust => tasks::rust::run(ctx),
             crate::utils::context::ProjectType::GoWails => tasks::gowails::dev(ctx),
+            crate::utils::context::ProjectType::Python => tasks::python::run(ctx),
         },
         "android-dev" => match ctx.project_type {
             crate::utils::context::ProjectType::Tauri => tasks::android::dev(ctx),
@@ -168,9 +169,11 @@ fn run_task_direct(ctx: &crate::utils::context::ProjectContext, task: &str) -> R
             crate::utils::context::ProjectType::Kotlin => tasks::kotlin::run_android(ctx),
             crate::utils::context::ProjectType::Rust => anyhow::bail!("No aplicable a proyectos Rust"),
             crate::utils::context::ProjectType::GoWails => tasks::gowails::install_debug(ctx),
+            crate::utils::context::ProjectType::Python => anyhow::bail!("Python no tiene tarea Android"),
         },
         "android-hmr" => match ctx.project_type {
             crate::utils::context::ProjectType::GoWails => tasks::gowails::dev_android(ctx),
+            crate::utils::context::ProjectType::Python => tasks::python::reload(ctx),
             _ => anyhow::bail!("HMR sólo disponible para Go + Wails v3"),
         },
         "windows-build" => match ctx.project_type {
@@ -179,6 +182,7 @@ fn run_task_direct(ctx: &crate::utils::context::ProjectContext, task: &str) -> R
             crate::utils::context::ProjectType::Kotlin => tasks::kotlin::build_windows(ctx),
             crate::utils::context::ProjectType::Rust => tasks::rust::build(ctx),
             crate::utils::context::ProjectType::GoWails => tasks::gowails::build_desktop(ctx),
+            crate::utils::context::ProjectType::Python => tasks::python::build(ctx),
         },
         "android-arm64" => match ctx.project_type {
             crate::utils::context::ProjectType::Tauri => tasks::android::build_arm64(ctx),
@@ -186,6 +190,7 @@ fn run_task_direct(ctx: &crate::utils::context::ProjectContext, task: &str) -> R
             crate::utils::context::ProjectType::Kotlin => tasks::kotlin::build_apk(ctx),
             crate::utils::context::ProjectType::Rust => anyhow::bail!("No aplicable a proyectos Rust"),
             crate::utils::context::ProjectType::GoWails => tasks::gowails::build_apk(ctx),
+            crate::utils::context::ProjectType::Python => anyhow::bail!("Python no tiene compilación Android"),
         },
         "android-armv7" => match ctx.project_type {
             crate::utils::context::ProjectType::Tauri => tasks::android::build_armv7(ctx),
@@ -193,6 +198,7 @@ fn run_task_direct(ctx: &crate::utils::context::ProjectContext, task: &str) -> R
             crate::utils::context::ProjectType::Kotlin => anyhow::bail!("No aplicable a proyectos Kotlin"),
             crate::utils::context::ProjectType::Rust => anyhow::bail!("No aplicable a proyectos Rust"),
             crate::utils::context::ProjectType::GoWails => anyhow::bail!("No aplicable a proyectos Go + Wails (Wails v3 sólo compila arm64)"),
+            crate::utils::context::ProjectType::Python => anyhow::bail!("Python no tiene compilación Android"),
         },
         "android-all" => match ctx.project_type {
             crate::utils::context::ProjectType::Tauri => tasks::android::build_all(ctx),
@@ -200,6 +206,7 @@ fn run_task_direct(ctx: &crate::utils::context::ProjectContext, task: &str) -> R
             crate::utils::context::ProjectType::Kotlin => tasks::kotlin::build_aab(ctx),
             crate::utils::context::ProjectType::Rust => anyhow::bail!("No aplicable a proyectos Rust"),
             crate::utils::context::ProjectType::GoWails => tasks::gowails::build_aab(ctx),
+            crate::utils::context::ProjectType::Python => anyhow::bail!("Python no tiene compilación Android"),
         },
         "android-install-debug" => match ctx.project_type {
             crate::utils::context::ProjectType::Kotlin => tasks::kotlin::install_debug(ctx),
@@ -210,6 +217,10 @@ fn run_task_direct(ctx: &crate::utils::context::ProjectContext, task: &str) -> R
         // completa y reporte de tamaños). Los nombres antiguos siguen valiendo
         // como alias.
         "clean" | "clean-cache" | "clean-project" => tasks::cleanup::manage(ctx),
+        "python-test" => match ctx.project_type {
+            crate::utils::context::ProjectType::Python => tasks::python::test(ctx),
+            _ => anyhow::bail!("pytest sólo está disponible para proyectos Python"),
+        },
         "debug-android" => match ctx.project_type {
             crate::utils::context::ProjectType::Tauri => tasks::android::debug(ctx),
             crate::utils::context::ProjectType::Flutter => {
@@ -221,6 +232,10 @@ fn run_task_direct(ctx: &crate::utils::context::ProjectContext, task: &str) -> R
                 Ok(())
             }
             crate::utils::context::ProjectType::GoWails => tasks::gowails::debug_android(ctx),
+            crate::utils::context::ProjectType::Python => {
+                println!("[INFO] Python no tiene depuración Android.");
+                Ok(())
+            }
             crate::utils::context::ProjectType::Rust => {
                 println!("[INFO] No aplicable a proyectos Rust.");
                 Ok(())

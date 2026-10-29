@@ -6,6 +6,7 @@ pub mod flutter;
 pub mod git;
 pub mod gowails;
 pub mod kotlin;
+pub mod python;
 pub mod rust;
 pub mod signer;
 pub mod terminal;
