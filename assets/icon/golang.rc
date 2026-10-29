@@ -1,1 +1,4 @@
+// Go Gopher artwork by Renee French, CC BY 4.0.
+// Source: https://go.dev/doc/gopher/gophercolor.png
 IDI_ICON1 ICON "golang.ico"
+GO_GOPHER_ATTRIBUTION RCDATA "golang-attribution.txt"

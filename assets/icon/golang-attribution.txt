@@ -1,0 +1,3 @@
+Go Gopher artwork by Renee French, licensed under CC BY 4.0.
+Source: https://go.dev/doc/gopher/gophercolor.png
+License: https://creativecommons.org/licenses/by/4.0/
