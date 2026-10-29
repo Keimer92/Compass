@@ -65,6 +65,19 @@ const fn dark(v: u32, pct: u32) -> Color {
     Color::Rgb(r, g, b)
 }
 
+/// Interpola dos colores RGB (`t = 0` → `a`, `t = 1` → `b`).
+///
+/// Si alguno no es `Rgb`, devuelve `b`: la animación de hover es decorativa y
+/// nunca debe romper un tema ni pintar un color inesperado.
+pub fn mix(a: Color, b: Color, t: f32) -> Color {
+    let (Color::Rgb(ar, ag, ab), Color::Rgb(br, bg, bb)) = (a, b) else {
+        return b;
+    };
+    let t = t.clamp(0.0, 1.0);
+    let lerp = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t).round() as u8;
+    Color::Rgb(lerp(ar, br), lerp(ag, bg), lerp(ab, bb))
+}
+
 /// Claves de los acentos por card, en el orden del arreglo `Theme::card_hexes`.
 ///
 /// Una clave por `MenuItem`. El orden es **load-bearing**: coincide posición a
@@ -736,6 +749,21 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// `mix` es la base de la animación de hover: interpola de forma lineal y
+    /// clampa fuera de `0..=1`.
+    #[test]
+    fn mix_interpolates_and_clamps() {
+        let a = Color::Rgb(0, 0, 0);
+        let b = Color::Rgb(200, 100, 50);
+        assert_eq!(mix(a, b, 0.0), a);
+        assert_eq!(mix(a, b, 1.0), b);
+        assert_eq!(mix(a, b, -1.0), a, "t<0 se clampa al origen");
+        assert_eq!(mix(a, b, 2.0), b, "t>1 se clampa al destino");
+        assert_eq!(mix(a, b, 0.5), Color::Rgb(100, 50, 25));
+        // Con un color no-RGB (consola legacy) la animación no inventa colores.
+        assert_eq!(mix(Color::Red, b, 0.3), b);
     }
 
     /// Cubo de matiz de 30° (0..11); los neutros forman el cubo 255.

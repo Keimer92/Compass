@@ -99,6 +99,26 @@ tema el `hover_bg` ni un `card_bg` colisionan con otro fondo.
 Si una card está seleccionada **y** hovereada, manda la selección: es la que
 Enter ejecutaría.
 
+### Animación de hover
+
+Al entrar el puntero en una card arranca un **barrido de brillo** de ~700 ms que
+recorre su borde en sentido horario con una cola luminosa que se apaga. Es un
+efecto **de entrada**: moverse dentro de la misma card no lo reinicia, y al
+terminar la TUI vuelve a esperar sin repintar.
+
+- Estado: `MenuState.hover_started: Option<Instant>`; `set_hover()` sólo lo
+  reinicia al cambiar de card. `hover_progress()` devuelve el 0..1 y
+  `hover_animating()` decide el ritmo del bucle.
+- Bucle: `handle_event()` usa `event::poll()` con `ANIM_FRAME` (33 ms) mientras
+  hay animación y `IDLE_POLL` (1 s) en reposo. Sin esa temporización la UI sólo
+  se redibujaba al llegar un evento, así que no podía haber animación.
+- Dibujo: `render_hover_shimmer()` pinta celda a celda sobre el buffer
+  **después** de la card (el `Block` sólo admite un color de borde). El brillo
+  sale del acento de la card (`shimmer_glow`), que siempre es RGB; en temas ANSI
+  (`Compass`) las celdas cercanas a la cabeza pasan al brillo y el resto
+  conserva su color, porque `theme::mix` no interpola nombres de color. La
+  animación nunca cambia el fondo ni el layout: sólo el `fg` de esas celdas.
+
 ### Teclado y ratón de la TUI
 
 | Entrada | Acción |
@@ -129,13 +149,13 @@ cuenta) y `tab_at()`, así que clicar una etiqueta nunca apunta a la otra.
 | `Enter` | aplicar y **persistir** el tema resaltado |
 | `Esc` (o `Ctrl+T`) | cancelar y volver al tema que estaba activo al abrir |
 
-Mientras el modal está abierto el teclado le pertenece por completo: el menú de
-detrás no reacciona (ni `Enter` ejecuta una tarea). Cada fila muestra el nombre y
-tres muestras de color de su propia paleta (DEV/MNT/CFG), para reconocer el tema
-sin aplicarlo. El modal se dibuja con `Clear` encima del menú, y el nombre del
-tema activo se muestra en el pie, a la izquierda (`Ctrl+T temas: <nombre>`, en
-color `brand`); a la derecha va la **ruta completa** del proyecto (ver "Título de
-ventana y pie").
+Mientras el modal está abierto el teclado le pertenece por completo (y el ratón
+se ignora): el menú de detrás no reacciona (ni `Enter` ejecuta una tarea). Cada
+fila muestra el nombre y tres muestras de color de su propia paleta
+(DEV/MNT/CFG), para reconocer el tema sin aplicarlo. El modal se dibuja con
+`Clear` encima del menú, y el nombre del tema activo se muestra en el pie, a la
+izquierda (`Ctrl+T temas: <nombre>`, en color `brand`); a la derecha va la
+**ruta completa** del proyecto (ver "Título de ventana y pie").
 
 ### Título de ventana y rutas
 
@@ -147,9 +167,10 @@ ventana y pie").
   `platform::dir_display_name()`: el **nombre del directorio** (`School Tracker`),
   no la ruta. Se aplica en la TUI (`menu::run`) y en todas las tareas
   (`run_task_direct`).
-- **Pie del TUI**: a la derecha, la **ruta completa** del proyecto en color
-  `muted`. Si no cabe, se recorta por la izquierda con `…`. El indicador de tema
-  se movió a la izquierda, tras los puntos de sección.
+- **Pie del TUI**: a la izquierda, los atajos (`Tab pestañas`, `↑↓ navegar`,
+  `Enter ejecutar`, `Esc salir`) y el tema activo (`Ctrl+T temas: <nombre>`, en
+  color `brand`). A la derecha, la **ruta completa** del proyecto en color
+  `muted`; si no cabe, se recorta por la izquierda con `…`.
 
 Estado: `MenuState.picker: Option<ThemePicker>` (`index` en `theme::THEMES` +
 `original`, para el cancelar). `MenuState::preview_theme()` mueve el resaltado y
@@ -237,6 +258,8 @@ theme.rs
   │           Catppuccin, Dracula, Gruvbox, Nord, One Dark, Monokai, Rosé Pine,
   │           Kanagawa, Matrix, Synthwave 84, Solarized)
   ├─ next()/prev()/by_name() — ciclo de Ctrl+T
+  ├─ mix(a, b, t) — interpola colores RGB (animación de hover); con colores
+  │                 no-RGB devuelve `b` para no romper temas ANSI
   └─ load()/save() — persiste el nombre en <data_dir>/compass/theme
 
 menu.rs
@@ -252,7 +275,9 @@ menu.rs
   │   comparten el dibujo y el hit-testing del ratón
   ├─ handle_event(): devuelve MenuAction (Run | Quit); teclado (Tab/←→, ↑↓ con
   │   salto de pestaña) + mouse (rueda mueve la selección, clic en pestaña
-  │   cambia de pestaña, clic en card ejecuta)
+  │   cambia de pestaña, clic en card ejecuta); poll temporizado (33 ms con
+  │   animación de hover, 1 s en reposo)
+  ├─ render_hover_shimmer() — barrido de brillo en el borde de la card hovereada
   ├─ Sin botón Salir: `Esc` cierra el programa (`MenuAction::Quit`)
   └─ run(): loop: draw → handle → restore → execute → re-enter
 
@@ -724,7 +749,12 @@ CLI: `--task git` (y los alias `git-init`/`gitignore`) abren el mismo submenú.
 `cmd::remove_dir()` usa `powershell Remove-Item -Recurse -Force` para rutas largas que `std::fs::remove_dir_all` no puede manejar.
 
 ### TUI Menu — Ventana separada
-Todas las tareas del menú TUI se lanzan en una **nueva ventana PowerShell** ejecutando `compass --task <task> --path "<proyecto>"`. El menú principal permanece abierto. La ventana secundaria se cierra al presionar Enter.
+
+Todas las tareas del menú TUI se lanzan en una **nueva ventana de consola**
+(`cmd`, vía `cmd::spawn_new_window_autoexit`) ejecutando
+`compass --task <task> --path "<proyecto>"`. El menú principal permanece abierto.
+La ventana secundaria se cierra sola al terminar con éxito (`ui::pause_for`) o
+tras un Enter en las tareas que muestran salida.
 
 ### Android dev (Tauri)
 `android::dev()` **no** invoca el CLI de Tauri: lanza el script `dev:android` de `package.json`. Antes ejecuta:
@@ -1023,6 +1053,12 @@ La sonda también considera incompleto el menú de Compass si falta la acción `
 
 ## Testing
 
-`cargo test` cubre el renderizado de las cards del menú (ver "Estados visuales
-de una card"). El resto —detección de proyectos, `newest_artifact` y acciones del menú contextual— se verifica con compilación
-(`cargo build`) y pruebas manuales en la máquina de destino.
+`cargo test` cubre el TUI: renderizado y estados de las cards (ver "Estados
+visuales de una card"), filtrado por tipo de proyecto, orden y rangos de las
+pestañas, `ensure_visible`/scroll en terminales cortas, hit-testing de cards y
+pestañas (`card_at`/`tab_at`), navegación con salto de pestaña, adaptación al
+ancho (`layout`), la animación de hover (arranque, expiración y brillo real del
+borde) y la paleta/mezcla de colores de `theme.rs`. El resto
+—detección de proyectos, `newest_artifact` y acciones del menú contextual— se
+verifica con compilación (`cargo build`) y pruebas manuales en la máquina de
+destino.

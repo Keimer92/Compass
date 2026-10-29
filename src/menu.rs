@@ -1,5 +1,6 @@
 use std::io::{self, stdout};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 
 use anyhow::Context;
 use crossterm::{
@@ -31,6 +32,15 @@ use crate::utils::platform;
 const CARD_H: u16 = 3;
 const FOOTER_H: u16 = 1;
 const TABS_H: u16 = 1;
+
+/// Duración del barrido de brillo al entrar el puntero en una card.
+const HOVER_ANIM: Duration = Duration::from_millis(700);
+/// Longitud de la cola luminosa del barrido, en celdas de borde.
+const SHIMMER_TRAIL: f32 = 7.0;
+/// Intervalo entre fotogramas mientras hay una animación en curso (~30 fps).
+const ANIM_FRAME: Duration = Duration::from_millis(33);
+/// Espera del bucle de eventos cuando no hay nada que animar.
+const IDLE_POLL: Duration = Duration::from_secs(1);
 
 static TRACE: AtomicBool = AtomicBool::new(false);
 
@@ -474,6 +484,9 @@ struct MenuState {
     /// Selección recordada por pestaña, para volver donde se estaba.
     remember: [usize; 2],
     hover: Option<usize>,
+    /// Instante en que el puntero entró en la card hovereada. Arranca el
+    /// barrido de brillo y se limpia al salir de la card.
+    hover_started: Option<Instant>,
     /// Desplazamiento vertical en líneas, siempre múltiplo de [`CARD_H`].
     scroll: u16,
     /// Alto del viewport. La fija `draw_menu` en cada frame.
@@ -613,6 +626,7 @@ impl MenuState {
             selected: tabs[0].start,
             remember: [tabs[0].start, tabs[1].start],
             hover: None,
+            hover_started: None,
             scroll: 0,
             vh: 0,
             ui: None,
@@ -647,6 +661,31 @@ impl MenuState {
             p.index = theme::index_of(t.name);
         }
         self.theme = t;
+    }
+
+    /// Actualiza la card bajo el puntero. El barrido de brillo sólo arranca al
+    /// entrar en una card nueva: mover el ratón dentro de la misma no lo
+    /// reinicia.
+    fn set_hover(&mut self, hover: Option<usize>) {
+        if self.hover == hover {
+            return;
+        }
+        self.hover = hover;
+        self.hover_started = hover.map(|_| Instant::now());
+    }
+
+    /// Progreso (0..1) del barrido de la card hovereada, o `None` si ya acabó.
+    fn hover_progress(&self) -> Option<f32> {
+        let started = self.hover_started?;
+        let elapsed = started.elapsed();
+        if elapsed >= HOVER_ANIM {
+            return None;
+        }
+        Some(elapsed.as_secs_f32() / HOVER_ANIM.as_secs_f32())
+    }
+
+    fn hover_animating(&self) -> bool {
+        self.hover.is_some() && self.hover_progress().is_some()
     }
 
     /// Ajusta `scroll` para que la card seleccionada quede entera dentro del
@@ -879,6 +918,89 @@ fn render_cards(
             ui.list.width,
         );
         frame.render_widget(card, rect);
+
+        // Barrido de brillo sobre el borde de la card hovereada.
+        if state.hover == Some(idx) {
+            if let Some(progress) = state.hover_progress() {
+                let accent = theme.card_accent(state.items[idx].color_key());
+                render_hover_shimmer(frame, rect, progress, accent, theme.text);
+            }
+        }
+    }
+}
+
+/// Recorre el borde de `rect` una vez (sentido horario) pintando una cola
+/// luminosa delante de la cabeza del barrido.
+///
+/// Se pinta **después** de la card, celda a celda sobre el buffer, porque el
+/// `Block` del Paragraph tiene un único color de borde. El brillo se mezcla con
+/// el color que ya tenía cada celda, así que funciona igual en reposo, hover y
+/// selección.
+fn render_hover_shimmer(
+    frame: &mut Frame,
+    rect: Rect,
+    progress: f32,
+    accent: Color,
+    bright: Color,
+) {
+    if rect.width < 2 || rect.height < 2 {
+        return;
+    }
+    let w = rect.width as usize;
+    let h = rect.height as usize;
+    // Perímetro del borde: arriba + abajo + laterales (las esquinas ya cuentan
+    // en arriba/abajo).
+    let total = 2 * w + 2 * (h - 2);
+    // Suavizado: la cabeza frena al final del recorrido.
+    let t = progress.clamp(0.0, 1.0);
+    let head = (1.0 - (1.0 - t).powi(3)) * total as f32;
+    let fade = 1.0 - t;
+    let glow = shimmer_glow(accent, bright);
+
+    let mut pos = 0usize;
+    let mut paint = |frame: &mut Frame, x: u16, y: u16| {
+        let dist = (pos as f32 - head).abs();
+        let k = (1.0 - dist / SHIMMER_TRAIL).max(0.0) * fade;
+        if k > 0.02 {
+            let cell = &mut frame.buffer_mut()[(x, y)];
+            let fg = match cell.fg {
+                Color::Rgb(..) => theme::mix(cell.fg, glow, k.min(1.0)),
+                // Los colores ANSI (tema `Compass`) no se pueden interpolar:
+                // el tramo pegado a la cabeza se pinta con el brillo y el
+                // resto conserva el color del borde.
+                _ if k >= 0.3 => glow,
+                _ => cell.fg,
+            };
+            cell.set_fg(fg);
+        }
+        pos += 1;
+    };
+
+    for x in rect.x..rect.right() {
+        paint(frame, x, rect.y);
+    }
+    for y in rect.y + 1..rect.bottom() {
+        paint(frame, rect.right() - 1, y);
+    }
+    for x in (rect.x..rect.right() - 1).rev() {
+        paint(frame, x, rect.bottom() - 1);
+    }
+    for y in (rect.y + 1..rect.bottom() - 1).rev() {
+        paint(frame, rect.x, y);
+    }
+}
+
+/// Brillo del barrido: mezcla el acento de la card con el texto del tema cuando
+/// ambos son RGB (temas OpenCode). Con colores ANSI (`Compass`) `mix` no puede
+/// interpolar nombres de color, así que el acento se aclara hacia el blanco.
+fn shimmer_glow(accent: Color, text: Color) -> Color {
+    match (accent, text) {
+        (Color::Rgb(..), Color::Rgb(..)) => theme::mix(accent, text, 0.55),
+        (Color::Rgb(r, g, b), _) => {
+            let light = |c: u8| (c as u16 + (255 - c as u16) * 55 / 100) as u8;
+            Color::Rgb(light(r), light(g), light(b))
+        }
+        _ => accent,
     }
 }
 
@@ -1185,6 +1307,17 @@ enum MenuAction {
 }
 
 fn handle_event(state: &mut MenuState) -> anyhow::Result<MenuAction> {
+    // Con una animación de hover en curso se repinta a ~30 fps; sin ella el
+    // bucle espera un segundo (teclado y ratón lo despiertan igual, y así no
+    // se redibuja de más cuando la ventana está inactiva).
+    let timeout = if state.hover_animating() {
+        ANIM_FRAME
+    } else {
+        IDLE_POLL
+    };
+    if !crossterm::event::poll(timeout)? {
+        return Ok(MenuAction::Continue);
+    }
     let evt = crossterm::event::read()?;
     trace_event(&format!("EVENT: {:?}", evt));
 
@@ -1230,7 +1363,7 @@ fn handle_event(state: &mut MenuState) -> anyhow::Result<MenuAction> {
 
     match evt {
         Event::Key(key) if key.kind == KeyEventKind::Press => {
-            state.hover = None;
+            state.set_hover(None);
 
             // Ctrl+T abre el modal de temas (no cicla directamente). Se resuelve
             // antes del `match key.code` porque, si no, la `t` caería en el brazo
@@ -1276,7 +1409,7 @@ fn handle_event(state: &mut MenuState) -> anyhow::Result<MenuAction> {
                 if let Some(tab) = tab_at(mouse.column, mouse.row, state) {
                     trace_event(&format!("  -> clic en pestana {:?}", tab));
                     state.set_tab(tab);
-                    state.hover = None;
+                    state.set_hover(None);
                     return Ok(MenuAction::Continue);
                 }
                 if let Some(idx) = card_at(mouse.column, mouse.row, state) {
@@ -1294,7 +1427,7 @@ fn handle_event(state: &mut MenuState) -> anyhow::Result<MenuAction> {
             // resaltado sigue al puntero en todos los escenarios.
             let h = card_at(mouse.column, mouse.row, state);
             trace_event(&format!("  -> hover idx={:?}", h));
-            state.hover = h;
+            state.set_hover(h);
         }
         Event::Resize(_, _) => state.ensure_visible(),
         _ => {}
@@ -1844,6 +1977,95 @@ mod tests {
             card_style(MenuItem::WindowsBuild, true, true),
             card_style(MenuItem::WindowsBuild, true, false),
             "seleccionada+hovereada debe pintarse como seleccionada"
+        );
+    }
+
+    /// El barrido arranca al **entrar** en una card: moverse dentro de la misma
+    /// no lo reinicia, y salir lo cancela.
+    #[test]
+    fn hover_starts_the_shimmer_only_when_entering_a_card() {
+        let mut s = MenuState::new(ProjectType::GoWails, crate::theme::DEFAULT);
+        let idx = s.tabs[Tab::DevMnt.index()].start + 3;
+
+        s.set_hover(Some(idx));
+        assert!(s.hover_animating(), "entrar en una card inicia el barrido");
+        let started = s.hover_started.expect("el instante de entrada");
+
+        s.set_hover(Some(idx));
+        assert_eq!(
+            s.hover_started,
+            Some(started),
+            "seguir en la misma card no reinicia la animación"
+        );
+
+        s.set_hover(None);
+        assert!(!s.hover_animating());
+        assert!(s.hover_started.is_none(), "sin hover no hay animación");
+    }
+
+    /// Pasada la duración, la animación termina sola y el bucle vuelve a
+    /// esperar sin repintar a 30 fps.
+    #[test]
+    fn hover_animation_expires() {
+        let mut s = MenuState::new(ProjectType::GoWails, crate::theme::DEFAULT);
+        s.set_hover(Some(s.tabs[Tab::DevMnt.index()].start));
+        assert!(s.hover_progress().is_some());
+
+        s.hover_started = Some(Instant::now() - HOVER_ANIM - Duration::from_millis(5));
+        assert!(!s.hover_animating());
+        assert!(s.hover_progress().is_none());
+    }
+
+    /// El barrido pinta sobre el borde de la card hovereada: a mitad de la
+    /// animación hay celdas del borde con un fg distinto al del hover en reposo.
+    #[test]
+    fn hover_shimmer_brightens_the_card_border() {
+        use ratatui::backend::TestBackend;
+
+        let mut term = Terminal::new(TestBackend::new(80, 30)).unwrap();
+        let ctx = test_ctx(ProjectType::GoWails);
+        let mut state = MenuState::new(ProjectType::GoWails, crate::theme::DEFAULT);
+        term.draw(|f| draw_menu(f, &mut state, &ctx)).unwrap();
+
+        let local = 1;
+        let idx = state.tabs[Tab::DevMnt.index()].start + local;
+        state.set_hover(Some(idx));
+        // Hover ya asentado, sin brillo: éste es el estado de referencia.
+        state.hover_started = Some(Instant::now() - HOVER_ANIM - Duration::from_millis(5));
+        term.draw(|f| draw_menu(f, &mut state, &ctx)).unwrap();
+        let settled = term.backend().buffer().clone();
+
+        // A mitad del barrido, el borde de esa card cambia de color.
+        state.hover_started = Some(Instant::now() - HOVER_ANIM / 2);
+        term.draw(|f| draw_menu(f, &mut state, &ctx)).unwrap();
+        let animating = term.backend().buffer().clone();
+
+        let ui = state.ui.expect("layout dibujado");
+        let rect = Rect {
+            x: ui.list.x,
+            y: ui.list.y + local as u16 * CARD_H,
+            width: ui.list.width,
+            height: CARD_H,
+        };
+
+        let mut changed = 0;
+        for x in rect.x..rect.right() {
+            for y in [rect.y, rect.bottom() - 1] {
+                if settled[(x, y)].fg != animating[(x, y)].fg {
+                    changed += 1;
+                }
+            }
+        }
+        for y in rect.y..rect.bottom() {
+            for x in [rect.x, rect.right() - 1] {
+                if settled[(x, y)].fg != animating[(x, y)].fg {
+                    changed += 1;
+                }
+            }
+        }
+        assert!(
+            changed > 0,
+            "el barrido debe iluminar celdas del borde de la card hovereada"
         );
     }
 
