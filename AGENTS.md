@@ -35,25 +35,83 @@ Compass ejecuta como aplicación de escritorio únicamente en **Windows**. Andro
 | Menú contextual Compass + Vibe Coding + `.gitignore` | ✅ Registro de Windows |
 | Configurar Terminal (PSReadLine) | ✅ |
 
+### Layout: pestañas + columna vertical con scroll
+
+El menú ya no pinta las 17 tarjetas en una sola rejilla. Ahora hay **dos
+pestañas** y las cards van **en una columna vertical** que se desplaza:
+
+| Pestaña | Contenido |
+|---------|-----------|
+| `DESARROLLO · MNT` | las cards DEV ∪ MNT (run, build, apk, clean, sign, version…) |
+| `CONFIGURACIÓN` | Git, WhatsApp, Terminal |
+
+`MenuItem::tab()` deriva la pestaña de `section()` (`DEV`/`MNT` → `DevMnt`, el
+resto → `Cfg`). `MenuState::new` filtra por tipo de proyecto y luego ordena los
+ítems **por pestaña** (`sort_by_key`, estable), así que `items` es contiguo por
+pestaña, `tabs: [TabRange; 2]` son rangos sobre él y `selected` sigue siendo un
+índice **global**.
+
+Cards de **3 líneas** (`CARD_H = 3`: borde + contenido + borde), 64 columnas de
+ancho máximo (`CARD_MAX_W`), centradas. El contenido es una sola línea con el
+icono y la etiqueta en el acento de la card y la descripción en `muted`
+(`text` si está hovereada). Se alinean a la izquierda: centrar texto con emoji
+de ancho ambiguo (⚙) descuadra la card.
+
+**Scroll** propio, en pasos de card completa (`MenuState.scroll: u16`): se
+pinta cada card recortando su `Rect` contra el viewport, y `ensure_visible()`
+mantiene la selección dentro de éste (`(i + 1 - visible) * CARD_H`, con
+`max = (n - visible) * CARD_H`). Las cards parcialmente visibles no se dibujan
+cortadas. El indicador es un `Scrollbar` de una columna junto al viewport; si no
+cabe, la columna se estrecha y el indicador desaparece.
+
+⚠️ Ya **no** existe el aviso "Terminal demasiado pequena" salvo que ni una card
+quepa (`list.height < CARD_H`). Antes el menú se negaba a dibujarse.
+
+`layout(area, warn)` es una **función pura** (header, tabs, list, scrollbar,
+footer) que comparten `draw_menu` y `card_at`: el hit-testing del ratón no se
+desincroniza al redimensionar.
+
 ### Estados visuales de una card (`menu.rs::create_card`)
 
-Tres estados, deliberadamente distintos entre sí. Los colores salen del **tema
-activo** (`theme.rs`), no de literales:
+Tres estados, deliberadamente distintos entre sí. El acento es **propio de cada
+card** (`theme.card_accent(key)` / `theme.card_bg(key)`), no el de la sección:
 
 | Estado | Borde | Fondo |
 |--------|-------|-------|
-| reposo | `theme.border` | ninguno |
+| reposo | `theme.card_accent(key)`, sin BOLD | ninguno |
 | hover | `theme.text` + BOLD | `theme.hover_bg` neutro |
-| seleccionado | acento de sección + BOLD | `theme.selected_bg(sección)` teñido |
+| seleccionado | `theme.card_accent(key)` + BOLD | `theme.card_bg(key)` teñido |
+
+El reposo no lleva BOLD a propósito: en consolas legacy el bold sólo aclara el
+foreground y `Color::Rgb` degrada a 16 colores, así que dos acentos pueden verse
+idénticos; el estado *además* se distingue por el fondo.
 
 ⚠️ Antes hover y selección compartían `glass_tint` y sólo se diferenciaban por el
 `BOLD` del borde: el hover pasaba desapercibido. Cubierto por
 `menu::tests::hover_is_visually_distinct_from_selected`; si el tint vuelve a
 compartirse, el test falla. Además, `theme::tests::hover_is_distinct_from_every_selection`
-verifica que en **ningún** tema el `hover_bg` colisiona con un `*_bg`.
+y `card_bgs_never_collide_with_hover_or_background` verifican que en **ningún**
+tema el `hover_bg` ni un `card_bg` colisionan con otro fondo.
 
 Si una card está seleccionada **y** hovereada, manda la selección: es la que
 Enter ejecutaría.
+
+### Teclado y ratón de la TUI
+
+| Entrada | Acción |
+|---------|--------|
+| `↑` `↓` | mueven la selección; al llegar al borde **saltan de pestaña** |
+| `Tab` / `→` | pestaña siguiente |
+| `Shift+Tab` / `←` | pestaña anterior |
+| `Enter` | ejecuta la card seleccionada |
+| `Esc` | sale |
+| `Ctrl+T` | abre el modal de temas |
+| rueda del ratón | mueve la selección (`∓1`), así nunca contradice lo que se ve |
+| clic izquierdo | ejecuta la card bajo el cursor (`hover` se actualiza con la actividad del ratón) |
+
+`set_tab()` recuerda la selección de cada pestaña (`remember: [usize; 2]`) y
+`ensure_visible()` se llama tras mover la selección, al cambiar de pestaña y en
+`Event::Resize`.
 
 ### Temas del TUI (`Ctrl+T`)
 
@@ -96,17 +154,26 @@ aplica el tema; `render_theme_picker()` dibuja la capa.
   (Cyan/Yellow/Magenta + el tinte de vidrio original) para no cambiar nada a
   quien no toque el tema.
 - Un `Theme` son **roles semánticos**, no colores: `menu.rs` no tiene un solo
-  literal de color. La sección DEV usa `dev`, MNT `mnt`, CFG `cfg`; los fondos de
-  la card seleccionada son `dev_bg`/`mnt_bg`/`cfg_bg`, el hover `hover_bg` y el
-  fondo de **toda la pantalla** es `background` (a lo OpenCode: cada tema pinta su
-  propio fondo con un `Block` que cubre `frame.area()` al principio de
+  literal de color. Ambos fondos de card salen de la paleta del tema.
+- **Acento por card**: `theme::CARD_KEYS` fija las 17 claves semánticas (una por
+  `MenuItem`, en orden canónico) y `Theme.card_hexes: [u32; 17]` guarda un hex
+  por clave **y por tema**. `card_accent(key)` es ese color y `card_bg(key)` el
+  mismo con `dark(hex, 27)`; por tema sólo se eligen 17 hex, no 34. La barra de
+  pestañas sigue usando `dev`/`cfg` (el acento de *su* sección) para conservar
+  la identidad cromática. `theme::tests` verifica que dentro de una pestaña no
+  hay dos acentos iguales en ningún tema, que los fondos no chocan con el hover
+  ni con `background`, y que `Compass` conserva los colores actuales.
+- `dev`/`mnt`/`cfg`/`*_bg`/`hover_bg` se **conservan** porque los consumen
+  `tasks/git.rs` y `tasks/signer.rs` (`section()`/`selected_bg()`), y los fondos
+  van **explícitos por tema** (no se derivan) porque el "vidrio esmerilado" es
+  una decisión estética. El helper `const fn dark()` evita tener que calcularlos
+  a mano.
+- El fondo de **toda la pantalla** es `background` (a lo OpenCode: cada tema pinta
+  su propio fondo con un `Block` que cubre `frame.area()` al principio de
   `draw_menu`; el resto de widgets no lo pisan porque sus `Style` no definen
   `bg`). El modal de temas también lo pinta (su `Clear` dejaría el fondo nativo
-  de la terminal).
-  Los badges de tipo de proyecto se mapean a `success`/`info`/`accent`/`warning`.
-- `dev_bg`/`mnt_bg`/`cfg_bg`/`hover_bg` van **explícitos por tema** (no se derivan)
-  porque el "vidrio esmerilado" es una decisión estética. El helper `const fn dark()`
-  evita tener que calcular los tintes a mano.
+  de la terminal). Los badges de tipo de proyecto se mapean a
+  `success`/`info`/`accent`/`warning`.
 - **Persistencia**: el tema elegido se guarda como una línea de texto en
   `<data_dir>/compass/theme` (`%LOCALAPPDATA%\compass\theme` en Windows) con `theme::save()`, y se recupera en
   `menu::run` con `theme::load()`. Un fichero ausente o con un nombre desconocido
@@ -155,8 +222,11 @@ main.rs
 
 theme.rs
   ├─ Theme — roles semánticos (text/muted/border/brand, dev/mnt/cfg + *_bg,
-  │          hover_bg, success/info/accent/warning). Ningún literal de color
-  │          en menu.rs: cambiar de tema sólo cambia esta tabla.
+  │          hover_bg, success/info/accent/warning) **+ card_hexes: [u32; 17]**
+  │          (acento por card, orden de CARD_KEYS). Ningún literal de color en
+  │          menu.rs: cambiar de tema sólo cambia esta tabla.
+  ├─ CARD_KEYS — 17 claves semánticas (run, android, …, git, whatsapp, terminal);
+  │              card_accent(key) / card_bg(key) las resuelven contra el tema
   ├─ THEMES — 14 temas basados en OpenCode (Compass, OpenCode, Tokyo Night,
   │           Catppuccin, Dracula, Gruvbox, Nord, One Dark, Monokai, Rosé Pine,
   │           Kanagawa, Matrix, Synthwave 84, Solarized)
@@ -168,9 +238,13 @@ menu.rs
   │   — 🚫 **ya no existe la variante `ContextMenu`**: `install.bat` instala el menú
   │     contextual al arrancar, la tarjeta era redundante (las tareas `context-menu*`
   │     por CLI siguen disponibles)
-  ├─ ratatui TUI con cards en grilla 3-columnas, 3 secciones (DEV/MNT/CFG)
+  ├─ ratatui TUI en **dos pestañas** (`DESARROLLO · MNT` | `CONFIGURACIÓN`) con las
+  │   cards en **columna vertical** de 3 líneas, **scroll** y un color por card
   ├─ Filtro por tipo de proyecto (Rust oculta Android/Signing)
-  ├─ handle_event(): devuelve MenuAction (Run | Quit); teclado + mouse (grid matemático)
+  ├─ layout(area, warn) — función pura (header/tabs/list/scrollbar/footer) que
+  │   comparten el dibujo y el hit-testing del ratón
+  ├─ handle_event(): devuelve MenuAction (Run | Quit); teclado (Tab/←→, ↑↓ con
+  │   salto de pestaña) + mouse (rueda mueve la selección, clic ejecuta)
   ├─ Sin botón Salir: `Esc` cierra el programa (`MenuAction::Quit`)
   └─ run(): loop: draw → handle → restore → execute → re-enter
 

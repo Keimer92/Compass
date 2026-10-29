@@ -13,14 +13,21 @@
 //! | `brand` | título de Compass en la cabecera |
 //! | `dev` `mnt` `cfg` | acento de cada sección (títulos y marcas del pie) |
 //! | `dev_bg` `mnt_bg` `cfg_bg` | fondo de la card **seleccionada** por sección |
+//! | `card_hexes` | **acento propio de cada card** (17 entradas, en el orden de [`CARD_KEYS`]) |
 //! | `hover_bg` | fondo de la card **hovereada** (neutro, distinto de la selección) |
 //! | `background` | fondo de **toda la pantalla** (como el bg de los temas de OpenCode) |
 //! | `success` `info` `accent` `warning` | badge de tipo de proyecto y avisos |
 //!
 //! Los `*_bg` y el `hover_bg` no se derivan del resto: van explícitos por tema
 //! porque el "vidrio esmerilado" de la selección es una decisión estética, no
-//! una función. Aun así hay tests (`tests::hover_is_distinct_from_every_selection`)
-//! que garantizan que hover y selección nunca colisionan en ningún tema.
+//! una función. El fondo de la card seleccionada **sí** se deriva del acento de
+//! esa card (`dark()` al 27 %, la misma receta que `dev_bg`/`mnt_bg`/`cfg_bg`),
+//! así que por tema sólo se eligen 17 colores, no 34.
+//!
+//! Aun así hay tests (`tests::hover_is_distinct_from_every_selection`,
+//! `tests::card_hexes_are_distinct_within_each_tab`) que garantizan que hover y
+//! selección nunca colisionan en ningún tema y que dos cards de una misma
+//! pestaña no comparten acento.
 //!
 //! ## Persistencia
 //!
@@ -58,6 +65,33 @@ const fn dark(v: u32, pct: u32) -> Color {
     Color::Rgb(r, g, b)
 }
 
+/// Claves de los acentos por card, en el orden del arreglo `Theme::card_hexes`.
+///
+/// Una clave por `MenuItem`. El orden es **load-bearing**: coincide posición a
+/// posición con los 17 hex de cada tema, así que reordenar aquí reordena (y
+/// destiñe) las 14 paletas. `menu::tests::card_keys_cover_every_item` verifica
+/// que no falte ninguna tarjeta ni sobre ninguna clave.
+pub const CARD_KEYS: [&str; 17] = [
+    // DEV
+    "run", "android", "reload", "build", "apk", "apk32", "aab", "install", "profile", "test",
+    // MNT
+    "clean", "debug", "sign", "version",
+    // CFG
+    "git", "whatsapp", "terminal",
+];
+
+/// Las claves de la pestaña 1 (`DESARROLLO · MNT`) y de la 2 (`CONFIGURACIÓN`).
+///
+/// Viven aquí y no en `menu.rs` para que `card_hexes_are_distinct_within_each_tab`
+/// pueda comprobar la paleta completa sin depender del filtro por tipo de proyecto.
+#[cfg(test)]
+pub const CARD_KEYS_DEV_MNT: [&str; 14] = [
+    "run", "android", "reload", "build", "apk", "apk32", "aab", "install", "profile", "test",
+    "clean", "debug", "sign", "version",
+];
+#[cfg(test)]
+pub const CARD_KEYS_CFG: [&str; 3] = ["git", "whatsapp", "terminal"];
+
 /// Conjunto de colores del TUI. Ver la tabla de roles del módulo.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Theme {
@@ -78,6 +112,8 @@ pub struct Theme {
     pub info: Color,
     pub accent: Color,
     pub warning: Color,
+    /// Acento propio de cada card, en el orden de [`CARD_KEYS`].
+    pub card_hexes: [u32; 17],
 }
 
 impl Theme {
@@ -100,6 +136,27 @@ impl Theme {
             "MNT" => self.mnt_bg,
             _ => self.cfg_bg,
         }
+    }
+
+    /// Hex del acento de una card. Una clave desconocida cae en `terminal`,
+    /// el acento con el que ya contaban todas las cards de CFG.
+    fn card_hex(&self, key: &str) -> u32 {
+        let idx = CARD_KEYS
+            .iter()
+            .position(|k| *k == key)
+            .unwrap_or(CARD_KEYS.len() - 1);
+        self.card_hexes[idx]
+    }
+
+    /// Color distintivo de una card (`key` sale de `CARD_KEYS`).
+    pub fn card_accent(&self, key: &str) -> Color {
+        hex(self.card_hex(key))
+    }
+
+    /// Fondo de esa misma card cuando está **seleccionada**: su acento apagado,
+    /// con la receta de siempre (`dark()` al 27 %).
+    pub fn card_bg(&self, key: &str) -> Color {
+        dark(self.card_hex(key), 27)
     }
 }
 
@@ -129,6 +186,13 @@ pub static THEMES: &[Theme] = &[
         info: Color::Cyan,
         accent: Color::Magenta,
         warning: Color::Yellow,
+        // DEV·MNT dentro de la familia cyan/amarilla de siempre; CFG dentro del
+        // magenta. Cada card se distingue por el tono, la pestaña por la familia.
+        card_hexes: [
+            0x00abcd, 0x00ffff, 0x5fd7ff, 0xafff00, 0xffd700, 0xffa500, 0xff87d7, 0x00d7af,
+            0xffe79f, 0xffff00, 0xffcc2f, 0xff6f6f, 0xffb72f, 0xff4f4f, 0xff00ff, 0xd787ff,
+            0xaf87ff,
+        ],
     },
     // 1 — OpenCode (tema oficial)
     Theme {
@@ -149,6 +213,11 @@ pub static THEMES: &[Theme] = &[
         info: hex(0x56b6c2),
         accent: hex(0x9d7cd8),
         warning: hex(0xf5a742),
+        card_hexes: [
+            0x56b6c2, 0x61afef, 0x98c379, 0xe5c07b, 0xe06c75, 0xff5c93, 0xd19a66, 0x7fd88f,
+            0xef6c75, 0xc678dd, 0xf5a742, 0x9d7cd8, 0xfab283, 0xffb86c, 0xbd93f9, 0x2bbac5,
+            0xa8a1ff,
+        ],
     },
     // 2 — Tokyo Night
     Theme {
@@ -169,6 +238,11 @@ pub static THEMES: &[Theme] = &[
         info: hex(0x86e1fc),
         accent: hex(0xc099ff),
         warning: hex(0xffc777),
+        card_hexes: [
+            0x7aa2f7, 0x86e1fc, 0xc3e88d, 0xffc777, 0xf7768e, 0xdb5c3c, 0x2ac3de, 0x73daca,
+            0xbb9af7, 0xe0af68, 0xff9e64, 0x7dcfff, 0xffa29b, 0x7cf6b5, 0xb8b2fa, 0xad7ea8,
+            0x9d7cd8,
+        ],
     },
     // 3 — Catppuccin (Mocha)
     Theme {
@@ -189,6 +263,11 @@ pub static THEMES: &[Theme] = &[
         info: hex(0x94e2d5),
         accent: hex(0xcba6f7),
         warning: hex(0xf9e2af),
+        card_hexes: [
+            0x89b4fa, 0x94e2d5, 0xa6e3a1, 0xf9e2af, 0xf38ba8, 0xe78284, 0xf2cdcd, 0x94b8ff,
+            0xf5c2e7, 0xfab387, 0xeba069, 0xb4befe, 0xcba6f7, 0xffa657, 0xa0c4ff, 0x7dcfff,
+            0x89d88b,
+        ],
     },
     // 4 — Dracula
     Theme {
@@ -209,6 +288,11 @@ pub static THEMES: &[Theme] = &[
         info: hex(0xffb86c),
         accent: hex(0xff79c6),
         warning: hex(0xf1fa8c),
+        card_hexes: [
+            0x8be9fd, 0xbd93f9, 0x50fa7b, 0xf1fa8c, 0xff5555, 0xffb86c, 0x62d4a8, 0x3ee6c4,
+            0xe3f9fb, 0x8aff80, 0xfabf9f, 0xff79c6, 0x69d0e7, 0x5aebad, 0xefe48d, 0xff92d0,
+            0xf264c9,
+        ],
     },
     // 5 — Gruvbox (dark)
     Theme {
@@ -229,6 +313,11 @@ pub static THEMES: &[Theme] = &[
         info: hex(0x83a598),
         accent: hex(0xd3869b),
         warning: hex(0xfe8019),
+        card_hexes: [
+            0x83a598, 0x458588, 0xb8bb26, 0xfabd2f, 0xfb4934, 0xfe8019, 0xba5446, 0x8ec07c,
+            0xdbe2d5, 0xa9b665, 0xf9f24a, 0xeceaea, 0xd3869b, 0xb16286, 0xd79921, 0xfbf1c7,
+            0x689d6a,
+        ],
     },
     // 6 — Nord
     Theme {
@@ -249,6 +338,11 @@ pub static THEMES: &[Theme] = &[
         info: hex(0x81a1c1),
         accent: hex(0xb48ead),
         warning: hex(0xd08770),
+        card_hexes: [
+            0x88c0d0, 0x81a1c1, 0xa3be8c, 0xebcb8b, 0xbf616a, 0xd08770, 0xe5e9f0, 0x8fbcbb,
+            0x8fa8d8, 0xb48ead, 0x5e81a7, 0x87afaf, 0xc07866, 0x57909c, 0xd899c4, 0xaeb7df,
+            0xc6d0dd,
+        ],
     },
     // 7 — One Dark
     Theme {
@@ -269,6 +363,11 @@ pub static THEMES: &[Theme] = &[
         info: hex(0x56b6c2),
         accent: hex(0xc678dd),
         warning: hex(0xe5c07b),
+        card_hexes: [
+            0x61afef, 0x56b6c2, 0x3ece9d, 0xe5c07b, 0xe06c75, 0xd19a66, 0xbe5046, 0x98c379,
+            0xc678dd, 0xb8d17a, 0x7ae0c0, 0xef7d57, 0x9d7cd8, 0xef6ac0, 0x8fa3bf, 0x25d366,
+            0x7f848e,
+        ],
     },
     // 8 — Monokai
     Theme {
@@ -289,6 +388,11 @@ pub static THEMES: &[Theme] = &[
         info: hex(0xfd971f),
         accent: hex(0xae81ff),
         warning: hex(0xe6db74),
+        card_hexes: [
+            0x66d9ef, 0xae81ff, 0xa6e22e, 0xe6db74, 0xf92672, 0xfd971f, 0xff4040, 0x2ee6a8,
+            0x8fd1e4, 0xf5f5a0, 0x70e0d0, 0xff9ec9, 0xc06fe0, 0x5ef38c, 0xffcb3d, 0x8be04e,
+            0xb8b8b8,
+        ],
     },
     // 9 — Rosé Pine
     Theme {
@@ -309,6 +413,11 @@ pub static THEMES: &[Theme] = &[
         info: hex(0x9ccfd8),
         accent: hex(0xc4a7e7),
         warning: hex(0xf6c177),
+        card_hexes: [
+            0x9ccfd8, 0xc4a7e7, 0x31748f, 0xf6c177, 0xeb6c88, 0xe6976b, 0xf8bdc0, 0x8ec9a4,
+            0xd8b4f0, 0xc2c2a8, 0x6bb8c4, 0xea84a2, 0xcba0f5, 0x5ec4a8, 0x9083a4, 0x6fcf9f,
+            0xebbcba,
+        ],
     },
     // 10 — Kanagawa
     Theme {
@@ -329,6 +438,11 @@ pub static THEMES: &[Theme] = &[
         info: hex(0x76946a),
         accent: hex(0xd27e99),
         warning: hex(0xd7a657),
+        card_hexes: [
+            0x7e9cd8, 0x7fb4ca, 0x98bb6c, 0xd7a657, 0xe8246a, 0xcc8844, 0xd2787c, 0x80a66f,
+            0xa3c48f, 0xc9b87a, 0x6da8c0, 0x76946a, 0x957fb8, 0xd4b08c, 0x5c8496, 0x8fd0a8,
+            0xc0b8a0,
+        ],
     },
     // 11 — Matrix
     Theme {
@@ -349,6 +463,11 @@ pub static THEMES: &[Theme] = &[
         info: hex(0x30b3ff),
         accent: hex(0xc770ff),
         warning: hex(0xe6ff57),
+        card_hexes: [
+            0x62ff94, 0x30b3ff, 0x2eff6a, 0xe6ff57, 0xff4f7e, 0xff8a3d, 0x00e5b0, 0x7cffc4,
+            0xb8ff6a, 0xffd800, 0x00b3a6, 0x57d8ff, 0xc770ff, 0x9dff7a, 0x00ffc8, 0xff6a6a,
+            0xc0c0c0,
+        ],
     },
     // 12 — Synthwave '84
     Theme {
@@ -369,6 +488,11 @@ pub static THEMES: &[Theme] = &[
         info: hex(0xff8b39),
         accent: hex(0xb084eb),
         warning: hex(0xfede5d),
+        card_hexes: [
+            0x36f9f6, 0xff7edb, 0x72f1b8, 0xfede5d, 0xfe44f6, 0xff8b39, 0xfc297b, 0x00d9ff,
+            0xb084eb, 0xd8f97f, 0x5580ff, 0xff9de7, 0x9bf6ff, 0xffc0cb, 0x05d9e0, 0x39ff14,
+            0xcd6fff,
+        ],
     },
     // 13 — Solarized (dark)
     Theme {
@@ -389,6 +513,11 @@ pub static THEMES: &[Theme] = &[
         info: hex(0x2aa198),
         accent: hex(0xd33682),
         warning: hex(0xb58900),
+        card_hexes: [
+            0x268bd2, 0x6c71c4, 0x2aa198, 0xb58900, 0xdc322f, 0xcb4b16, 0xd33682, 0x859900,
+            0x5bbb9a, 0x6fd4c0, 0x93a1a1, 0x8fa8ff, 0xff79b0, 0xffd95e, 0x2b9dd0, 0x25d366,
+            0x657b83,
+        ],
     },
 ];
 
@@ -545,5 +674,115 @@ mod tests {
         assert_eq!(t.section("???"), t.cfg);
         assert_eq!(t.selected_bg("DEV"), t.dev_bg);
         assert_eq!(t.selected_bg("desconocida"), t.cfg_bg);
+    }
+
+    /// Toda clave de [`CARD_KEYS`] debe resolver en su posición del arreglo, y
+    /// una clave desconocida debe caer en `terminal` (el último acento).
+    #[test]
+    fn card_keys_map_to_their_position_in_the_palette() {
+        assert_eq!(CARD_KEYS.len(), 17);
+        assert_eq!(
+            CARD_KEYS_DEV_MNT.len() + CARD_KEYS_CFG.len(),
+            CARD_KEYS.len(),
+            "las claves por pestaña deben cubrir CARD_KEYS sin huecos ni repeticiones"
+        );
+        let joined: Vec<&str> = CARD_KEYS_DEV_MNT
+            .iter()
+            .chain(CARD_KEYS_CFG.iter())
+            .copied()
+            .collect();
+        assert_eq!(joined.as_slice(), CARD_KEYS.as_slice());
+        for (i, k) in CARD_KEYS.iter().enumerate() {
+            assert_eq!(DEFAULT.card_hex(k), DEFAULT.card_hexes[i], "posición de {k}");
+        }
+        assert_eq!(DEFAULT.card_hex("no-existe"), DEFAULT.card_hex("terminal"));
+    }
+
+    /// El peor caso es la pestaña 1 con 14 cards (GoWails + Tauri): si dos
+    /// acentos coinciden, dos tarjetas se ven iguales y el color deja de
+    /// identificar la acción.
+    #[test]
+    fn card_hexes_are_distinct_within_each_tab() {
+        for t in THEMES {
+            for group in [CARD_KEYS_DEV_MNT.as_slice(), CARD_KEYS_CFG.as_slice()] {
+                for (i, a) in group.iter().enumerate() {
+                    for b in &group[i + 1..] {
+                        assert_ne!(
+                            t.card_accent(a),
+                            t.card_accent(b),
+                            "{}: las cards {a} y {b} comparten acento",
+                            t.name
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// Misma regresión que `hover_is_distinct_from_every_selection`, pero con el
+    /// fondo derivado de cada acento: el hover no puede pintarse como una
+    /// selección, y el fondo de la pantalla tampoco.
+    #[test]
+    fn card_bgs_never_collide_with_hover_or_background() {
+        for t in THEMES {
+            for key in CARD_KEYS {
+                let bg = t.card_bg(key);
+                assert_ne!(bg, t.hover_bg, "{}: hover == selección de {key}", t.name);
+                assert_ne!(bg, t.background, "{}: background == selección de {key}", t.name);
+                assert_ne!(
+                    t.card_accent(key), t.background,
+                    "{}: el acento de {key} se confunde con el fondo",
+                    t.name
+                );
+            }
+        }
+    }
+
+    /// Cubo de matiz de 30° (0..11); los neutros forman el cubo 255.
+    fn hue_bucket(c: Color) -> u8 {
+        let (r, g, b) = match c {
+            Color::Rgb(r, g, b) => (r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0),
+            _ => return 255,
+        };
+        let max = r.max(g).max(b);
+        let min = r.min(g).min(b);
+        let chroma = max - min;
+        if chroma < 0.08 {
+            return 255;
+        }
+        let h = if max == r {
+            60.0 * (((g - b) / chroma) % 6.0)
+        } else if max == g {
+            60.0 * ((b - r) / chroma + 2.0)
+        } else {
+            60.0 * ((r - g) / chroma + 4.0)
+        };
+        let h = (h + 360.0) % 360.0;
+        (h as u16 / 30) as u8
+    }
+
+    /// El punto del rediseño es que **cada card tenga su propio color**. Si
+    /// alguien vuelve a derivar los acentos de `dev`/`mnt`/`cfg`, las 14 cards
+    /// de la pestaña 1 acabarían en dos o tres cubos de matiz y este test falla.
+    #[test]
+    fn card_accents_span_several_hue_families() {
+        for t in THEMES {
+            for group in [CARD_KEYS_DEV_MNT.as_slice(), CARD_KEYS_CFG.as_slice()] {
+                let buckets: std::collections::BTreeSet<u8> =
+                    group.iter().map(|k| hue_bucket(t.card_accent(k))).collect();
+                let min = if group.len() == CARD_KEYS_DEV_MNT.len() {
+                    4
+                } else {
+                    2
+                };
+                assert!(
+                    buckets.len() >= min,
+                    "{}: la pestaña de {} cards sólo usa {} familias de color",
+                    t.name,
+                    group.len(),
+                    buckets.len()
+                );
+            }
+        }
     }
 }
