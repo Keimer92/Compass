@@ -1,7 +1,7 @@
+use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::time::SystemTime;
-use anyhow::{Context, Result};
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -46,7 +46,12 @@ pub fn run_in_dir_status(cmd: &str, args: &[&str], dir: &std::path::Path) -> Res
         .args(args)
         .current_dir(dir)
         .status()
-        .with_context(|| format!("Falló al ejecutar '{}'. Verifica que el programa esté instalado y en el PATH.", cmd))?;
+        .with_context(|| {
+            format!(
+                "Falló al ejecutar '{}'. Verifica que el programa esté instalado y en el PATH.",
+                cmd
+            )
+        })?;
     if !status.success() {
         anyhow::bail!("Comando falló con código: {}", status);
     }
@@ -71,7 +76,12 @@ pub fn run_timeout(cmd: &str, args: &[&str], timeout_secs: u64) -> Result<bool> 
         .args(args)
         .stdin(std::process::Stdio::null())
         .spawn()
-        .with_context(|| format!("Falló al ejecutar '{}'. Verifica que el programa esté instalado y en el PATH.", cmd))?;
+        .with_context(|| {
+            format!(
+                "Falló al ejecutar '{}'. Verifica que el programa esté instalado y en el PATH.",
+                cmd
+            )
+        })?;
 
     let limite = Instant::now() + Duration::from_secs(timeout_secs);
     loop {
@@ -320,11 +330,7 @@ fn shell_status(
 ///
 /// Se usa fuera de `cmd.rs` para secuencias de más de un paso (p. ej. instalar
 /// el APK de debug y, solo si eso funcionó, lanzarlo con `am start`).
-pub fn run_shell_status(
-    command: &str,
-    dir: &Path,
-    envs: &[(String, String)],
-) -> Result<bool> {
+pub fn run_shell_status(command: &str, dir: &Path, envs: &[(String, String)]) -> Result<bool> {
     Ok(shell_status(command, dir, envs)?.success())
 }
 
@@ -352,7 +358,11 @@ pub fn spawn_new_window_autoexit(title: &str, dir: &std::path::Path, command: &s
 /// (flutter run, gradle run, etc.). Internamente usa cmd /c en vez de
 /// powershell -Command porque este último no reenvía correctamente el
 /// teclado a procesos hijo en ciertas configuraciones de Windows.
-pub fn spawn_new_window_interactive(title: &str, dir: &std::path::Path, command: &str) -> Result<()> {
+pub fn spawn_new_window_interactive(
+    title: &str,
+    dir: &std::path::Path,
+    command: &str,
+) -> Result<()> {
     // `raw_arg` evita que las comillas de rutas con espacios se reescapen como `\"`.
     let cmd_line = format!("/c title {} & {} & pause", title, command);
     Command::new("cmd")
@@ -411,10 +421,7 @@ fn newest_artifact_filtered(
                     .file_name()
                     .map(|n| n.to_string_lossy().to_lowercase())
                     .unwrap_or_default();
-                if !fragments
-                    .iter()
-                    .any(|f| name.contains(&f.to_lowercase()))
-                {
+                if !fragments.iter().any(|f| name.contains(&f.to_lowercase())) {
                     continue;
                 }
             }
@@ -517,7 +524,10 @@ fn open_folder(folder: &Path) {
 /// (por eso la ventana mostraba `C:\Users\Admin\.cargo\bin\compass.exe …`); si es
 /// el propio proceso quien lo fija al arrancar, se sobreescribe al abrirse.
 pub fn set_console_title(title: &str) {
-    let _ = crossterm::execute!(std::io::stdout(), crossterm::terminal::SetTitle(title.to_string()));
+    let _ = crossterm::execute!(
+        std::io::stdout(),
+        crossterm::terminal::SetTitle(title.to_string())
+    );
 }
 
 /// Elimina un directorio recursivamente manejando rutas largas en Windows.
@@ -652,7 +662,9 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn path_for_explorer_normalizes_separators() {
-        let path = Path::new(r"D:\P\src-tauri/gen/android/app/build/outputs/apk/universal/release/app-release.apk");
+        let path = Path::new(
+            r"D:\P\src-tauri/gen/android/app/build/outputs/apk/universal/release/app-release.apk",
+        );
         let p = windows_path_for_explorer(path);
         assert_eq!(
             p,

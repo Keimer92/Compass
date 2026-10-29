@@ -118,8 +118,7 @@ Navegador de directorios que se usa cuando `--pick` está activo o cuando
 hace utilizable la entrada del launcher.
 
 - Mantiene `options` y `actions` en vectores paralelos; despacha por acción, no
-  por el prefijo del texto (un `starts_with("2."")` ya causó un bug: en Linux
-  "2. Volver" instalaba Vibe Coding).
+  por el prefijo del texto (un `starts_with("2.")` ya causó un bug con "2. Volver").
 - Las subcarpetas se marcan con su tipo (`classify_dir`), para que se sepa qué
   es un proyecto antes de entrar.
 - Los ocultos se listan al final, no se ocultan.
@@ -372,8 +371,7 @@ milisegundos.
 
 ⚠️ Hay que pasar el comando con `raw_arg`, no con `.args`: `.args` reescapa las
 comillas dobles a `\"`, que `cmd` no entiende (interpretaría el `\` como parte de
-la ruta). Y en Linux `menu.rs` omite el `&` del call-operator de PowerShell (en
-`sh` sería un error de sintaxis).
+la ruta).
 
 ### Builds: corren en la ventana actual (`cmd::run_build_and_reveal`)
 Los builds **no abren una segunda ventana**. Llaman a
@@ -387,16 +385,15 @@ Los builds **no abren una segunda ventana**. Llaman a
 3. Espera un Enter (`ui::pause()`) para que se pueda leer la salida.
 
 Así sólo hay **una** ventana y es la rápida. Antes se generaba un script de
-shell con la lógica de revelado incrustada (PowerShell en Windows, `sh` en
-y se abría con `powershell -NoExit -Command`: lento y con la lógica de
+PowerShell con la lógica de revelado incrustada y se abría con `powershell -NoExit -Command`:
+lento y con la lógica de
 "artefacto más reciente" duplicada en dos sintaxis.
 
 `cmd::run_in_current_window(command, dir)` es la variante sin revelado, para
 procesos largos que no producen artefacto (`rust::run` → `cargo run`).
 
 El revelado usa `explorer.exe /select,"<ruta>"` (con `raw_arg`, para que Explorer
-reciba las comillas alrededor de la ruta) en Windows y `xdg-open` sobre la
-carpeta contenedora. Si no encuentra artefacto, abre `folder`.
+reciba las comillas alrededor de la ruta). Si no encuentra artefacto, abre `folder`.
 
 ⚠️ **Los separadores se normalizan a `\` antes del Explorer** (helper
 `windows_path_for_explorer`): los literales `join("a/b/c")` conservan las `/` del
@@ -439,12 +436,12 @@ falla el parser de Explorer cuando la ruta tiene espacios y abre **Documentos** 
 Los comandos de Gradle se ejecutan como `cmd /c gradlew.bat <args>` porque PowerShell no puede ejecutar `.bat` directamente.
 
 ### CLI de Tauri (`utils/tauri.rs`)
-Un `node_modules` compartido entre Windows y Linux rompe el CLI de Tauri por partida doble, y las dos cosas se evitan así:
+Un `node_modules` compartido entre máquinas puede romper el CLI de Tauri por partida doble, y las dos cosas se evitan así:
 
 | Síntoma | Causa |
 |---------|-------|
-| `'tauri' is not recognized…` | `node_modules/.bin/tauri` es el shim del sistema que hizo el install. En POSIX es un fichero sin extensión; en Windows además salen `tauri.cmd`/`tauri.ps1`. `cmd` sólo resuelve por `PATHEXT`. |
-| `Cannot find native binding` | `@tauri-apps/cli` delega en una *optional dependency* por plataforma. Si el install fue en el otro sistema, la de aquí no está ([npm/cli#4828]). |
+| `'tauri' is not recognized…` | `node_modules/.bin/tauri` depende del shim que generó npm. `cmd` sólo resuelve por `PATHEXT`. |
+| `Cannot find native binding` | `@tauri-apps/cli` delega en una *optional dependency* por plataforma; el binding de Windows puede faltar ([npm/cli#4828]). |
 
 - `tauri::command(ctx, args)` emite `node node_modules/@tauri-apps/cli/tauri.js <args>`, nunca `tauri` a secas. Cae a `npx tauri` si el paquete no está.
 - `tauri::ensure(ctx)` llama a `npm install` si falta `node_modules`, el paquete, o el binding de `platform::tauri_native_pkg()`. Se llama **antes** de `command()`.
@@ -695,8 +692,8 @@ usaba `wails.json` y otro CLI, así que no se mezcla (`context::is_wails_v3`).
 | Clean | `bin/`, `frontend/dist`, `frontend/bindings`, `build/android/app/build`, `build/android/.gradle`, `jniLibs/` |
 
 **El build de escritorio produce un instalador, no el portable.** `build_desktop()`
-emite `wails3 task package` (que despacha a `windows:package` / `linux:package`
-según el host), no `wails3 task build`. Detalles que importan:
+emite `wails3 task package` (que despacha a `windows:package`), no
+`wails3 task build`. Detalles que importan:
 
 - **Windows/NSIS es el formato por defecto** del Taskfile (`FORMAT` default
   `nsis`). El instalador sale como `bin/<APP>-<arch>-installer.exe`.
@@ -712,8 +709,6 @@ según el host), no `wails3 task build`. Detalles que importan:
   `cmd::run_build_and_reveal_named(..., &["installer", "msix", "msi"])` y así
   revela el instalador incluso si el portable tuviera mtime posterior. Cubierto
   por `utils::cmd::tests::newest_artifact_filter_by_name_ignores_the_portable_binary`.
-- En Linux el binario no lleva extensión, así que no hay ambigüedad: se filtra
-  por extensión del paquete (`AppImage`, `deb`, `rpm`).
 - **El binario de dev lleva el icono de la app.** `wails3 dev` no genera el
   `.syso` (icono/version de Windows) por defecto, así que el `.exe` salía con el
   icono genérico de Go. `gowails::dev()` ejecuta antes `wails3 generate syso`
@@ -721,20 +716,10 @@ según el host), no `wails3 task build`. Detalles que importan:
   El `.syso` queda en la raíz del proyecto y está en el `.gitignore`.
 
 ⚠️ **Por qué el build de Android NO usa el Taskfile del proyecto**: las tareas
-`android:*` de la plantilla de Wails v3 están escritas en POSIX y su `case` de
-host sólo contempla Darwin y Linux:
-
-```sh
-case "$(uname -s)" in
-  Darwin) HOST_TAG="darwin-x86_64" ;;
-  Linux)  HOST_TAG="linux-x86_64" ;;
-  *)      echo "Unsupported host OS"; exit 1 ;;
-esac
-```
-
-En Windows el `case` cae en `*)` y aborta, aunque la NDK del host sí exista
-(`windows-x86_64`). Por eso Compass replica el pipeline (los mismos 5 pasos
-del Taskfile) pero con el *host tag* y el compilador correctos:
+`android:*` de la plantilla de Wails v3 usan scripts POSIX, que no se ejecutan
+en Windows. Aunque la NDK del host sí exista (`windows-x86_64`), el build del
+Taskfile aborta. Por eso Compass replica el pipeline con el *host tag* y el
+compilador correctos:
 
 1. `wails3 android overlay:gen -out build/android/overlay.json -config build/config.yml`
 2. `wails3 generate bindings -f "-tags android,debug" -clean=true -ts -i`

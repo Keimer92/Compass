@@ -1,6 +1,6 @@
+use anyhow::{Context, Result};
 use std::env;
 use std::io::{self, Write};
-use anyhow::{Context, Result};
 
 use crate::utils::{android as android_utils, cmd, context::ProjectContext, platform, tauri, ui};
 
@@ -11,7 +11,9 @@ fn ensure_android_project(ctx: &ProjectContext) -> Result<()> {
     println!("[WARNING] No se encontró el proyecto Android.");
     println!("[INFO] Inicializando proyecto Android con Tauri...");
     run_tauri_android_init(ctx)?;
-    if platform::find_gradlew(&ctx.script_dir.join("src-tauri").join("gen").join("android")).is_none() {
+    if platform::find_gradlew(&ctx.script_dir.join("src-tauri").join("gen").join("android"))
+        .is_none()
+    {
         anyhow::bail!("[ERROR] No se pudo inicializar Gradle en el proyecto Android.");
     }
     Ok(())
@@ -49,10 +51,10 @@ fn run_tauri_android_init(ctx: &ProjectContext) -> Result<()> {
 /// reemplazo de texto generaba `com.com.keimer.app` (doble `com.`).
 fn ensure_package_consistent(ctx: &ProjectContext) -> Result<()> {
     let conf_path = ctx.script_dir.join("src-tauri/tauri.conf.json");
-    let conf_str = std::fs::read_to_string(&conf_path)
-        .context("No se pudo leer tauri.conf.json")?;
-    let conf: serde_json::Value = serde_json::from_str(&conf_str)
-        .context("tauri.conf.json no es JSON valido")?;
+    let conf_str =
+        std::fs::read_to_string(&conf_path).context("No se pudo leer tauri.conf.json")?;
+    let conf: serde_json::Value =
+        serde_json::from_str(&conf_str).context("tauri.conf.json no es JSON valido")?;
     let identifier = conf["identifier"].as_str().unwrap_or("");
     if identifier.is_empty() {
         return Ok(());
@@ -71,7 +73,9 @@ fn ensure_package_consistent(ctx: &ProjectContext) -> Result<()> {
     println!("       Paquete esperado: {}", identifier);
     println!("       Directorio faltante: {}", expected_dir.display());
 
-    let java_root = ctx.script_dir.join("src-tauri/gen/android/app/src/main/java");
+    let java_root = ctx
+        .script_dir
+        .join("src-tauri/gen/android/app/src/main/java");
 
     // Busca cualquier directorio hoja bajo `java/` que contenga archivos .kt.
     // Ése es el paquete generado que quedó con el identifier anterior.
@@ -80,11 +84,20 @@ fn ensure_package_consistent(ctx: &ProjectContext) -> Result<()> {
         // un prefijo supuesto.
         let old_package = package_of_dir(&java_root, &old_leaf)
             .map(|p| p.replace('/', "."))
-            .unwrap_or_else(|| old_leaf.file_name().unwrap_or_default().to_string_lossy().into_owned());
+            .unwrap_or_else(|| {
+                old_leaf
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned()
+            });
 
         println!("\nSe detecto el paquete anterior: {}", old_package);
         println!("Opciones:");
-        println!("  1) Mover '{}' a '{}' y reescribir los 'package'", old_package, identifier);
+        println!(
+            "  1) Mover '{}' a '{}' y reescribir los 'package'",
+            old_package, identifier
+        );
         println!("  2) Ejecutar 'tauri android init' (sobreescribe archivos default)");
         println!("  3) Saltar (el build puede fallar)");
         print!("Elige [1/2/3]: ");
@@ -94,7 +107,10 @@ fn ensure_package_consistent(ctx: &ProjectContext) -> Result<()> {
         match input.trim() {
             "1" => {
                 move_package(&old_leaf, &expected_dir, &old_package, identifier)?;
-                println!("[OK] Archivos movidos de '{}' a '{}'", old_package, identifier);
+                println!(
+                    "[OK] Archivos movidos de '{}' a '{}'",
+                    old_package, identifier
+                );
                 println!("[INFO] Puedes eliminar el directorio viejo manualmente si lo deseas.");
             }
             "2" => {
@@ -108,7 +124,10 @@ fn ensure_package_consistent(ctx: &ProjectContext) -> Result<()> {
             _ => println!("[INFO] Continuando sin regenerar; el build puede fallar."),
         }
     } else {
-        println!("\nNo se encontró ningún paquete Java anterior bajo: {}", java_root.display());
+        println!(
+            "\nNo se encontró ningún paquete Java anterior bajo: {}",
+            java_root.display()
+        );
         println!("Opciones:");
         println!("  1) Ejecutar 'tauri android init' (genera proyecto default)");
         println!("  2) Saltar (el build puede fallar)");
@@ -200,7 +219,11 @@ fn move_package(
 ) -> Result<()> {
     std::fs::create_dir_all(new_dir).context("No se pudo crear el directorio del paquete")?;
 
-    for entry in std::fs::read_dir(old_dir).into_iter().flatten().filter_map(|e| e.ok()) {
+    for entry in std::fs::read_dir(old_dir)
+        .into_iter()
+        .flatten()
+        .filter_map(|e| e.ok())
+    {
         let file_name = entry.file_name();
         let dest = new_dir.join(&file_name);
         if file_name.to_string_lossy().ends_with(".kt") {
@@ -250,12 +273,19 @@ fn ensure_rust_targets() -> Result<()> {
         "x86_64-linux-android",
     ];
 
-    let missing: Vec<&str> = required.iter().filter(|t| !installed.contains(*t)).copied().collect();
+    let missing: Vec<&str> = required
+        .iter()
+        .filter(|t| !installed.contains(*t))
+        .copied()
+        .collect();
     if missing.is_empty() {
         return Ok(());
     }
 
-    println!("[INFO] Instalando targets de Rust para Android: {}...", missing.join(", "));
+    println!(
+        "[INFO] Instalando targets de Rust para Android: {}...",
+        missing.join(", ")
+    );
     let mut args = vec!["target", "add"];
     args.extend(missing);
     cmd::run_status("rustup", &args)?;
@@ -314,14 +344,19 @@ fn ensure_ndk(ctx: &ProjectContext) -> Result<()> {
         }
     }
 
-    let sdk_manager = ctx.sdk_manager.as_ref()
+    let sdk_manager = ctx
+        .sdk_manager
+        .as_ref()
         .context("[ERROR] No se encontró sdkmanager. Verifica ANDROID_HOME.")?;
 
     let ndk_version = platform::NDK_VERSION;
     println!("[INFO] Instalando NDK {}...", ndk_version);
 
     accept_licenses(sdk_manager)?;
-    let out = cmd::run(sdk_manager.to_str().unwrap(), &[&format!("ndk;{ndk_version}")])?;
+    let out = cmd::run(
+        sdk_manager.to_str().unwrap(),
+        &[&format!("ndk;{ndk_version}")],
+    )?;
     if !out.status.success() {
         anyhow::bail!(
             "No se pudo instalar el NDK {ndk_version}: {}",
@@ -329,7 +364,12 @@ fn ensure_ndk(ctx: &ProjectContext) -> Result<()> {
         );
     }
 
-    let ndk_path = ctx.android_home.as_ref().unwrap().join("ndk").join(ndk_version);
+    let ndk_path = ctx
+        .android_home
+        .as_ref()
+        .unwrap()
+        .join("ndk")
+        .join(ndk_version);
     env::set_var("ANDROID_NDK_HOME", &ndk_path);
 
     println!("[OK] NDK instalado.\n");
@@ -337,7 +377,11 @@ fn ensure_ndk(ctx: &ProjectContext) -> Result<()> {
 }
 
 fn cleanup_build_locks(ctx: &ProjectContext) {
-    let cargo_lock = ctx.script_dir.join("src-tauri").join("target").join(".cargo-lock");
+    let cargo_lock = ctx
+        .script_dir
+        .join("src-tauri")
+        .join("target")
+        .join(".cargo-lock");
     if cargo_lock.exists() {
         let _ = std::fs::remove_file(&cargo_lock);
     }
@@ -353,10 +397,8 @@ fn cleanup_build_locks(ctx: &ProjectContext) {
     }
     // Detiene daemons de Java que bloquean los locks de build.
     //
-    // `pkill -f java` era demasiado amplio: mata cualquier proceso Java del
-    // usuario, incluidos otros proyectos en curso e IDEs como Android Studio o
-    // IntelliJ. Se limita a los daemons de Gradle, que es lo que realmente
-    // retiene los locks.
+    // Sólo se detienen los procesos Java de Gradle; terminar todo Java también
+    // afectaría otros proyectos e IDEs como Android Studio o IntelliJ.
     let _ = cmd::run("taskkill", &["/F", "/IM", "java.exe", "/T"]);
 }
 
@@ -462,11 +504,7 @@ pub fn dev(ctx: &ProjectContext) -> Result<()> {
     let launch = DevLaunch::detect(ctx);
     println!("[INFO] Arrancando con el {}.", launch.describe());
 
-    cmd::spawn_new_window_interactive(
-        "Tauri Android Dev",
-        &ctx.script_dir,
-        &launch.command(ctx),
-    )?;
+    cmd::spawn_new_window_interactive("Tauri Android Dev", &ctx.script_dir, &launch.command(ctx))?;
 
     Ok(())
 }
@@ -481,11 +519,16 @@ pub fn build_arm64(ctx: &ProjectContext) -> Result<()> {
 
     println!();
     println!("[INFO] Compilando Android solo arm64 (Release)...");
-    println!("[INFO] Usando: {}", tauri::command(ctx, "android build --target aarch64"));
+    println!(
+        "[INFO] Usando: {}",
+        tauri::command(ctx, "android build --target aarch64")
+    );
     println!();
 
     let rename = read_tauri_app_meta(ctx).map(|(name, ver)| format!("{}-v{}", name, ver));
-    let apk_dir = ctx.script_dir.join("src-tauri/gen/android/app/build/outputs/apk");
+    let apk_dir = ctx
+        .script_dir
+        .join("src-tauri/gen/android/app/build/outputs/apk");
     cmd::run_build_and_reveal(
         &tauri::command(ctx, "android build --target aarch64"),
         &ctx.script_dir,
@@ -512,10 +555,15 @@ pub fn build_armv7(ctx: &ProjectContext) -> Result<()> {
 
     println!();
     println!("[INFO] Compilando Android solo armv7 (Release)...");
-    println!("[INFO] Usando: {}", tauri::command(ctx, "android build --target armv7"));
+    println!(
+        "[INFO] Usando: {}",
+        tauri::command(ctx, "android build --target armv7")
+    );
     println!();
 
-    let apk_dir = ctx.script_dir.join("src-tauri/gen/android/app/build/outputs/apk");
+    let apk_dir = ctx
+        .script_dir
+        .join("src-tauri/gen/android/app/build/outputs/apk");
     cmd::run_build_and_reveal(
         &tauri::command(ctx, "android build --target armv7"),
         &ctx.script_dir,
@@ -540,7 +588,9 @@ pub fn build_all(ctx: &ProjectContext) -> Result<()> {
     println!();
 
     let rename = read_tauri_app_meta(ctx).map(|(name, ver)| format!("{}-v{}", name, ver));
-    let apk_dir = ctx.script_dir.join("src-tauri/gen/android/app/build/outputs/apk");
+    let apk_dir = ctx
+        .script_dir
+        .join("src-tauri/gen/android/app/build/outputs/apk");
     cmd::run_build_and_reveal(
         &tauri::command(ctx, "android build"),
         &ctx.script_dir,
@@ -561,7 +611,9 @@ pub fn debug(ctx: &ProjectContext) -> Result<()> {
     // proceso a media instalación.
     prepare_android_dev(ctx)?;
 
-    let adb = ctx.adb_path.as_ref()
+    let adb = ctx
+        .adb_path
+        .as_ref()
         .context("[ERROR] ADB no encontrado. Verifica ANDROID_HOME.")?;
     let adb_str = adb.to_str().unwrap();
 
@@ -595,11 +647,29 @@ pub fn debug(ctx: &ProjectContext) -> Result<()> {
             }
             let serial = trimmed.split_whitespace().next().unwrap_or("");
             if !serial.is_empty() {
-                let _ = cmd::run(adb_str, &["-s", serial, "forward", "tcp:9222", "localabstract:chrome_devtools_remote"]);
-                let _ = cmd::run(adb_str, &["-s", serial, "forward", "tcp:9229", "localabstract:firefox_devtools_remote"]);
+                let _ = cmd::run(
+                    adb_str,
+                    &[
+                        "-s",
+                        serial,
+                        "forward",
+                        "tcp:9222",
+                        "localabstract:chrome_devtools_remote",
+                    ],
+                );
+                let _ = cmd::run(
+                    adb_str,
+                    &[
+                        "-s",
+                        serial,
+                        "forward",
+                        "tcp:9229",
+                        "localabstract:firefox_devtools_remote",
+                    ],
+                );
             }
         }
-        }
+    }
 
     // Lanza la app DESPUÉS del `kill-server` del paso 1, nunca antes: es el
     // `beforeDevCommand` del script `dev:android` quien levanta el `adb reverse`
@@ -622,7 +692,7 @@ pub fn debug(ctx: &ProjectContext) -> Result<()> {
 
     let url = "edge://inspect/#devices";
     println!();
-    println!("[INFO] Abriendo {}://inspect/#devices ...", "edge");
+    println!("[INFO] Abriendo edge://inspect/#devices ...");
     // `clip` evita arrancar PowerShell solo para copiar el enlace.
     let _ = cmd::run("cmd", &["/c", &format!("echo {url} | clip")]);
     let _ = cmd::run("cmd", &["/c", "start", "msedge", url]);
@@ -671,7 +741,10 @@ mod tests {
     #[test]
     fn uses_the_npm_script_when_the_project_declares_it() {
         let (root, ctx) = fake_ctx("npm-script");
-        write_pkg(&root, r#"{ "scripts": { "dev:android": "tauri android dev --host 127.0.0.1" } }"#);
+        write_pkg(
+            &root,
+            r#"{ "scripts": { "dev:android": "tauri android dev --host 127.0.0.1" } }"#,
+        );
 
         assert_eq!(DevLaunch::detect(&ctx), DevLaunch::NpmScript);
 
@@ -685,7 +758,10 @@ mod tests {
     #[test]
     fn falls_back_to_the_cli_without_the_script() {
         let (root, ctx) = fake_ctx("no-script");
-        write_pkg(&root, r#"{ "scripts": { "dev": "vite", "build": "vite build" } }"#);
+        write_pkg(
+            &root,
+            r#"{ "scripts": { "dev": "vite", "build": "vite build" } }"#,
+        );
 
         assert_eq!(DevLaunch::detect(&ctx), DevLaunch::Cli);
         assert_eq!(DevLaunch::Cli.command(&ctx), "npx tauri android dev");

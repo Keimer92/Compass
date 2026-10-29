@@ -7,7 +7,7 @@
 //! 1. **`node_modules/.bin/tauri` no tiene shim de Windows.** npm genera el shim
 //!    del sistema que hizo el install: en Windows existen `tauri.cmd` y `tauri.ps1`. `cmd` resuelve ejecutables
 //!    sólo por `PATHEXT` (`.COM/.EXE/.BAT/.CMD/...`), así que con un
-//!    `node_modules` traído de Linux, `tauri dev` muere con
+//!    un `node_modules` de otra plataforma, `tauri dev` muere con
 //!    *'tauri' is not recognized as an internal or external command*.
 //!
 //! 2. **Falta el binding nativo.** `@tauri-apps/cli` delega en un binario que

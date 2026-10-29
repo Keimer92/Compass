@@ -1,6 +1,6 @@
-use std::io::{self, Write};
-use anyhow::Result;
 use crate::utils::{cmd, context::ProjectContext};
+use anyhow::Result;
+use std::io::{self, Write};
 
 /// Perfil completo: sugerencias predictivas del historial.
 ///
@@ -116,7 +116,11 @@ fn upgrade_psreadline() -> Option<String> {
     );
 
     println!("  Instalando (descarga desde PSGallery, la primera vez tarda)...\n");
-    match cmd::run_timeout("powershell", &["-NoProfile", "-Command", script], TIMEOUT_SEGS) {
+    match cmd::run_timeout(
+        "powershell",
+        &["-NoProfile", "-Command", script],
+        TIMEOUT_SEGS,
+    ) {
         Ok(true) => psreadline_version(),
         Ok(false) => {
             println!("[WARN] La instalación tardó más de {TIMEOUT_SEGS}s y se ha cancelado.");
@@ -139,7 +143,9 @@ fn version_code(version: &str) -> Option<u32> {
 
 /// ¿La versión instalada sirve para el completado predictivo?
 fn is_predictive(version: Option<&str>) -> bool {
-    version.and_then(version_code).is_some_and(|code| code >= 202)
+    version
+        .and_then(version_code)
+        .is_some_and(|code| code >= 202)
 }
 
 /// Marcador de orden de bytes UTF-8 con BOM.
@@ -208,8 +214,12 @@ pub fn configure(_ctx: &ProjectContext) -> Result<()> {
 
     if actualizada && !is_predictive(version.as_deref()) {
         match &version {
-            Some(v) => println!("[WARN] La actualización no dio una versión con predictivas (sigue {v})."),
-            None => println!("[WARN] La actualización no surtió efecto. Revisa la conexión a PSGallery."),
+            Some(v) => {
+                println!("[WARN] La actualización no dio una versión con predictivas (sigue {v}).")
+            }
+            None => println!(
+                "[WARN] La actualización no surtió efecto. Revisa la conexión a PSGallery."
+            ),
         }
         println!("       Se configurará igualmente el autocompletado que esa versión permita.");
     }
@@ -249,9 +259,7 @@ pub fn configure(_ctx: &ProjectContext) -> Result<()> {
     println!();
 
     let profile_dir = dirs::document_dir()
-        .unwrap_or_else(|| {
-            crate::utils::platform::home_dir().unwrap_or_else(|| ".".into())
-        })
+        .unwrap_or_else(|| crate::utils::platform::home_dir().unwrap_or_else(|| ".".into()))
         .join("WindowsPowerShell");
 
     let profile_file = profile_dir.join("Microsoft.PowerShell_profile.ps1");
@@ -314,7 +322,10 @@ mod tests {
         assert!(is_predictive(Some("2.11.4")));
         assert!(is_predictive(Some("3.0.0")));
 
-        assert!(!is_predictive(Some("2.0.0")), "la de serie de PS 5.1 no sirve");
+        assert!(
+            !is_predictive(Some("2.0.0")),
+            "la de serie de PS 5.1 no sirve"
+        );
         assert!(!is_predictive(Some("2.1.0")));
         assert!(!is_predictive(None), "sin módulo hay que instalar");
         assert!(!is_predictive(Some("basura")));
@@ -368,12 +379,23 @@ mod tests {
         // Lista real de `(Get-Command Set-PSReadLineOption).Parameters` y del
         // ValidateSet de `Set-PSReadLineKeyHandler -Function` en la 2.0.0.
         const OPCIONES_2_0_0: &[&str] = &[
-            "MaximumHistoryCount", "HistorySaveStyle", "BellStyle", "ShowToolTips",
-            "HistorySearchCursorMovesToEnd", "EditMode", "Colors",
+            "MaximumHistoryCount",
+            "HistorySaveStyle",
+            "BellStyle",
+            "ShowToolTips",
+            "HistorySearchCursorMovesToEnd",
+            "EditMode",
+            "Colors",
         ];
         const FUNCIONES_2_0_0: &[&str] = &[
-            "MenuComplete", "Complete", "HistorySearchBackward", "HistorySearchForward",
-            "NextHistory", "PreviousHistory", "ForwardWord", "BackwardWord",
+            "MenuComplete",
+            "Complete",
+            "HistorySearchBackward",
+            "HistorySearchForward",
+            "NextHistory",
+            "PreviousHistory",
+            "ForwardWord",
+            "BackwardWord",
         ];
 
         for bloque in PROFILE_LEGACY

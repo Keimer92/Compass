@@ -1,6 +1,6 @@
-use std::io::{self, Write};
 use anyhow::Result;
 use indicatif::{ProgressBar, ProgressStyle};
+use std::io::{self, Write};
 
 use crate::utils::{android as android_utils, cmd, context::ProjectContext};
 
@@ -28,7 +28,9 @@ fn read_flutter_app_meta(ctx: &ProjectContext) -> Option<(String, String)> {
     for line in content.lines() {
         let trimmed = line.trim();
         if trimmed.starts_with("name:") && name.is_none() {
-            name = trimmed.strip_prefix("name:").map(|v| v.trim().trim_matches('\'').trim_matches('"').to_string());
+            name = trimmed
+                .strip_prefix("name:")
+                .map(|v| v.trim().trim_matches('\'').trim_matches('"').to_string());
         }
         if trimmed.starts_with("version:") && version.is_none() {
             if let Some(v) = trimmed.strip_prefix("version:") {
@@ -79,7 +81,7 @@ pub fn profile_windows(ctx: &ProjectContext) -> Result<()> {
     cmd::spawn_new_window_interactive(
         "Flutter Desktop (Profile)",
         &ctx.script_dir,
-        &format!("flutter run --profile -d {}", desktop_target()),
+        "flutter run --profile -d windows",
     )?;
 
     Ok(())
@@ -191,9 +193,11 @@ pub fn clean(ctx: &ProjectContext) -> Result<()> {
     }
 
     let pb = ProgressBar::new(6);
-    pb.set_style(ProgressStyle::default_bar()
-        .template("{spinner:.green} [{bar:40}] {pos}/{len} {msg}")?
-        .progress_chars("=> "));
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("{spinner:.green} [{bar:40}] {pos}/{len} {msg}")?
+            .progress_chars("=> "),
+    );
 
     // 1. flutter clean
     pb.set_message("Ejecutando flutter clean");
@@ -226,7 +230,9 @@ pub fn clean(ctx: &ProjectContext) -> Result<()> {
         ctx.script_dir.join("android/app/build"),
     ];
     for p in &android_builds {
-        if p.exists() { cmd::remove_dir(p).ok(); }
+        if p.exists() {
+            cmd::remove_dir(p).ok();
+        }
     }
     println!("  [OK] Android build/ limpiado");
     pb.inc(1);
@@ -242,9 +248,15 @@ pub fn clean(ctx: &ProjectContext) -> Result<()> {
 
     // 6. Flutter plugin artifacts
     pb.set_message("Eliminando .flutter-plugins");
-    for f in &[".flutter-plugins", ".flutter-plugins-dependencies", ".packages"] {
+    for f in &[
+        ".flutter-plugins",
+        ".flutter-plugins-dependencies",
+        ".packages",
+    ] {
         let fp = ctx.script_dir.join(f);
-        if fp.exists() { std::fs::remove_file(fp).ok(); }
+        if fp.exists() {
+            std::fs::remove_file(fp).ok();
+        }
     }
     pb.inc(1);
 

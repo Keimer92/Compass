@@ -6,7 +6,11 @@ use anyhow::{Context, Result};
 use crate::utils::{context::ProjectContext, ui};
 
 fn interpreter(ctx: &ProjectContext) -> PathBuf {
-    let venv_python = ctx.script_dir.join(".venv").join("Scripts").join("python.exe");
+    let venv_python = ctx
+        .script_dir
+        .join(".venv")
+        .join("Scripts")
+        .join("python.exe");
     if venv_python.is_file() {
         venv_python
     } else {

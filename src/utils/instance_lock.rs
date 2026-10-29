@@ -66,19 +66,25 @@ fn pid_alive(pid: u32) -> bool {
 
 /// Muestra un banner nativo del sistema avisando que Compass ya está abierto.
 pub fn show_already_open_banner(dir: &Path) {
-    let title = "Compass - Ya abierto";
-    let msg = format!(
-        "Compass ya está abierto para el directorio:\n{}\n\nCierra la instancia existente antes de abrir otra.",
-        dir.display()
-    );
-
+    #[cfg(windows)]
     {
+        let title = "Compass - Ya abierto";
+        let msg = format!(
+            "Compass ya está abierto para el directorio:\n{}\n\nCierra la instancia existente antes de abrir otra.",
+            dir.display()
+        );
         use std::ffi::OsStr;
         use std::os::windows::ffi::OsStrExt;
 
         // Convertir strings a wide (UTF-16) para MessageBoxW
-        let title_wide: Vec<u16> = OsStr::new(title).encode_wide().chain(std::iter::once(0)).collect();
-        let msg_wide: Vec<u16> = OsStr::new(&msg).encode_wide().chain(std::iter::once(0)).collect();
+        let title_wide: Vec<u16> = OsStr::new(title)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        let msg_wide: Vec<u16> = OsStr::new(&msg)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
 
         // MB_OK | MB_ICONINFORMATION | MB_TOPMOST
         const MB_OK: u32 = 0x00000000;
@@ -87,7 +93,12 @@ pub fn show_already_open_banner(dir: &Path) {
 
         #[link(name = "user32")]
         extern "system" {
-            fn MessageBoxW(hwnd: *mut std::ffi::c_void, text: *const u16, caption: *const u16, type_: u32) -> i32;
+            fn MessageBoxW(
+                hwnd: *mut std::ffi::c_void,
+                text: *const u16,
+                caption: *const u16,
+                type_: u32,
+            ) -> i32;
         }
 
         unsafe {
@@ -98,9 +109,7 @@ pub fn show_already_open_banner(dir: &Path) {
                 MB_OK | MB_ICONINFORMATION | MB_TOPMOST,
             );
         }
-        return;
     }
-
 }
 
 /// Intenta adquirir el lock de instancia para un directorio.
@@ -111,7 +120,11 @@ pub fn show_already_open_banner(dir: &Path) {
 pub fn try_acquire(dir: &Path) -> Result<Option<InstanceLock>, std::io::Error> {
     let lock_path = match lock_path_for(dir) {
         Some(p) => p,
-        None => return Ok(Some(InstanceLock { lock_path: PathBuf::new() })),
+        None => {
+            return Ok(Some(InstanceLock {
+                lock_path: PathBuf::new(),
+            }))
+        }
     };
 
     // Asegurar que el directorio de locks existe

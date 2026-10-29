@@ -1,6 +1,6 @@
-use anyhow::Result;
 use crate::utils::cmd;
 use crate::utils::context::ProjectContext;
+use anyhow::Result;
 
 pub fn run(ctx: &ProjectContext) -> Result<()> {
     cmd::run_in_current_window("cargo run", &ctx.script_dir)?;

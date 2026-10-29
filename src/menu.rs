@@ -103,7 +103,16 @@ impl MenuItem {
 
     fn section(&self) -> &str {
         match self {
-            Self::WindowsDev | Self::AndroidDev | Self::AndroidHmr | Self::WindowsBuild | Self::AndroidBuildArm64 | Self::AndroidBuildArmv7 | Self::AndroidBuildAll | Self::InstallDebug | Self::FlutterProfile | Self::PythonTest => "DEV",
+            Self::WindowsDev
+            | Self::AndroidDev
+            | Self::AndroidHmr
+            | Self::WindowsBuild
+            | Self::AndroidBuildArm64
+            | Self::AndroidBuildArmv7
+            | Self::AndroidBuildAll
+            | Self::InstallDebug
+            | Self::FlutterProfile
+            | Self::PythonTest => "DEV",
             Self::Clean | Self::DebugAndroid | Self::Signing | Self::Version => "MNT",
             Self::Git | Self::BuildWhatsApp | Self::ConfigureTerminal => "CFG",
         }
@@ -161,7 +170,13 @@ impl MenuItem {
             },
             Self::InstallDebug => "Install",
             Self::FlutterProfile => "Profile",
-            Self::PythonTest => if project_type == ProjectType::Python { "Test" } else { "" },
+            Self::PythonTest => {
+                if project_type == ProjectType::Python {
+                    "Test"
+                } else {
+                    ""
+                }
+            }
             Self::Clean => "Clean",
             Self::DebugAndroid => "Debug Andr",
             Self::Signing => "Signing",
@@ -338,28 +353,53 @@ impl MenuState {
             MenuItem::ConfigureTerminal,
         ];
 
-        let items: Vec<MenuItem> = base.into_iter()
+        let items: Vec<MenuItem> = base
+            .into_iter()
             .filter(|item| match project_type {
-                ProjectType::Rust => !matches!(item,
+                ProjectType::Rust => !matches!(
+                    item,
                     MenuItem::AndroidDev
-                    | MenuItem::AndroidBuildArm64
-                    | MenuItem::AndroidBuildArmv7
-                    | MenuItem::AndroidBuildAll
-                    | MenuItem::InstallDebug
-                    | MenuItem::DebugAndroid
-                    | MenuItem::Signing
-                    | MenuItem::FlutterProfile
-                    | MenuItem::AndroidHmr
-                    | MenuItem::PythonTest
+                        | MenuItem::AndroidBuildArm64
+                        | MenuItem::AndroidBuildArmv7
+                        | MenuItem::AndroidBuildAll
+                        | MenuItem::InstallDebug
+                        | MenuItem::DebugAndroid
+                        | MenuItem::Signing
+                        | MenuItem::FlutterProfile
+                        | MenuItem::AndroidHmr
+                        | MenuItem::PythonTest
                 ),
-                ProjectType::Tauri => !matches!(item, MenuItem::InstallDebug | MenuItem::FlutterProfile | MenuItem::AndroidHmr | MenuItem::PythonTest),
-                ProjectType::Flutter => !matches!(item, MenuItem::AndroidBuildArmv7 | MenuItem::Version | MenuItem::InstallDebug | MenuItem::AndroidHmr | MenuItem::PythonTest),
-                ProjectType::Kotlin => !matches!(item, MenuItem::AndroidBuildArmv7 | MenuItem::Version | MenuItem::FlutterProfile | MenuItem::AndroidHmr | MenuItem::PythonTest),
+                ProjectType::Tauri => !matches!(
+                    item,
+                    MenuItem::InstallDebug
+                        | MenuItem::FlutterProfile
+                        | MenuItem::AndroidHmr
+                        | MenuItem::PythonTest
+                ),
+                ProjectType::Flutter => !matches!(
+                    item,
+                    MenuItem::AndroidBuildArmv7
+                        | MenuItem::Version
+                        | MenuItem::InstallDebug
+                        | MenuItem::AndroidHmr
+                        | MenuItem::PythonTest
+                ),
+                ProjectType::Kotlin => !matches!(
+                    item,
+                    MenuItem::AndroidBuildArmv7
+                        | MenuItem::Version
+                        | MenuItem::FlutterProfile
+                        | MenuItem::AndroidHmr
+                        | MenuItem::PythonTest
+                ),
                 // Go + Wails: la firma la hace el Gradle de Wails con
                 // variables de entorno (ANDROID_KEYSTORE_*), que Compass
                 // exporta al compilar; la tarjeta gestiona el keystore y el
                 // `.properties` de donde salen.
-                ProjectType::GoWails => !matches!(item, MenuItem::AndroidBuildArmv7 | MenuItem::FlutterProfile | MenuItem::PythonTest),
+                ProjectType::GoWails => !matches!(
+                    item,
+                    MenuItem::AndroidBuildArmv7 | MenuItem::FlutterProfile | MenuItem::PythonTest
+                ),
                 ProjectType::Python => !matches!(
                     item,
                     MenuItem::AndroidDev
@@ -437,9 +477,15 @@ fn calc_group_sizes(items: &[MenuItem], theme: &Theme) -> Vec<(String, Color, Ve
     }
 
     let mut groups = Vec::new();
-    if !dev.is_empty() { groups.push(("DESARROLLO".to_string(), theme.dev, dev)); }
-    if !mnt.is_empty() { groups.push(("MANTENIMIENTO".to_string(), theme.mnt, mnt)); }
-    if !cfg.is_empty() { groups.push(("CONFIGURACION".to_string(), theme.cfg, cfg)); }
+    if !dev.is_empty() {
+        groups.push(("DESARROLLO".to_string(), theme.dev, dev));
+    }
+    if !mnt.is_empty() {
+        groups.push(("MANTENIMIENTO".to_string(), theme.mnt, mnt));
+    }
+    if !cfg.is_empty() {
+        groups.push(("CONFIGURACION".to_string(), theme.cfg, cfg));
+    }
     groups
 }
 
@@ -452,10 +498,13 @@ fn calc_total_height(ctx: &ProjectContext, items: &[MenuItem], theme: &Theme) ->
     let header_h: u16 = if warn { 3 } else { 2 };
     let groups = calc_group_sizes(items, theme);
     let sec_h: u16 = groups.len() as u16;
-    let cards_h: u16 = groups.iter().map(|(_, _, items)| {
-        let rows = (items.len() + COLS - 1) / COLS;
-        rows as u16 * CARD_H
-    }).sum();
+    let cards_h: u16 = groups
+        .iter()
+        .map(|(_, _, items)| {
+            let rows = (items.len() + COLS - 1) / COLS;
+            rows as u16 * CARD_H
+        })
+        .sum();
     header_h + sec_h + cards_h + FOOTER_H
 }
 
@@ -498,7 +547,17 @@ fn draw_menu(frame: &mut Frame, state: &mut MenuState, ctx: &ProjectContext) {
     let mut y = area.y;
     let header_h: u16 = if show_android_warning(ctx) { 3 } else { 2 };
 
-    render_header(frame, Rect { x: area.x, y, width: area.width, height: header_h }, ctx, theme);
+    render_header(
+        frame,
+        Rect {
+            x: area.x,
+            y,
+            width: area.width,
+            height: header_h,
+        },
+        ctx,
+        theme,
+    );
     y += header_h;
 
     state.header_height = header_h;
@@ -506,7 +565,12 @@ fn draw_menu(frame: &mut Frame, state: &mut MenuState, ctx: &ProjectContext) {
 
     let groups = calc_group_sizes(&state.items, theme);
     for (name, color, items) in &groups {
-        let rect = Rect { x: area.x, y, width: area.width, height: 1 };
+        let rect = Rect {
+            x: area.x,
+            y,
+            width: area.width,
+            height: 1,
+        };
         let text = Text::from(vec![Line::from(vec![Span::styled(
             format!("  {} ", name),
             Style::default().fg(*color).add_modifier(Modifier::BOLD),
@@ -518,7 +582,20 @@ fn draw_menu(frame: &mut Frame, state: &mut MenuState, ctx: &ProjectContext) {
         let cards_h = rows as u16 * CARD_H;
         let start_idx = state.items.iter().position(|i| *i == items[0]).unwrap_or(0);
         state.groups.push((name.clone(), *color, items.clone()));
-        render_group_cards(frame, Rect { x: area.x, y, width: area.width, height: cards_h }, state, items, start_idx, ctx.project_type, theme);
+        render_group_cards(
+            frame,
+            Rect {
+                x: area.x,
+                y,
+                width: area.width,
+                height: cards_h,
+            },
+            state,
+            items,
+            start_idx,
+            ctx.project_type,
+            theme,
+        );
         y += cards_h;
     }
 
@@ -552,7 +629,12 @@ fn render_theme_picker(frame: &mut Frame, area: Rect, theme: &Theme, picker: The
     let h = (count as u16 + 2).min(area.height);
     let x = area.x + (area.width.saturating_sub(w)) / 2;
     let y = area.y + (area.height.saturating_sub(h)) / 2;
-    let rect = Rect { x, y, width: w, height: h };
+    let rect = Rect {
+        x,
+        y,
+        width: w,
+        height: h,
+    };
 
     frame.render_widget(Clear, rect);
 
@@ -577,7 +659,11 @@ fn render_theme_picker(frame: &mut Frame, area: Rect, theme: &Theme, picker: The
             Span::styled("\u{2588}\u{2588}", Style::default().fg(t.cfg)),
         ]);
         if selected {
-            line = line.style(Style::default().bg(theme.hover_bg).add_modifier(Modifier::BOLD));
+            line = line.style(
+                Style::default()
+                    .bg(theme.hover_bg)
+                    .add_modifier(Modifier::BOLD),
+            );
         }
         lines.push(line);
     }
@@ -633,7 +719,12 @@ fn render_header(frame: &mut Frame, area: Rect, ctx: &ProjectContext, theme: &Th
 
     let mut lines = vec![
         Line::from(vec![
-            Span::styled(format!("  {}  {}  v", emoji, label), Style::default().fg(theme.brand).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                format!("  {}  {}  v", emoji, label),
+                Style::default()
+                    .fg(theme.brand)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled("0.1.0", Style::default().fg(theme.muted)),
         ]),
         Line::from(vec![
@@ -642,21 +733,33 @@ fn render_header(frame: &mut Frame, area: Rect, ctx: &ProjectContext, theme: &Th
             Span::styled("  ", Style::default()),
             Span::styled(
                 format!(" {} ", badge),
-                Style::default().bg(badge_color).fg(Color::Black).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .bg(badge_color)
+                    .fg(Color::Black)
+                    .add_modifier(Modifier::BOLD),
             ),
         ]),
     ];
 
     if show_android_warning(ctx) {
-        lines.push(Line::from(vec![
-            Span::styled("    \u{26a0} ANDROID_HOME no configurada", Style::default().fg(theme.warning)),
-        ]));
+        lines.push(Line::from(vec![Span::styled(
+            "    \u{26a0} ANDROID_HOME no configurada",
+            Style::default().fg(theme.warning),
+        )]));
     }
 
     frame.render_widget(Paragraph::new(Text::from(lines)), area);
 }
 
-fn render_group_cards(frame: &mut Frame, area: Rect, state: &MenuState, items: &[MenuItem], start_global_idx: usize, project_type: ProjectType, theme: &Theme) {
+fn render_group_cards(
+    frame: &mut Frame,
+    area: Rect,
+    state: &MenuState,
+    items: &[MenuItem],
+    start_global_idx: usize,
+    project_type: ProjectType,
+    theme: &Theme,
+) {
     let total_grid_w = COLS as u16 * CARD_W;
     let grid_start_x = area.x + (area.width.saturating_sub(total_grid_w)) / 2;
 
@@ -668,11 +771,22 @@ fn render_group_cards(frame: &mut Frame, area: Rect, state: &MenuState, items: &
         let x = grid_start_x + col as u16 * CARD_W;
         let y = area.y + row as u16 * CARD_H;
 
-        let rect = Rect { x, y, width: CARD_W, height: CARD_H };
+        let rect = Rect {
+            x,
+            y,
+            width: CARD_W,
+            height: CARD_H,
+        };
 
         let is_selected = state.selected == idx;
         let is_hovered = state.hover == Some(idx);
-        let card = create_card(&items[rel_idx], is_selected, is_hovered, project_type, theme);
+        let card = create_card(
+            &items[rel_idx],
+            is_selected,
+            is_hovered,
+            project_type,
+            theme,
+        );
         frame.render_widget(card, rect);
     }
 }
@@ -682,7 +796,10 @@ fn render_footer(frame: &mut Frame, area: Rect, theme: &Theme, ctx: &ProjectCont
     // proyecto (la barra de título sólo lleva el nombre del directorio, así que
     // el path entero va aquí). Si no cabe, se recorta por la izquierda con "…".
     let left = Line::from(vec![
-        Span::styled("  \u{2191}\u{2193}\u{2190}\u{2192}", Style::default().fg(theme.text)),
+        Span::styled(
+            "  \u{2191}\u{2193}\u{2190}\u{2192}",
+            Style::default().fg(theme.text),
+        ),
         Span::styled(" navegar   ", Style::default().fg(theme.muted)),
         Span::styled("Enter", Style::default().fg(theme.text)),
         Span::styled(" ejecutar   ", Style::default().fg(theme.muted)),
@@ -703,7 +820,10 @@ fn render_footer(frame: &mut Frame, area: Rect, theme: &Theme, ctx: &ProjectCont
     let chars: Vec<char> = full.chars().collect();
     let shown = if chars.len() as u16 > right_w && right_w >= 2 {
         let keep = right_w as usize - 1;
-        format!("…{}", chars[chars.len() - keep..].iter().collect::<String>())
+        format!(
+            "…{}",
+            chars[chars.len() - keep..].iter().collect::<String>()
+        )
     } else {
         full
     };
@@ -711,7 +831,10 @@ fn render_footer(frame: &mut Frame, area: Rect, theme: &Theme, ctx: &ProjectCont
 
     frame.render_widget(
         Paragraph::new(left),
-        Rect { width: left_w, ..area },
+        Rect {
+            width: left_w,
+            ..area
+        },
     );
     frame.render_widget(
         Paragraph::new(Line::from(Span::styled(
@@ -719,7 +842,11 @@ fn render_footer(frame: &mut Frame, area: Rect, theme: &Theme, ctx: &ProjectCont
             Style::default().fg(theme.muted),
         )))
         .alignment(Alignment::Right),
-        Rect { x: area.x + area.width - shown_w, width: shown_w, ..area },
+        Rect {
+            x: area.x + area.width - shown_w,
+            width: shown_w,
+            ..area
+        },
     );
 }
 
@@ -730,14 +857,22 @@ fn render_footer(frame: &mut Frame, area: Rect, theme: &Theme, ctx: &ProjectCont
 /// tan leve que el hover parecía no funcionar. Que no colisionen en ningún tema
 /// lo cubren `theme::tests::hover_is_distinct_from_every_selection` y
 /// `tests::hover_is_visually_distinct_from_selected`.
-fn create_card(item: &MenuItem, is_selected: bool, is_hovered: bool, project_type: ProjectType, theme: &Theme) -> Paragraph<'static> {
+fn create_card(
+    item: &MenuItem,
+    is_selected: bool,
+    is_hovered: bool,
+    project_type: ProjectType,
+    theme: &Theme,
+) -> Paragraph<'static> {
     let section = item.section();
     let section_color = theme.section(section);
 
     // Tres estados bien separados. Si una card está seleccionada y además
     // hovereada, manda la selección: es la que Enter ejecutaría.
     let border = if is_selected {
-        Style::default().fg(section_color).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(section_color)
+            .add_modifier(Modifier::BOLD)
     } else if is_hovered {
         Style::default().fg(theme.text).add_modifier(Modifier::BOLD)
     } else {
@@ -812,12 +947,20 @@ fn card_at(col: u16, row: u16, state: &MenuState, ctx: &ProjectContext) -> Optio
         let rows = (items.len() + COLS - 1) / COLS;
         let cards_h = rows as u16 * CARD_H;
 
-        if row >= y_cursor && row < y_cursor + cards_h && col >= grid_start_x && col < grid_start_x + total_grid_w {
+        if row >= y_cursor
+            && row < y_cursor + cards_h
+            && col >= grid_start_x
+            && col < grid_start_x + total_grid_w
+        {
             let rel_row = (row - y_cursor) / CARD_H;
             let rel_col = (col - grid_start_x) / CARD_W;
             let rel_idx = rel_row as usize * COLS + rel_col as usize;
             if rel_idx < items.len() {
-                let global_idx = state.items.iter().position(|i| *i == items[rel_idx]).unwrap_or(0);
+                let global_idx = state
+                    .items
+                    .iter()
+                    .position(|i| *i == items[rel_idx])
+                    .unwrap_or(0);
                 return Some(global_idx);
             }
         }
@@ -974,7 +1117,6 @@ fn menu_item_to_task(item: MenuItem, ptype: ProjectType) -> &'static str {
 
         (MenuItem::InstallDebug, _) => "android-install-debug",
 
-
         (MenuItem::FlutterProfile, ProjectType::Flutter) => "flutter-profile",
         (MenuItem::PythonTest, ProjectType::Python) => "python-test",
 
@@ -990,7 +1132,7 @@ fn menu_item_to_task(item: MenuItem, ptype: ProjectType) -> &'static str {
 
         (MenuItem::BuildWhatsApp, _) => "whatsapp",
         (MenuItem::ConfigureTerminal, _) => "terminal",
-        
+
         _ => unreachable!(),
     }
 }
@@ -1013,8 +1155,8 @@ pub fn run(ctx: &ProjectContext) -> anyhow::Result<()> {
         ctx.script_dir.display()
     ));
 
-    let exe_path = std::env::current_exe()
-        .context("No se pudo determinar la ruta del ejecutable")?;
+    let exe_path =
+        std::env::current_exe().context("No se pudo determinar la ruta del ejecutable")?;
     let project_path = &ctx.script_dir;
 
     loop {
@@ -1045,8 +1187,6 @@ pub fn run(ctx: &ProjectContext) -> anyhow::Result<()> {
     }
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1058,8 +1198,14 @@ mod tests {
     fn card_style(is_selected: bool, is_hovered: bool) -> (Option<Color>, Option<Color>) {
         let area = Rect::new(0, 0, CARD_W, CARD_H);
         let mut buf = Buffer::empty(area);
-        create_card(&MenuItem::WindowsBuild, is_selected, is_hovered, ProjectType::Rust, crate::theme::DEFAULT)
-            .render(area, &mut buf);
+        create_card(
+            &MenuItem::WindowsBuild,
+            is_selected,
+            is_hovered,
+            ProjectType::Rust,
+            crate::theme::DEFAULT,
+        )
+        .render(area, &mut buf);
         // (1, 1) es la esquina superior izquierda interior: siempre parte de la
         // card, nunca borde.
         let s = buf[(1, 1)].style();
@@ -1075,7 +1221,10 @@ mod tests {
         let hover = card_style(false, true);
         let selected = card_style(true, false);
 
-        assert_ne!(normal, hover, "el hover debe verse distinto del estado normal");
+        assert_ne!(
+            normal, hover,
+            "el hover debe verse distinto del estado normal"
+        );
         assert_ne!(
             hover, selected,
             "el hover debe verse distinto de la selección (no comparten el mismo fondo)"
@@ -1134,8 +1283,14 @@ mod tests {
         }
         assert!(!state.items.contains(&MenuItem::AndroidDev));
         assert!(!state.items.contains(&MenuItem::Signing));
-        assert_eq!(menu_item_to_task(MenuItem::AndroidHmr, ProjectType::Python), "android-hmr");
-        assert_eq!(menu_item_to_task(MenuItem::PythonTest, ProjectType::Python), "python-test");
+        assert_eq!(
+            menu_item_to_task(MenuItem::AndroidHmr, ProjectType::Python),
+            "android-hmr"
+        );
+        assert_eq!(
+            menu_item_to_task(MenuItem::PythonTest, ProjectType::Python),
+            "python-test"
+        );
     }
 
     #[test]
@@ -1152,8 +1307,14 @@ mod tests {
         let area = Rect::new(0, 0, CARD_W, CARD_H);
         let mut buf = Buffer::empty(area);
         let dracula = crate::theme::by_name("Dracula").unwrap();
-        create_card(&MenuItem::WindowsBuild, true, false, ProjectType::Rust, dracula)
-            .render(area, &mut buf);
+        create_card(
+            &MenuItem::WindowsBuild,
+            true,
+            false,
+            ProjectType::Rust,
+            dracula,
+        )
+        .render(area, &mut buf);
         let bg = buf[(1, 1)].style().bg;
         assert_eq!(bg, Some(dracula.selected_bg("DEV")));
         assert_ne!(bg, Some(crate::theme::DEFAULT.selected_bg("DEV")));
@@ -1189,15 +1350,24 @@ mod tests {
         state.open_picker();
 
         let picker = state.picker.expect("el modal debe quedar abierto");
-        assert_eq!(picker.index, crate::theme::index_of(crate::theme::DEFAULT.name));
+        assert_eq!(
+            picker.index,
+            crate::theme::index_of(crate::theme::DEFAULT.name)
+        );
         assert_eq!(picker.original.name, crate::theme::DEFAULT.name);
 
         // Vista previa: cambia el tema y el resaltado, sin cerrar el modal.
         let next = crate::theme::next(crate::theme::DEFAULT.name);
         state.preview_theme(next);
-        assert!(state.picker.is_some(), "la vista previa no debe cerrar el modal");
+        assert!(
+            state.picker.is_some(),
+            "la vista previa no debe cerrar el modal"
+        );
         assert_eq!(state.theme.name, next.name);
-        assert_eq!(state.picker.unwrap().index, crate::theme::index_of(next.name));
+        assert_eq!(
+            state.picker.unwrap().index,
+            crate::theme::index_of(next.name)
+        );
     }
 
     /// `Esc` debe poder volver al tema con el que se abrió el modal.

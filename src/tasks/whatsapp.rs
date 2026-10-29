@@ -1,6 +1,6 @@
-use std::io::{self, Write};
-use anyhow::Result;
 use crate::utils::{cmd, context::ProjectContext};
+use anyhow::Result;
+use std::io::{self, Write};
 
 pub fn build(ctx: &ProjectContext) -> Result<()> {
     cmd::clear_screen();
@@ -75,15 +75,15 @@ pub fn build(ctx: &ProjectContext) -> Result<()> {
 
     // Determine bundle output path
     let bundle_dir = match ctx.project_type {
-        crate::utils::context::ProjectType::Tauri => {
-            ctx.script_dir.join("src-tauri/resources/whatsapp-engine-bundle")
-        }
+        crate::utils::context::ProjectType::Tauri => ctx
+            .script_dir
+            .join("src-tauri/resources/whatsapp-engine-bundle"),
         crate::utils::context::ProjectType::Flutter => {
             ctx.script_dir.join("resources/whatsapp-engine-bundle")
         }
-        crate::utils::context::ProjectType::Kotlin => {
-            ctx.script_dir.join("composeApp/resources/whatsapp-engine-bundle")
-        }
+        crate::utils::context::ProjectType::Kotlin => ctx
+            .script_dir
+            .join("composeApp/resources/whatsapp-engine-bundle"),
         crate::utils::context::ProjectType::Rust => {
             ctx.script_dir.join("resources/whatsapp-engine-bundle")
         }
@@ -105,7 +105,10 @@ pub fn build(ctx: &ProjectContext) -> Result<()> {
             .map(|m| m.len())
             .sum();
         println!("  Bundle generado en: {}", bundle_dir.display());
-        println!("  Tamaño total del bundle: {:.2} MB", total_size as f64 / 1_048_576.0);
+        println!(
+            "  Tamaño total del bundle: {:.2} MB",
+            total_size as f64 / 1_048_576.0
+        );
     }
 
     println!();

@@ -2,9 +2,6 @@
 
 use std::path::{Path, PathBuf};
 
-/// ¿Estamos en Windows?
-pub const IS_WINDOWS: bool = cfg!(windows);
-
 /// Nombre del ejecutable de `base` en Windows.
 pub fn exe_name(base: &str) -> String {
     format!("{base}.exe")
@@ -46,7 +43,10 @@ pub fn data_dir() -> Option<PathBuf> {
 }
 
 fn env_path(key: &str) -> Option<PathBuf> {
-    std::env::var(key).ok().filter(|v| !v.is_empty()).map(PathBuf::from)
+    std::env::var(key)
+        .ok()
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
 }
 
 /// NDK version used by Tauri's Android targets.

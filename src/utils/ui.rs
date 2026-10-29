@@ -1,5 +1,5 @@
-use std::io::{self, Write};
 use anyhow::Result;
+use std::io::{self, Write};
 
 pub fn ask_text(prompt: &str, default: Option<&str>) -> Result<String> {
     let msg = match default {
@@ -88,7 +88,12 @@ fn banner(icon: &str, title: &str) {
 
     println!();
     println!("  \u{250C}{}\u{2510}", h_border);
-    println!("  \u{2502}{}{}{}\u{2502}", " ".repeat(left), inner, " ".repeat(right));
+    println!(
+        "  \u{2502}{}{}{}\u{2502}",
+        " ".repeat(left),
+        inner,
+        " ".repeat(right)
+    );
     println!("  \u{2514}{}\u{2518}", h_border);
     println!();
 }
@@ -111,7 +116,12 @@ pub fn box_banner(title: &str) {
     let left = pad / 2;
     let right = pad - left;
     println!("\u{2554}{}\u{2557}", "\u{2550}".repeat(width));
-    println!("\u{2551}{}{}{}\u{2551}", " ".repeat(left), title, " ".repeat(right));
+    println!(
+        "\u{2551}{}{}{}\u{2551}",
+        " ".repeat(left),
+        title,
+        " ".repeat(right)
+    );
     println!("\u{255A}{}\u{255D}", "\u{2550}".repeat(width));
 }
 

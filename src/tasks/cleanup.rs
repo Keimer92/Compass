@@ -111,7 +111,9 @@ fn find_dirs_named(root: &Path, name: &str) -> Vec<PathBuf> {
         if depth > 8 {
             return;
         }
-        let Ok(entries) = std::fs::read_dir(dir) else { return };
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
         for entry in entries.flatten() {
             let p = entry.path();
             if !p.is_dir() {
@@ -152,7 +154,10 @@ fn quick_targets(ctx: &ProjectContext) -> Vec<(String, PathBuf)> {
             ("Vite cache".into(), root.join("node_modules/.vite")),
             ("dist/".into(), root.join("dist")),
             ("target/debug".into(), root.join("src-tauri/target/debug")),
-            ("target/release".into(), root.join("src-tauri/target/release")),
+            (
+                "target/release".into(),
+                root.join("src-tauri/target/release"),
+            ),
             (
                 "gen Android build".into(),
                 root.join("src-tauri/gen/android/app/build"),
@@ -218,10 +223,7 @@ fn full_targets(ctx: &ProjectContext) -> Vec<(String, PathBuf)> {
                 ("src-tauri/target/".into(), root.join("src-tauri/target")),
                 ("node_modules/".into(), root.join("node_modules")),
                 ("dist/".into(), root.join("dist")),
-                (
-                    "gen Android build".into(),
-                    gen.join("android/app/build"),
-                ),
+                ("gen Android build".into(), gen.join("android/app/build")),
                 ("gen Android .gradle".into(), gen.join("android/.gradle")),
                 ("gen Android build dir".into(), gen.join("android/build")),
                 ("gen Android gradle".into(), gen.join("android/gradle")),
@@ -259,7 +261,10 @@ fn full_targets(ctx: &ProjectContext) -> Vec<(String, PathBuf)> {
                     android.join("app").join("build"),
                 ),
                 ("Android .gradle".into(), android.join(".gradle")),
-                ("frontend/node_modules/".into(), root.join("frontend/node_modules")),
+                (
+                    "frontend/node_modules/".into(),
+                    root.join("frontend/node_modules"),
+                ),
             ]
         }
         ProjectType::Python => {
@@ -395,7 +400,10 @@ fn quick_clean(ctx: &ProjectContext) -> Result<()> {
     }
 
     println!();
-    println!("[OK] Limpieza rápida completada. Liberado: {}", format_size(freed));
+    println!(
+        "[OK] Limpieza rápida completada. Liberado: {}",
+        format_size(freed)
+    );
     ui::pause();
     Ok(())
 }
@@ -534,7 +542,10 @@ fn choose_and_purge(ctx: &ProjectContext) -> Result<()> {
     }
 
     println!();
-    println!("[OK] Limpieza selectiva completada. Liberado: {}", format_size(freed));
+    println!(
+        "[OK] Limpieza selectiva completada. Liberado: {}",
+        format_size(freed)
+    );
     ui::pause();
     Ok(())
 }
@@ -680,7 +691,10 @@ fn clean_project(ctx: &ProjectContext) -> Result<()> {
 
     // 5. Logs de build
     pb.set_message("Eliminando logs");
-    total_freed += purge("build_log.txt", &ctx.script_dir.join("src-tauri/build_log.txt"));
+    total_freed += purge(
+        "build_log.txt",
+        &ctx.script_dir.join("src-tauri/build_log.txt"),
+    );
     pb.inc(1);
 
     pb.finish_with_message("Limpieza completada");
@@ -756,7 +770,11 @@ mod tests {
         assert!(full_targets(&ctx)
             .iter()
             .any(|(_, p)| p.to_string_lossy().ends_with("target")));
-        assert_eq!(quick_targets(&ctx).len(), 2, "rápida = target/debug + target/release");
+        assert_eq!(
+            quick_targets(&ctx).len(),
+            2,
+            "rápida = target/debug + target/release"
+        );
     }
 
     /// Kotlin: el nombre del módulo sale de `kotlin_android_dir`, no hardcodeado.
@@ -829,6 +847,9 @@ mod tests {
         assert!(tauri.iter().any(|c| c.label == "dist/" && !c.deps));
 
         let rust = selectable_targets(&fake_ctx(ProjectType::Rust));
-        assert!(rust.iter().all(|c| c.deps), "en Rust target/ es la dependencia");
+        assert!(
+            rust.iter().all(|c| c.deps),
+            "en Rust target/ es la dependencia"
+        );
     }
 }

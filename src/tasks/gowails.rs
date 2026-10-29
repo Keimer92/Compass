@@ -25,8 +25,8 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
-use crate::utils::{cmd, context::ProjectContext, platform, ui};
 use crate::utils::android as android_utils;
+use crate::utils::{cmd, context::ProjectContext, platform, ui};
 
 /// `minSdk` de la plantilla de Wails v3 (`build/android/app/build.gradle`).
 /// De ahí sale el sufijo del compilador de la NDK: `aarch64-linux-android21-clang`.
@@ -183,9 +183,7 @@ fn main_activity(ctx: &ProjectContext) -> String {
 
 /// ¿Está `name` disponible como comando?
 fn command_exists(name: &str) -> bool {
-    let ps = format!(
-        "$null -ne (Get-Command -Name '{name}' -ErrorAction SilentlyContinue)"
-    );
+    let ps = format!("$null -ne (Get-Command -Name '{name}' -ErrorAction SilentlyContinue)");
     cmd::run("powershell", &["-NoProfile", "-Command", &ps])
         .map(|o| String::from_utf8_lossy(&o.stdout).trim() == "True")
         .unwrap_or(false)
@@ -321,11 +319,7 @@ pub fn dev(ctx: &ProjectContext) -> Result<()> {
     println!("[INFO] El servidor de Vite y la app se lanzan en la ventana nueva.");
     println!();
 
-    cmd::spawn_new_window_interactive(
-        "Wails Dev",
-        &ctx.script_dir,
-        "wails3 task dev",
-    )?;
+    cmd::spawn_new_window_interactive("Wails Dev", &ctx.script_dir, "wails3 task dev")?;
 
     Ok(())
 }
@@ -362,7 +356,14 @@ pub fn build_desktop(ctx: &ProjectContext) -> Result<()> {
 
     let exts: &[&str] = &["exe", "msix", "msi"];
     let names: &[&str] = &["installer", "msix", "msi"];
-    cmd::run_build_and_reveal_named("wails3 task package", &ctx.script_dir, &bin, exts, names, rename.as_deref())?;
+    cmd::run_build_and_reveal_named(
+        "wails3 task package",
+        &ctx.script_dir,
+        &bin,
+        exts,
+        names,
+        rename.as_deref(),
+    )?;
 
     Ok(())
 }
@@ -504,7 +505,12 @@ fn build_android_apk(ctx: &ProjectContext, release: bool) -> Result<PathBuf> {
 
     // ── 4. La librería compartida de Go (libwails.so) ──
     println!("[4/5] Compilando libwails.so con Go + NDK...");
-    let jni_dir = android.join("app").join("src").join("main").join("jniLibs").join(JNI_DIR);
+    let jni_dir = android
+        .join("app")
+        .join("src")
+        .join("main")
+        .join("jniLibs")
+        .join(JNI_DIR);
     std::fs::create_dir_all(&jni_dir)
         .with_context(|| format!("No se pudo crear: {}", jni_dir.display()))?;
     let so_path = jni_dir.join("libwails.so");
@@ -553,11 +559,17 @@ fn build_android_apk(ctx: &ProjectContext, release: bool) -> Result<PathBuf> {
     // Wails firma con la llave de dev (que Play Store rechaza).
     let signing = if release { signing_env(ctx) } else { None };
     if release && signing.is_none() {
-        println!("[WARN] No hay keystore de release configurado; la APK se firmará con la llave de dev.");
+        println!(
+            "[WARN] No hay keystore de release configurado; la APK se firmará con la llave de dev."
+        );
         println!("       Configúralo en la tarjeta Signing (o con --task sign).");
     }
 
-    let gradle_task = if release { "assembleRelease" } else { "assembleDebug" };
+    let gradle_task = if release {
+        "assembleRelease"
+    } else {
+        "assembleDebug"
+    };
     if !gradle(&android, gradle_task, signing.as_deref().unwrap_or(&[]))? {
         anyhow::bail!("[ERROR] Gradle falló en `{}`.", gradle_task);
     }
@@ -582,7 +594,11 @@ fn build_android_apk(ctx: &ProjectContext, release: bool) -> Result<PathBuf> {
     std::fs::create_dir_all(&bin).ok();
     let dest = bin.join(format!("{}.apk", app_name(ctx)));
     if let Err(e) = std::fs::copy(&apk_file, &dest) {
-        println!("[WARN] No se pudo copiar la APK a {}: {}", dest.display(), e);
+        println!(
+            "[WARN] No se pudo copiar la APK a {}: {}",
+            dest.display(),
+            e
+        );
     }
 
     Ok(apk_file)
@@ -609,9 +625,7 @@ fn signing_env(ctx: &ProjectContext) -> Option<Vec<(String, String)>> {
         return None;
     }
     let store_pass = props.store_password.unwrap_or_default();
-    let key_pass = props
-        .key_password
-        .unwrap_or_else(|| store_pass.clone());
+    let key_pass = props.key_password.unwrap_or_else(|| store_pass.clone());
     let key_alias = props.key_alias?;
     Some(vec![
         (
@@ -636,7 +650,12 @@ fn gradle(android: &Path, task: &str, envs: &[(String, String)]) -> Result<bool>
             android.display()
         )
     })?;
-    Ok(cmd::run_program("cmd", &["/c", "gradlew.bat", task], android, envs)?)
+    Ok(cmd::run_program(
+        "cmd",
+        &["/c", "gradlew.bat", task],
+        android,
+        envs,
+    )?)
 }
 
 /// Escribe `build/android/local.properties` con `sdk.dir`.
@@ -757,7 +776,11 @@ pub fn build_aab(ctx: &ProjectContext) -> Result<()> {
     let result = (|| -> Result<PathBuf> {
         build_android_apk(ctx, true)?;
 
-        if !gradle(&android, "bundleRelease", signing_env(ctx).as_deref().unwrap_or(&[]))? {
+        if !gradle(
+            &android,
+            "bundleRelease",
+            signing_env(ctx).as_deref().unwrap_or(&[]),
+        )? {
             anyhow::bail!("[ERROR] Gradle fallo en `bundleRelease`.");
         }
 
@@ -778,7 +801,11 @@ pub fn build_aab(ctx: &ProjectContext) -> Result<()> {
         std::fs::create_dir_all(&bin).ok();
         let dest = bin.join(format!("{}.aab", app_name(ctx)));
         if let Err(e) = std::fs::copy(&aab, &dest) {
-            println!("[WARN] No se pudo copiar el AAB a {}: {}", dest.display(), e);
+            println!(
+                "[WARN] No se pudo copiar el AAB a {}: {}",
+                dest.display(),
+                e
+            );
         }
 
         Ok(aab)
@@ -787,7 +814,9 @@ pub fn build_aab(ctx: &ProjectContext) -> Result<()> {
         Ok(_) => {
             println!();
             println!("[OK] AAB generado correctamente.");
-            println!("[INFO] Un AAB no se instala directamente en el telefono; es para Play Store.");
+            println!(
+                "[INFO] Un AAB no se instala directamente en el telefono; es para Play Store."
+            );
             ui::pause_for(10);
             Ok(())
         }
@@ -826,12 +855,9 @@ pub fn debug_android(ctx: &ProjectContext) -> Result<()> {
         .unwrap_or_else(|| "adb".to_string());
 
     // El PID cambia en cada arranque, así que se resuelve en el momento.
-    let pid = cmd::run(
-        &adb,
-        &["-s", &device.serial, "shell", "pidof", &package],
-    )
-    .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-    .unwrap_or_default();
+    let pid = cmd::run(&adb, &["-s", &device.serial, "shell", "pidof", &package])
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_default();
 
     let command = if pid.is_empty() {
         format!(
@@ -839,7 +865,10 @@ pub fn debug_android(ctx: &ProjectContext) -> Result<()> {
             device.serial
         )
     } else {
-        format!("\"{adb}\" -s {} logcat -v time --pid={}", device.serial, pid)
+        format!(
+            "\"{adb}\" -s {} logcat -v time --pid={}",
+            device.serial, pid
+        )
     };
 
     cmd::spawn_new_window_interactive("Wails - logcat", &ctx.script_dir, &command)?;
@@ -857,7 +886,10 @@ pub fn clean_targets(ctx: &ProjectContext) -> Vec<(String, PathBuf)> {
     vec![
         ("bin/".into(), bin_dir(ctx)),
         ("frontend/dist".into(), root.join("frontend").join("dist")),
-        ("frontend/bindings".into(), root.join("frontend").join("bindings")),
+        (
+            "frontend/bindings".into(),
+            root.join("frontend").join("bindings"),
+        ),
         (
             "Android app/build".into(),
             android.join("app").join("build"),
@@ -937,10 +969,7 @@ pub fn dev_android(ctx: &ProjectContext) -> Result<()> {
     println!("[INFO] debug ↔ dev que da INSTALL_FAILED_UPDATE_INCOMPATIBLE)...");
     let package = application_id(ctx);
     if let Some(adb) = ctx.adb_path.as_ref() {
-        let _ = cmd::run(
-            &adb.display().to_string(),
-            &["uninstall", &package],
-        );
+        let _ = cmd::run(&adb.display().to_string(), &["uninstall", &package]);
     }
     println!();
     println!("[INFO] Lanzando: wails3 task android:dev");
@@ -1107,7 +1136,10 @@ mod tests {
         let root = Path::new("/tmp/proyecto");
         let layout = crate::tasks::signer::android_layout(&ctx(root)).unwrap();
 
-        assert_eq!(layout.module_dir, root.join("build").join("android").join("app"));
+        assert_eq!(
+            layout.module_dir,
+            root.join("build").join("android").join("app")
+        );
         assert_eq!(layout.signing_dir, root.join("android-signing"));
         assert!(!layout.patch_gradle, "el Gradle de Wails ya lee el entorno");
         assert_eq!(

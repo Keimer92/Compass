@@ -116,12 +116,7 @@ pub fn select_device(ctx: &ProjectContext) -> Result<Device> {
 /// la app instalada con otra clave (por ejemplo la de *debug* frente a la de
 /// *release*), `adb install -r` falla con `INSTALL_FAILED_UPDATE_INCOMPATIBLE`.
 /// En ese caso se ofrece desinstalar la versión anterior y reinstalar.
-pub fn install_apk(
-    ctx: &ProjectContext,
-    apk: &Path,
-    package: &str,
-    activity: &str,
-) -> Result<()> {
+pub fn install_apk(ctx: &ProjectContext, apk: &Path, package: &str, activity: &str) -> Result<()> {
     let adb = ctx
         .adb_path
         .as_ref()
@@ -145,11 +140,10 @@ pub fn install_apk(
     {
         println!("[WARN] La app ya instalada esta firmada con otra clave (debug).");
         if !package.is_empty() {
-            let uninstall = inquire::Confirm::new(
-                "¿Desinstalar la version anterior e instalar la release?",
-            )
-            .with_default(true)
-            .prompt()?;
+            let uninstall =
+                inquire::Confirm::new("¿Desinstalar la version anterior e instalar la release?")
+                    .with_default(true)
+                    .prompt()?;
             if uninstall {
                 let _ = cmd::run(&adb, &["-s", &device.serial, "uninstall", package]);
                 let output = cmd::run(&adb, &["-s", &device.serial, "install", "-r", &apk_str])?;
@@ -175,7 +169,15 @@ pub fn install_apk(
             let component = format!("{package}/{activity}");
             let _ = cmd::run(
                 &adb,
-                &["-s", &device.serial, "shell", "am", "start", "-n", &component],
+                &[
+                    "-s",
+                    &device.serial,
+                    "shell",
+                    "am",
+                    "start",
+                    "-n",
+                    &component,
+                ],
             );
             println!("[OK] Abriendo aplicacion...");
         }
@@ -221,7 +223,10 @@ pub fn install_apk_if_device(
         return Ok(false);
     }
 
-    println!("[INFO] Dispositivo Android detectado: {}", devices[0].serial);
+    println!(
+        "[INFO] Dispositivo Android detectado: {}",
+        devices[0].serial
+    );
     if let Err(e) = install_apk(ctx, apk, package, activity) {
         println!();
         println!("[WARN] No se pudo instalar en el dispositivo:");
@@ -262,7 +267,9 @@ fn list_physical_devices(adb_path: &Path) -> Result<Vec<Device>> {
             if serial.is_empty() || serial.starts_with("emulator-") {
                 return None;
             }
-            Some(Device { serial: serial.to_string() })
+            Some(Device {
+                serial: serial.to_string(),
+            })
         })
         .collect();
 

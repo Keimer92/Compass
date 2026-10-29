@@ -1,9 +1,11 @@
-use std::io::{self, Write};
-use anyhow::Result;
 use crate::utils::{cmd, ui};
+use anyhow::Result;
+use std::io::{self, Write};
 
 fn exe_dir() -> Option<std::path::PathBuf> {
-    std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_path_buf()))
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
 }
 
 fn resolve_icon(name: &str) -> String {
@@ -18,7 +20,11 @@ fn resolve_icon(name: &str) -> String {
         .unwrap_or_else(|| {
             // Sin icono junto al binario, se busca en la carpeta de instalación de cargo.
             let home = crate::utils::platform::home_dir().unwrap_or_default();
-            home.join(".cargo").join("bin").join("Default.ico").display().to_string()
+            home.join(".cargo")
+                .join("bin")
+                .join("Default.ico")
+                .display()
+                .to_string()
         })
 }
 
@@ -61,7 +67,10 @@ pub fn install() -> Result<()> {
     let icon = icon_path();
 
     println!("[INFO] Icon path: {icon}");
-    println!("[INFO] Icon exists: {}", std::path::Path::new(&icon).exists());
+    println!(
+        "[INFO] Icon exists: {}",
+        std::path::Path::new(&icon).exists()
+    );
 
     let ps = format!(
         "New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_Compass' -Force | Out-Null; \
@@ -379,7 +388,8 @@ pub fn install_vibe_coding() -> Result<()> {
     let resolved: Vec<(&VibeTool, String, Option<String>)> = VIBE_TOOLS
         .iter()
         .filter_map(|t| {
-            resolve_tool_command(t).map(|(cmd, note)| (t, cmd, if note.is_empty() { None } else { Some(note) }))
+            resolve_tool_command(t)
+                .map(|(cmd, note)| (t, cmd, if note.is_empty() { None } else { Some(note) }))
         })
         .collect();
 
@@ -388,13 +398,19 @@ pub fn install_vibe_coding() -> Result<()> {
         println!("[WARN] Se instalará el menú Vibe Coding sin sub-entradas.");
         println!("[WARN] Instala las CLIs y vuelve a ejecutar el instalador.");
     } else {
-        println!("[INFO] Detectadas {} herramienta(s) de Vibe Coding en el PATH.", resolved.len());
+        println!(
+            "[INFO] Detectadas {} herramienta(s) de Vibe Coding en el PATH.",
+            resolved.len()
+        );
     }
 
     println!("[INFO] Detectando herramientas Vibe Coding...");
     for tool in VIBE_TOOLS {
         match resolved.iter().find(|(t, _, _)| t.key == tool.key) {
-            Some((_, _, Some(path))) => println!("  ✔ {:<14} (PATH no lo expone, usando: {})", tool.title, path),
+            Some((_, _, Some(path))) => println!(
+                "  ✔ {:<14} (PATH no lo expone, usando: {})",
+                tool.title, path
+            ),
             Some(_) => println!("  ✔ {}", tool.title),
             None => println!("  ✘ {} no encontrado", tool.title),
         }
@@ -485,15 +501,25 @@ pub fn ensure_tools_installed() -> Result<()> {
         .iter()
         .filter(|t| resolve_tool_command(t).is_none())
         .collect();
-    let instalables: Vec<&VibeTool> = faltantes.iter().copied().filter(|t| !t.install.is_empty()).collect();
+    let instalables: Vec<&VibeTool> = faltantes
+        .iter()
+        .copied()
+        .filter(|t| !t.install.is_empty())
+        .collect();
 
     if faltantes.is_empty() {
-        println!("[OK] Las {} herramientas de Vibe Coding estan instaladas.", VIBE_TOOLS.len());
+        println!(
+            "[OK] Las {} herramientas de Vibe Coding estan instaladas.",
+            VIBE_TOOLS.len()
+        );
         return Ok(());
     }
 
     println!();
-    println!("[INFO] Herramientas de Vibe Coding no encontradas: {}", faltantes.len());
+    println!(
+        "[INFO] Herramientas de Vibe Coding no encontradas: {}",
+        faltantes.len()
+    );
     for tool in &faltantes {
         // Sin comando de instalación se indica el motivo de que no se ofrezca.
         let detalle = if tool.install.is_empty() {
@@ -560,7 +586,9 @@ pub fn ensure_tools_installed() -> Result<()> {
 /// Instala [`VibeTool::install`] con el shell que necesita.
 fn instalar(tool: &VibeTool) -> Result<()> {
     match tool.install_via {
-        InstallVia::Cmd => cmd::run_in_dir_status("cmd", &["/c", tool.install], &std::path::Path::new(".")),
+        InstallVia::Cmd => {
+            cmd::run_in_dir_status("cmd", &["/c", tool.install], &std::path::Path::new("."))
+        }
         InstallVia::PowerShell => cmd::run_in_dir_status(
             "powershell",
             &["-NoProfile", "-Command", tool.install],
@@ -617,7 +645,11 @@ mod tests {
             ("07Hermes", "Hermes", "iex (irm https://hermes-agent.nousresearch.com/install.ps1)", InstallVia::PowerShell),
         ];
 
-        assert_eq!(VIBE_TOOLS.len(), esperado.len(), "añade el test al añadir una herramienta");
+        assert_eq!(
+            VIBE_TOOLS.len(),
+            esperado.len(),
+            "añade el test al añadir una herramienta"
+        );
         for (tool, (key, title, install, via)) in VIBE_TOOLS.iter().zip(esperado) {
             assert_eq!(tool.key, key);
             assert_eq!(tool.title, title);
@@ -633,7 +665,10 @@ mod tests {
     #[test]
     fn a_empty_install_means_detect_only_never_ask() {
         let kiro = VIBE_TOOLS.iter().find(|t| t.key == "06KiroCli").unwrap();
-        assert!(kiro.install.is_empty(), "Kiro CLI no debe ofrecer comando de instalación");
+        assert!(
+            kiro.install.is_empty(),
+            "Kiro CLI no debe ofrecer comando de instalación"
+        );
         assert!(
             !kiro.cli.is_empty(),
             "pero sí debe seguir teniendo un comando que ejecutar en el menú"
@@ -645,7 +680,11 @@ mod tests {
             .filter(|t| t.install.is_empty())
             .map(|t| t.title)
             .collect();
-        assert_eq!(sin_instalador, vec!["Kiro CLI"], "sólo Kiro CLI va sin instalador");
+        assert_eq!(
+            sin_instalador,
+            vec!["Kiro CLI"],
+            "sólo Kiro CLI va sin instalador"
+        );
     }
 
     /// El ejecutable de Kiro CLI se llama `kiro-cli.exe`, no `kiro`: es lo que
@@ -660,7 +699,8 @@ mod tests {
         // Y la ruta de fallback tiene que apuntar a la carpeta real, que no
         // sigue el patrón `LOCALAPPDATA\<tool>\bin` del resto.
         assert!(
-            kiro.fallback.contains(&"LOCALAPPDATA/Kiro-Cli/kiro-cli.exe"),
+            kiro.fallback
+                .contains(&"LOCALAPPDATA/Kiro-Cli/kiro-cli.exe"),
             "fallback de Kiro incorrecto: {:?}",
             kiro.fallback
         );
@@ -674,14 +714,22 @@ mod tests {
         let mut claves: Vec<&str> = VIBE_TOOLS.iter().map(|t| t.key).collect();
         assert_eq!(
             claves.len(),
-            claves.iter().collect::<std::collections::HashSet<_>>().len(),
+            claves
+                .iter()
+                .collect::<std::collections::HashSet<_>>()
+                .len(),
             "hay claves de registro repetidas: {claves:?}"
         );
 
         // `01OpenCode` → 1, `02KiloCode` → 2… y tienen que seguir en orden.
         let numeros: Vec<u32> = claves
             .iter()
-            .map(|k| k.get(..2).unwrap_or("").parse::<u32>().unwrap_or_else(|_| panic!("{k} no empieza por dos dígitos")))
+            .map(|k| {
+                k.get(..2)
+                    .unwrap_or("")
+                    .parse::<u32>()
+                    .unwrap_or_else(|_| panic!("{k} no empieza por dos dígitos"))
+            })
             .collect();
         let mut ordenados = numeros.clone();
         ordenados.sort_unstable();
@@ -732,7 +780,10 @@ mod tests {
                     || hint.starts_with("HOME/")
                     || hint.starts_with('/')
             });
-        assert!(en_windows, "todo fallback debe llevar prefijo conocido o ser absoluto");
+        assert!(
+            en_windows,
+            "todo fallback debe llevar prefijo conocido o ser absoluto"
+        );
 
         // Cada herramienta con fallback debe derivar al menos un camino real de
         // su ejecutable. Se usa `ends_with`, no igualdad, porque en Windows el
@@ -741,14 +792,17 @@ mod tests {
             let ejecutable = tool.cli.split_whitespace().next().unwrap();
             let candidatas = fallback_candidates(tool);
             assert!(
-                candidatas.iter().all(|p| !p.to_string_lossy().contains("LOCALAPPDATA/")),
+                candidatas
+                    .iter()
+                    .all(|p| !p.to_string_lossy().contains("LOCALAPPDATA/")),
                 "{}: quedaron prefijos sin expandir: {candidatas:?}",
                 tool.title
             );
             assert!(
                 candidatas.iter().any(|p| {
                     let s = p.to_string_lossy().to_lowercase().replace('\\', "/");
-                    s.ends_with(&format!("{ejecutable}.exe")) || s.ends_with(&format!("/{ejecutable}"))
+                    s.ends_with(&format!("{ejecutable}.exe"))
+                        || s.ends_with(&format!("/{ejecutable}"))
                 }),
                 "{}: no se ha derivado ningún camino de {ejecutable}: {candidatas:?}",
                 tool.title
@@ -811,7 +865,9 @@ mod tests {
 
     #[test]
     fn only_yes_answers_are_taken_as_yes() {
-        for afirmativo in ["s", "S", "si", "Sí", "sí", "y", "yes", "YES", " s ", "\tyes\n"] {
+        for afirmativo in [
+            "s", "S", "si", "Sí", "sí", "y", "yes", "YES", " s ", "\tyes\n",
+        ] {
             assert!(es_si(afirmativo), "{afirmativo:?} debería contar como sí");
         }
         // El default de `ask_text` es "n", y con el stdin cerrado devuelve "".
@@ -875,8 +931,16 @@ pub fn toggle() -> Result<()> {
         let cr_installed = is_installed("zz_Compass");
         let vc_installed = is_installed(VIBE_KEY);
 
-        let cr_label = if cr_installed { "✔ Compass" } else { "  Compass" };
-        let vc_label = if vc_installed { "✔ Vibe Coding" } else { "  Vibe Coding" };
+        let cr_label = if cr_installed {
+            "✔ Compass"
+        } else {
+            "  Compass"
+        };
+        let vc_label = if vc_installed {
+            "✔ Vibe Coding"
+        } else {
+            "  Vibe Coding"
+        };
 
         // `options` y `actions` van en paralelo: el `match` de abajo despacha
         // por acción, no por el prefijo del texto. Antes se emparejaba con
@@ -885,7 +949,10 @@ pub fn toggle() -> Result<()> {
         let mut options: Vec<String> = Vec::new();
         let mut actions: Vec<MenuChoice> = Vec::new();
 
-        let push = |options: &mut Vec<String>, actions: &mut Vec<MenuChoice>, label: String, act: MenuChoice| {
+        let push = |options: &mut Vec<String>,
+                    actions: &mut Vec<MenuChoice>,
+                    label: String,
+                    act: MenuChoice| {
             options.push(label);
             actions.push(act);
         };
@@ -895,7 +962,11 @@ pub fn toggle() -> Result<()> {
             &mut actions,
             format!(
                 "1. {cr_label}  [{}]",
-                if cr_installed { "Desinstalar" } else { "Instalar" }
+                if cr_installed {
+                    "Desinstalar"
+                } else {
+                    "Instalar"
+                }
             ),
             MenuChoice::ToggleCompass,
         );
@@ -904,26 +975,57 @@ pub fn toggle() -> Result<()> {
             &mut actions,
             format!(
                 "2. {vc_label}  [{}]",
-                if vc_installed { "Desinstalar" } else { "Instalar" }
+                if vc_installed {
+                    "Desinstalar"
+                } else {
+                    "Instalar"
+                }
             ),
             MenuChoice::ToggleVibeCoding,
         );
-        push(&mut options, &mut actions, "3. Instalar todos".to_string(), MenuChoice::InstallAll);
-        push(&mut options, &mut actions, "4. Desinstalar todos".to_string(), MenuChoice::UninstallAll);
+        push(
+            &mut options,
+            &mut actions,
+            "3. Instalar todos".to_string(),
+            MenuChoice::InstallAll,
+        );
+        push(
+            &mut options,
+            &mut actions,
+            "4. Desinstalar todos".to_string(),
+            MenuChoice::UninstallAll,
+        );
         let back = options.len() + 1;
-        push(&mut options, &mut actions, format!("{back}. Volver"), MenuChoice::Back);
+        push(
+            &mut options,
+            &mut actions,
+            format!("{back}. Volver"),
+            MenuChoice::Back,
+        );
 
         let choice = inquire::Select::new("Selecciona una opción:", options)
             .with_vim_mode(true)
             .raw_prompt()?;
 
-        match actions.get(choice.index).copied().unwrap_or(MenuChoice::Back) {
+        match actions
+            .get(choice.index)
+            .copied()
+            .unwrap_or(MenuChoice::Back)
+        {
             MenuChoice::ToggleCompass => {
-                if cr_installed { uninstall()?; } else { install()?; }
+                if cr_installed {
+                    uninstall()?;
+                } else {
+                    install()?;
+                }
                 pause();
             }
             MenuChoice::ToggleVibeCoding => {
-                if vc_installed { uninstall_vibe_coding()?; } else { install_vibe_coding()?; }
+                if vc_installed {
+                    uninstall_vibe_coding()?;
+                } else {
+                    install_vibe_coding()?;
+                }
                 pause();
             }
             MenuChoice::InstallAll => {
@@ -958,16 +1060,14 @@ enum MenuChoice {
 fn is_installed(name: &str) -> bool {
     // Vibe Coding usa ExtendedSubCommandsKey en vez de command
     let ps = if name == VIBE_KEY {
-        format!(
-            "Test-Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{name}'"
-        )
+        format!("Test-Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{name}'")
     } else {
-        format!(
-            "Test-Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{name}\\command'"
-        )
+        format!("Test-Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{name}\\command'")
     };
     let output = cmd::run("powershell", &["-NoProfile", "-Command", &ps]);
-    output.map(|o| String::from_utf8_lossy(&o.stdout).trim() == "True").unwrap_or(false)
+    output
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim() == "True")
+        .unwrap_or(false)
 }
 
 fn command_is_current(name: &str, needle: &str) -> bool {
@@ -976,16 +1076,18 @@ fn command_is_current(name: &str, needle: &str) -> bool {
          if ($null -eq $v) {{ 'false' }} else {{ $v.Contains('{needle}') }}"
     );
     let output = cmd::run("powershell", &["-NoProfile", "-Command", &ps]);
-    output.map(|o| String::from_utf8_lossy(&o.stdout).trim() == "True").unwrap_or(false)
+    output
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim() == "True")
+        .unwrap_or(false)
 }
 
 /// ¿Está `name` disponible como comando?
 fn command_exists(name: &str) -> bool {
-    let ps = format!(
-        "$null -ne (Get-Command -Name '{name}' -ErrorAction SilentlyContinue)"
-    );
+    let ps = format!("$null -ne (Get-Command -Name '{name}' -ErrorAction SilentlyContinue)");
     let output = cmd::run("powershell", &["-NoProfile", "-Command", &ps]);
-    output.map(|o| String::from_utf8_lossy(&o.stdout).trim() == "True").unwrap_or(false)
+    output
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim() == "True")
+        .unwrap_or(false)
 }
 
 /// Verifica que el texto visible (`(default)` o `MUIVerb`) de la entrada

@@ -27,7 +27,9 @@ pub fn build(ctx: &ProjectContext) -> Result<()> {
         &ctx.script_dir,
         &bundle_dir,
         crate::utils::platform::desktop_artifact_exts(),
-        read_tauri_app_meta(ctx).map(|(n, v)| format!("{} v{}", n, v)).as_deref(),
+        read_tauri_app_meta(ctx)
+            .map(|(n, v)| format!("{} v{}", n, v))
+            .as_deref(),
     )?;
 
     Ok(())

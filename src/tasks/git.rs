@@ -18,8 +18,8 @@ use crossterm::{
         DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, MouseButton,
         MouseEventKind,
     },
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
     execute,
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use inquire::Select;
 use ratatui::{
@@ -44,11 +44,7 @@ use crate::utils::{
 
 /// Ejecuta un programa en el proyecto y devuelve `Ok(())` o el texto del error
 /// (stdout + stderr) para poder mostrarlo.
-fn run_capture(
-    program: &str,
-    args: &[&str],
-    dir: &Path,
-) -> std::result::Result<(), String> {
+fn run_capture(program: &str, args: &[&str], dir: &Path) -> std::result::Result<(), String> {
     match Command::new(program).args(args).current_dir(dir).output() {
         Ok(o) if o.status.success() => Ok(()),
         Ok(o) => {
@@ -223,7 +219,9 @@ fn push_current_branch(ctx: &ProjectContext) -> Result<()> {
     match git_capture(ctx, &["push", "-u", "origin", branch.as_str()]) {
         Ok(()) => {
             println!("[OK] Rama subida. 'origin/{}' queda como upstream.", branch);
-            if let Some(web) = git_out(ctx, &["remote", "get-url", "origin"]).and_then(|u| web_url(&u)) {
+            if let Some(web) =
+                git_out(ctx, &["remote", "get-url", "origin"]).and_then(|u| web_url(&u))
+            {
                 println!("     Repositorio: {}", web);
             }
         }
@@ -231,7 +229,9 @@ fn push_current_branch(ctx: &ProjectContext) -> Result<()> {
             eprintln!("[ERROR] git push falló:\n{}", e);
             println!();
             println!("Pistas:");
-            println!("  - ¿Estás autenticado? (Personal Access Token en HTTPS, o `gh auth login`).");
+            println!(
+                "  - ¿Estás autenticado? (Personal Access Token en HTTPS, o `gh auth login`)."
+            );
             println!("  - Si el remoto ya tenía contenido: git pull --rebase origin {branch}");
             println!("  - El repo debe existir en GitHub y tener permiso de escritura.");
         }
@@ -260,7 +260,10 @@ fn create_github_repo(ctx: &ProjectContext) -> Result<()> {
         .file_name()
         .map(|n| n.to_string_lossy().replace(' ', "-"))
         .unwrap_or_else(|| "mi-proyecto".into());
-    let name = ui::ask_text("Nombre del repositorio en GitHub", Some(default_name.as_str()))?;
+    let name = ui::ask_text(
+        "Nombre del repositorio en GitHub",
+        Some(default_name.as_str()),
+    )?;
     if name.trim().is_empty() {
         println!("[INFO] Operación cancelada.");
         ui::pause();
@@ -270,7 +273,11 @@ fn create_github_repo(ctx: &ProjectContext) -> Result<()> {
     let visibility = Select::new("Visibilidad:", vec!["Privado", "Público"])
         .with_vim_mode(true)
         .prompt()?;
-    let vis_flag = if visibility == "Público" { "--public" } else { "--private" };
+    let vis_flag = if visibility == "Público" {
+        "--public"
+    } else {
+        "--private"
+    };
 
     println!();
     println!("[INFO] Creando el repositorio y subiendo el código (gh repo create)...");
@@ -440,7 +447,8 @@ fn show_status(ctx: &ProjectContext) -> Result<()> {
 
 fn gitignore_content(project_type: ProjectType) -> &'static str {
     match project_type {
-        ProjectType::Rust => r#"# ============================================
+        ProjectType::Rust => {
+            r#"# ============================================
 # .gitignore para Rust / Cargo
 # ============================================
 
@@ -473,8 +481,10 @@ Desktop.ini
 
 # --- Logs ---
 *.log
-"#,
-        ProjectType::Tauri => r#"# ============================================
+"#
+        }
+        ProjectType::Tauri => {
+            r#"# ============================================
 # .gitignore para Rust/Tauri + Windows/Android
 # ============================================
 
@@ -531,8 +541,10 @@ Desktop.ini
 
 # --- Logs ---
 *.log
-"#,
-        ProjectType::Flutter => r#"# ============================================
+"#
+        }
+        ProjectType::Flutter => {
+            r#"# ============================================
 # .gitignore para Flutter/Dart
 # ============================================
 
@@ -582,8 +594,10 @@ Desktop.ini
 
 # --- Logs ---
 *.log
-"#,
-        ProjectType::Kotlin => r#"# ============================================
+"#
+        }
+        ProjectType::Kotlin => {
+            r#"# ============================================
 # .gitignore para Kotlin Multiplatform
 # ============================================
 
@@ -628,8 +642,10 @@ Desktop.ini
 
 # --- Logs ---
 *.log
-"#,
-        ProjectType::GoWails => r#"# ============================================
+"#
+        }
+        ProjectType::GoWails => {
+            r#"# ============================================
 # .gitignore para Go + Wails v3
 # ============================================
 
@@ -683,8 +699,10 @@ Desktop.ini
 
 # --- Logs ---
 *.log
-"#,
-        ProjectType::Python => r#"# ============================================
+"#
+        }
+        ProjectType::Python => {
+            r#"# ============================================
 # .gitignore para Python
 # ============================================
 
@@ -719,7 +737,8 @@ dist/
 .DS_Store
 Thumbs.db
 *.log
-"#,
+"#
+        }
     }
 }
 
@@ -779,7 +798,10 @@ pub fn add_context_gitignore(ctx: &ProjectContext) -> Result<()> {
         None => required,
     };
     if existing.as_deref() == Some(content.as_str()) {
-        println!("[OK] .gitignore ya contiene las reglas necesarias: {}", path.display());
+        println!(
+            "[OK] .gitignore ya contiene las reglas necesarias: {}",
+            path.display()
+        );
         return Ok(());
     }
 
@@ -910,7 +932,10 @@ fn write_gitignore(ctx: &ProjectContext) -> Result<()> {
         return Ok(());
     }
 
-    std::fs::write(ctx.script_dir.join(".gitignore"), gitignore_content(ctx.project_type))?;
+    std::fs::write(
+        ctx.script_dir.join(".gitignore"),
+        gitignore_content(ctx.project_type),
+    )?;
 
     println!();
     println!("[OK] .gitignore creado exitosamente!");
@@ -1102,7 +1127,11 @@ fn calc_git_group_sizes(cards: &[GitItem]) -> Vec<GroupSize> {
         }
         let rows = (count as u16 + GIT_COLS as u16 - 1) / GIT_COLS as u16;
         let height = rows * GIT_CARD_H + 1;
-        groups.push(GroupSize { cards: count, rows: rows as usize, height });
+        groups.push(GroupSize {
+            cards: count,
+            rows: rows as usize,
+            height,
+        });
         start += count;
     }
     groups
@@ -1130,12 +1159,20 @@ fn create_git_card(
     if is_selected {
         line1_spans.push(Span::styled(
             label.to_string(),
-            Style::default().fg(section_color).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(section_color)
+                .add_modifier(Modifier::BOLD),
         ));
     } else if is_hovered {
-        line1_spans.push(Span::styled(label.to_string(), Style::default().fg(theme.text)));
+        line1_spans.push(Span::styled(
+            label.to_string(),
+            Style::default().fg(theme.text),
+        ));
     } else {
-        line1_spans.push(Span::styled(label.to_string(), Style::default().fg(theme.muted)));
+        line1_spans.push(Span::styled(
+            label.to_string(),
+            Style::default().fg(theme.muted),
+        ));
     }
     lines.push(Line::from(line1_spans));
 
@@ -1159,12 +1196,16 @@ fn create_git_card(
     if !indicator.is_empty() {
         lines.push(Line::from(Span::styled(
             format!("  {indicator}"),
-            Style::default().fg(section_color).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(section_color)
+                .add_modifier(Modifier::BOLD),
         )));
     }
 
     let border_style = if is_selected {
-        Style::default().fg(section_color).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(section_color)
+            .add_modifier(Modifier::BOLD)
     } else if is_hovered {
         Style::default().fg(theme.text)
     } else {
@@ -1240,12 +1281,7 @@ fn git_card_at(cards: &[GitItem], x: u16, y: u16, area: Rect) -> Option<usize> {
     None
 }
 
-fn render_git_cards(
-    frame: &mut Frame,
-    area: Rect,
-    cards: &[GitItem],
-    state: &GitState,
-) {
+fn render_git_cards(frame: &mut Frame, area: Rect, cards: &[GitItem], state: &GitState) {
     let groups = calc_git_group_sizes(cards);
     let total_h = calc_git_total_height(cards);
 
@@ -1300,7 +1336,11 @@ fn restore_git_terminal(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
 ) -> anyhow::Result<()> {
     disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
+    execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        DisableMouseCapture
+    )?;
     terminal.show_cursor()?;
     Ok(())
 }
@@ -1324,7 +1364,9 @@ fn draw_git_menu(frame: &mut Frame, state: &mut GitState, ctx: &ProjectContext) 
     let title = Paragraph::new(vec![
         Line::from(Span::styled(
             "  GIT  ",
-            Style::default().fg(theme.brand).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(theme.brand)
+                .add_modifier(Modifier::BOLD),
         )),
         Line::from(Span::styled(
             format!("  Proyecto: {}", ctx.script_dir.display()),
@@ -1337,17 +1379,19 @@ fn draw_git_menu(frame: &mut Frame, state: &mut GitState, ctx: &ProjectContext) 
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(theme.border)),
     );
-    let title_area = Rect::new(area.left() + 2, area.top() + 1, area.width.saturating_sub(4), 5);
+    let title_area = Rect::new(
+        area.left() + 2,
+        area.top() + 1,
+        area.width.saturating_sub(4),
+        5,
+    );
     frame.render_widget(title, title_area);
 
     let cards_area = git_cards_area(area);
     render_git_cards(frame, cards_area, &state.items, state);
 
     let footer_text = "  Flechas / WASD: navegar  Enter: ejecutar  Esc: volver";
-    let footer = Paragraph::new(Span::styled(
-        footer_text,
-        Style::default().fg(theme.muted),
-    ));
+    let footer = Paragraph::new(Span::styled(footer_text, Style::default().fg(theme.muted)));
     let footer_area = Rect::new(
         area.left() + 2,
         area.top() + area.height.saturating_sub(GIT_FOOTER_H + 1),
@@ -1357,10 +1401,7 @@ fn draw_git_menu(frame: &mut Frame, state: &mut GitState, ctx: &ProjectContext) 
     frame.render_widget(footer, footer_area);
 }
 
-fn handle_git_event(
-    state: &mut GitState,
-    area: Rect,
-) -> anyhow::Result<GitAction> {
+fn handle_git_event(state: &mut GitState, area: Rect) -> anyhow::Result<GitAction> {
     if crossterm::event::poll(std::time::Duration::from_millis(50))? {
         let event = crossterm::event::read()?;
         return Ok(handle_git_input(state, area, event));
@@ -1368,11 +1409,7 @@ fn handle_git_event(
     Ok(GitAction::Continue)
 }
 
-fn handle_git_input(
-    state: &mut GitState,
-    area: Rect,
-    event: Event,
-) -> GitAction {
+fn handle_git_input(state: &mut GitState, area: Rect, event: Event) -> GitAction {
     match event {
         Event::Key(key) if key.kind == KeyEventKind::Press => match key.code {
             KeyCode::Esc | KeyCode::Char('q') => GitAction::Quit,
@@ -1380,7 +1417,10 @@ fn handle_git_input(
                 state.prev();
                 GitAction::Continue
             }
-            KeyCode::Down | KeyCode::Char('j' | 'J') | KeyCode::Right | KeyCode::Char('l' | 'L') => {
+            KeyCode::Down
+            | KeyCode::Char('j' | 'J')
+            | KeyCode::Right
+            | KeyCode::Char('l' | 'L') => {
                 state.next();
                 GitAction::Continue
             }
@@ -1390,12 +1430,9 @@ fn handle_git_input(
         Event::Mouse(mouse) => {
             match mouse.kind {
                 MouseEventKind::Up(MouseButton::Left) => {
-                    if let Some(idx) = git_card_at(
-                        &state.items,
-                        mouse.column,
-                        mouse.row,
-                        git_cards_area(area),
-                    ) {
+                    if let Some(idx) =
+                        git_card_at(&state.items, mouse.column, mouse.row, git_cards_area(area))
+                    {
                         state.selected = idx;
                         state.hovered = Some(idx);
                         return GitAction::Run(state.items[idx]);
@@ -1404,12 +1441,8 @@ fn handle_git_input(
                 MouseEventKind::Moved
                 | MouseEventKind::Drag(MouseButton::Left)
                 | MouseEventKind::Down(MouseButton::Left) => {
-                    state.hovered = git_card_at(
-                        &state.items,
-                        mouse.column,
-                        mouse.row,
-                        git_cards_area(area),
-                    );
+                    state.hovered =
+                        git_card_at(&state.items, mouse.column, mouse.row, git_cards_area(area));
                 }
                 _ => {}
             }
@@ -1460,7 +1493,7 @@ mod tests {
         assert!(merged.starts_with(existing));
         assert!(merged.contains("custom-cache/"));
         assert!(merged.contains("target/"));
-        assert!(merged.contains(".directory"));
+        assert!(merged.contains("*.lnk"));
         assert_eq!(merge_gitignore(&merged, &required), merged);
         assert_eq!(merged.matches("target/").count(), 1);
     }

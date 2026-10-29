@@ -1,6 +1,6 @@
-use std::path::{Path, PathBuf};
-use std::env;
 use anyhow::{Context, Result};
+use std::env;
+use std::path::{Path, PathBuf};
 
 use super::platform;
 
@@ -19,9 +19,9 @@ fn is_python_project(d: &Path) -> bool {
     let Ok(pyproject) = std::fs::read_to_string(d.join("pyproject.toml")) else {
         return false;
     };
-    pyproject.lines().any(|line| {
-        matches!(line.trim(), "[project]" | "[tool.poetry]")
-    })
+    pyproject
+        .lines()
+        .any(|line| matches!(line.trim(), "[project]" | "[tool.poetry]"))
 }
 
 impl ProjectType {
@@ -78,24 +78,24 @@ pub fn detect() -> Result<ProjectContext> {
     let ndk_home = android_home
         .as_ref()
         .map(|a| a.join("ndk").join(platform::NDK_VERSION));
-    let adb_path = android_home.as_ref().map(|a| {
-        a.join("platform-tools")
-            .join(platform::exe_name("adb"))
-    });
+    let adb_path = android_home
+        .as_ref()
+        .map(|a| a.join("platform-tools").join(platform::exe_name("adb")));
     let sdk_manager = android_home.as_ref().and_then(|a| find_sdkmanager(a));
     let has_node_modules = script_dir.join("node_modules").exists();
     let has_android_project = match project_type {
-        ProjectType::Tauri => platform::find_gradlew(
-            &script_dir.join("src-tauri").join("gen").join("android"),
-        )
-        .is_some(),
+        ProjectType::Tauri => {
+            platform::find_gradlew(&script_dir.join("src-tauri").join("gen").join("android"))
+                .is_some()
+        }
         ProjectType::Flutter => platform::find_gradlew(&script_dir.join("android")).is_some(),
         ProjectType::Kotlin => platform::find_gradlew(&script_dir).is_some(),
         ProjectType::Python => false,
         ProjectType::Rust => false,
         // Wails v3 deja el proyecto Gradle en `build/android/`.
-        ProjectType::GoWails => platform::find_gradlew(&script_dir.join("build").join("android"))
-            .is_some(),
+        ProjectType::GoWails => {
+            platform::find_gradlew(&script_dir.join("build").join("android")).is_some()
+        }
     };
     let has_whatsapp_engine = project_type.whatsapp_path(&script_dir).exists();
 
@@ -197,9 +197,7 @@ fn type_label(pt: ProjectType) -> &'static str {
 pub fn pick_project_root(start: &Path) -> Result<Option<PathBuf>> {
     use inquire::{Confirm, Select};
 
-    let mut current = start
-        .canonicalize()
-        .unwrap_or_else(|_| start.to_path_buf());
+    let mut current = start.canonicalize().unwrap_or_else(|_| start.to_path_buf());
 
     loop {
         let here = classify_dir(&current);
@@ -403,12 +401,20 @@ mod tests {
     fn python_detection_requires_project_metadata() {
         let root = env::temp_dir().join(format!("compass-python-detect-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
-        std::fs::write(root.join("pyproject.toml"), "[tool.ruff]\nline-length = 88\n").unwrap();
+        std::fs::write(
+            root.join("pyproject.toml"),
+            "[tool.ruff]\nline-length = 88\n",
+        )
+        .unwrap();
         assert_ne!(classify_dir(&root), Some(ProjectType::Python));
 
         std::fs::write(root.join("pyproject.toml"), "[project]\nname = \"demo\"\n").unwrap();
         assert_eq!(classify_dir(&root), Some(ProjectType::Python));
-        std::fs::write(root.join("pyproject.toml"), "[tool.poetry]\nname = \"demo\"\n").unwrap();
+        std::fs::write(
+            root.join("pyproject.toml"),
+            "[tool.poetry]\nname = \"demo\"\n",
+        )
+        .unwrap();
         assert_eq!(classify_dir(&root), Some(ProjectType::Python));
         let _ = std::fs::remove_dir_all(&root);
     }

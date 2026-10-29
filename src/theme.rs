@@ -395,9 +395,7 @@ pub static THEMES: &[Theme] = &[
 /// Busca un tema por nombre exacto (insensible a mayúsculas y espacios sobrantes).
 pub fn by_name(name: &str) -> Option<&'static Theme> {
     let needle = name.trim();
-    THEMES
-        .iter()
-        .find(|t| t.name.eq_ignore_ascii_case(needle))
+    THEMES.iter().find(|t| t.name.eq_ignore_ascii_case(needle))
 }
 
 /// Tema siguiente en el ciclo (vuelve al primero tras el último).
@@ -418,7 +416,8 @@ pub fn index_of(name: &str) -> usize {
         .iter()
         .position(|t| t.name.eq_ignore_ascii_case(name.trim()))
         .unwrap_or(0)
-}/// Ruta del fichero donde se guarda el nombre del tema activo.
+}
+/// Ruta del fichero donde se guarda el nombre del tema activo.
 fn config_path() -> Option<PathBuf> {
     Some(platform::data_dir()?.join("compass").join("theme"))
 }
@@ -518,7 +517,11 @@ mod tests {
     #[test]
     fn text_is_readable_against_muted() {
         for t in THEMES {
-            assert_ne!(t.text, t.muted, "{}: texto y texto atenuado iguales", t.name);
+            assert_ne!(
+                t.text, t.muted,
+                "{}: texto y texto atenuado iguales",
+                t.name
+            );
         }
     }
 

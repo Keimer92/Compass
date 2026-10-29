@@ -1,8 +1,12 @@
-use std::io::{self, Write};
 use anyhow::Result;
 use indicatif::{ProgressBar, ProgressStyle};
+use std::io::{self, Write};
 
-use crate::utils::{android as android_utils, cmd, context::{kotlin_android_dir, ProjectContext}, platform, ui};
+use crate::utils::{
+    android as android_utils, cmd,
+    context::{kotlin_android_dir, ProjectContext},
+    platform, ui,
+};
 
 fn sanitize_app_name(name: &str) -> String {
     name.chars()
@@ -46,13 +50,13 @@ fn read_kotlin_app_meta(ctx: &ProjectContext) -> Option<(String, String)> {
                 }
             }
         }
-        if version.is_some() { break; }
+        if version.is_some() {
+            break;
+        }
     }
 
     // Try to read app name from res/values/strings.xml
-    let strings_paths = [
-        android_dir.join("src/main/res/values/strings.xml"),
-    ];
+    let strings_paths = [android_dir.join("src/main/res/values/strings.xml")];
     let mut name = None;
     for sp in &strings_paths {
         if let Ok(content) = std::fs::read_to_string(sp) {
@@ -61,7 +65,7 @@ fn read_kotlin_app_meta(ctx: &ProjectContext) -> Option<(String, String)> {
                 if t.contains("app_name") {
                     if let Some(start) = t.find('>') {
                         if let Some(end) = t[start..].find("</") {
-                            let val = &t[start+1..start+end].trim();
+                            let val = &t[start + 1..start + end].trim();
                             if !val.is_empty() {
                                 name = Some(val.to_string());
                                 break;
@@ -71,7 +75,9 @@ fn read_kotlin_app_meta(ctx: &ProjectContext) -> Option<(String, String)> {
                 }
             }
         }
-        if name.is_some() { break; }
+        if name.is_some() {
+            break;
+        }
     }
 
     let name = name.unwrap_or_else(|| "App".to_string());
@@ -97,7 +103,10 @@ fn release_signing_env(ctx: &ProjectContext) -> Option<Vec<(String, String)>> {
     // (ver `cmd::run_shell_status`), no prefijando el comando con `$env:…;`
     // (PowerShell) o `export …;` (sh), porque el build corre en la ventana actual.
     Some(vec![
-        ("RELEASE_STORE_FILE".to_string(), store_path.display().to_string()),
+        (
+            "RELEASE_STORE_FILE".to_string(),
+            store_path.display().to_string(),
+        ),
         ("RELEASE_STORE_PASSWORD".to_string(), store_pass),
         ("RELEASE_KEY_ALIAS".to_string(), key_alias),
         ("RELEASE_KEY_PASSWORD".to_string(), key_pass),
@@ -114,7 +123,11 @@ fn gradlew_cmd(_ctx: &ProjectContext, args: &str) -> String {
 /// Detecta si el modulo Gradle de un proyecto Kotlin es `:app` o `:composeApp`
 /// (la plantilla por defecto usa `:composeApp`, pero algunos proyectos usan `:app`).
 fn gradle_module(ctx: &ProjectContext) -> String {
-    if kotlin_android_dir(ctx).file_name().map(|n| n == "app").unwrap_or(false) {
+    if kotlin_android_dir(ctx)
+        .file_name()
+        .map(|n| n == "app")
+        .unwrap_or(false)
+    {
         ":app".to_string()
     } else {
         ":composeApp".to_string()
@@ -169,7 +182,11 @@ fn extract_namespace(ctx: &ProjectContext) -> Option<String> {
             for line in content.lines() {
                 let trimmed = line.trim();
                 if let Some(ns) = trimmed.strip_prefix("namespace = ") {
-                    let ns = ns.trim().trim_matches('"').trim_matches('\'').trim_end_matches(';');
+                    let ns = ns
+                        .trim()
+                        .trim_matches('"')
+                        .trim_matches('\'')
+                        .trim_end_matches(';');
                     if !ns.is_empty() {
                         return Some(ns.to_string());
                     }
@@ -195,9 +212,7 @@ fn extract_main_activity_package(ctx: &ProjectContext) -> Option<String> {
                     for line in content.lines() {
                         let trimmed = line.trim();
                         if let Some(pkg) = trimmed.strip_prefix("package ") {
-                            return Some(
-                                pkg.trim_end_matches(';').trim().to_string(),
-                            );
+                            return Some(pkg.trim_end_matches(';').trim().to_string());
                         }
                     }
                 }
@@ -218,8 +233,7 @@ fn install_and_launch(ctx: &ProjectContext, serial: &str) -> Result<()> {
         .map(|p| p.display().to_string())
         .unwrap_or_else(|| "adb".to_string());
 
-    let namespace = extract_namespace(ctx)
-        .unwrap_or_else(|| "com.example.app".to_string());
+    let namespace = extract_namespace(ctx).unwrap_or_else(|| "com.example.app".to_string());
 
     let activity = extract_main_activity_package(ctx)
         .map(|p| format!("{}.MainActivity", p))
@@ -235,7 +249,10 @@ fn install_and_launch(ctx: &ProjectContext, serial: &str) -> Result<()> {
         println!();
         println!("[OK] Abriendo aplicacion...");
         let _ = cmd::run_shell_status(
-            &format!("\"{}\" shell am start -n {}/{}", adb_path, namespace, activity),
+            &format!(
+                "\"{}\" shell am start -n {}/{}",
+                adb_path, namespace, activity
+            ),
             &ctx.script_dir,
             &[],
         )?;
@@ -287,13 +304,22 @@ pub fn build_windows(ctx: &ProjectContext) -> Result<()> {
     ensure_gradle(ctx)?;
     ensure_whatsapp_npm(ctx)?;
 
-    let dist_dir = kotlin_android_dir(ctx).join("build").join("compose").join("binaries").join("main");
+    let dist_dir = kotlin_android_dir(ctx)
+        .join("build")
+        .join("compose")
+        .join("binaries")
+        .join("main");
     cmd::run_build_and_reveal(
-        &gradlew_cmd(ctx, &format!("{}:packageDistributionForCurrentOS", gradle_module(ctx))),
+        &gradlew_cmd(
+            ctx,
+            &format!("{}:packageDistributionForCurrentOS", gradle_module(ctx)),
+        ),
         &ctx.script_dir,
         &dist_dir,
         platform::desktop_artifact_exts(),
-        read_kotlin_app_meta(ctx).map(|(name, ver)| format!("{} v{}", name, ver)).as_deref(),
+        read_kotlin_app_meta(ctx)
+            .map(|(name, ver)| format!("{} v{}", name, ver))
+            .as_deref(),
     )?;
 
     Ok(())
@@ -313,7 +339,11 @@ pub fn build_apk(ctx: &ProjectContext) -> Result<()> {
         }
     };
     let rename = read_kotlin_app_meta(ctx).map(|(name, ver)| format!("{}-v{}", name, ver));
-    let apk_dir = android_dir.join("build").join("outputs").join("apk").join("release");
+    let apk_dir = android_dir
+        .join("build")
+        .join("outputs")
+        .join("apk")
+        .join("release");
     let outcome = cmd::run_build_and_reveal_with_env_outcome(
         &gradle,
         &ctx.script_dir,
@@ -354,7 +384,11 @@ pub fn build_aab(ctx: &ProjectContext) -> Result<()> {
         }
     };
     let rename = read_kotlin_app_meta(ctx).map(|(name, ver)| format!("{}-v{}", name, ver));
-    let aab_dir = android_dir.join("build").join("outputs").join("bundle").join("release");
+    let aab_dir = android_dir
+        .join("build")
+        .join("outputs")
+        .join("bundle")
+        .join("release");
     let outcome = cmd::run_build_and_reveal_with_env_outcome(
         &gradle,
         &ctx.script_dir,
@@ -369,7 +403,9 @@ pub fn build_aab(ctx: &ProjectContext) -> Result<()> {
         // Play Store. Para instalar en el telefono hay que usar el APK
         // (tarjeta de APK release) o `bundletool`.
         println!("[INFO] Un AAB no se instala directamente en el telefono.");
-        println!("       Usa la tarjeta de APK release para instalarlo, o sube el bundle a Play Store.");
+        println!(
+            "       Usa la tarjeta de APK release para instalarlo, o sube el bundle a Play Store."
+        );
     }
 
     Ok(())
@@ -403,7 +439,10 @@ pub fn clean(ctx: &ProjectContext) -> Result<()> {
     println!("  - gradle/wrapper/ (wrapper no se borra)");
     println!("  - gradlew.bat (wrapper de Windows)");
     println!("  - whatsapp_engine/ (motor WhatsApp)");
-    println!("  - {}/resources/whatsapp-engine-bundle/ (bundle WhatsApp compilado)", module_name);
+    println!(
+        "  - {}/resources/whatsapp-engine-bundle/ (bundle WhatsApp compilado)",
+        module_name
+    );
     println!("  - Firmas: keystore.properties, *.keystore, *.jks");
     println!();
 
@@ -418,9 +457,11 @@ pub fn clean(ctx: &ProjectContext) -> Result<()> {
     }
 
     let pb = ProgressBar::new(6);
-    pb.set_style(ProgressStyle::default_bar()
-        .template("{spinner:.green} [{bar:40}] {pos}/{len} {msg}")?
-        .progress_chars("=> "));
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("{spinner:.green} [{bar:40}] {pos}/{len} {msg}")?
+            .progress_chars("=> "),
+    );
 
     // 1. gradle clean
     pb.set_message("Ejecutando gradle clean");
