@@ -12,7 +12,7 @@ use std::path::Path;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use crossterm::{
     event::{
         DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, MouseButton,
@@ -723,6 +723,78 @@ Thumbs.db
     }
 }
 
+/// Adds ignore rules for the current host without removing the cross-platform
+/// rules already present in the project templates.
+fn gitignore_content_for_platform(project_type: ProjectType, is_windows: bool) -> String {
+    let mut content = gitignore_content(project_type).trim_end().to_string();
+    let host_rules = if is_windows {
+        "\n\n# --- Windows ---\n$RECYCLE.BIN/\nehthumbs.db\n*.lnk\n"
+    } else {
+        "\n\n# --- Linux desktop ---\n.directory\n.Trash-*/\n"
+    };
+    content.push_str(host_rules);
+    content
+}
+
+/// Keep all existing content intact and append only template rules that are
+/// absent as exact ignore patterns.
+fn merge_gitignore(existing: &str, required: &str) -> String {
+    let present: std::collections::HashSet<&str> = existing
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .collect();
+    let missing: Vec<&str> = required
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#') && !present.contains(line))
+        .collect();
+
+    if missing.is_empty() {
+        return existing.to_string();
+    }
+
+    let mut merged = existing.to_string();
+    if !merged.is_empty() && !merged.ends_with('\n') {
+        merged.push('\n');
+    }
+    if !merged.is_empty() {
+        merged.push_str("\n# Compass project ignore rules\n");
+    }
+    for rule in missing {
+        merged.push_str(rule);
+        merged.push('\n');
+    }
+    merged
+}
+
+/// Non-interactive .gitignore action used by file-manager context menus.
+pub fn add_context_gitignore(ctx: &ProjectContext) -> Result<()> {
+    let path = ctx.script_dir.join(".gitignore");
+    let required = gitignore_content_for_platform(ctx.project_type, platform::IS_WINDOWS);
+    let existing = if path.exists() {
+        Some(
+            std::fs::read_to_string(&path)
+                .with_context(|| format!("No se pudo leer {}", path.display()))?,
+        )
+    } else {
+        None
+    };
+    let content = match &existing {
+        Some(existing) => merge_gitignore(existing, &required),
+        None => required,
+    };
+    if existing.as_deref() == Some(content.as_str()) {
+        println!("[OK] .gitignore ya contiene las reglas necesarias: {}", path.display());
+        return Ok(());
+    }
+
+    std::fs::write(&path, content)
+        .with_context(|| format!("No se pudo escribir {}", path.display()))?;
+    println!("[OK] .gitignore actualizado: {}", path.display());
+    Ok(())
+}
+
 fn print_preserved(project_type: ProjectType) {
     match project_type {
         ProjectType::Rust => {
@@ -1373,8 +1445,34 @@ mod tests {
         assert!(gitignore_content(ProjectType::Tauri).contains("src-tauri/target/"));
         assert!(gitignore_content(ProjectType::Flutter).contains(".dart_tool/"));
         assert!(gitignore_content(ProjectType::Kotlin).contains(".gradle/"));
+        assert!(gitignore_content(ProjectType::GoWails).contains("frontend/node_modules/"));
         assert!(gitignore_content(ProjectType::Python).contains("__pycache__/"));
         assert!(gitignore_content(ProjectType::Python).contains(".venv/"));
+    }
+
+    #[test]
+    fn context_gitignore_rules_follow_the_host_platform() {
+        let windows = gitignore_content_for_platform(ProjectType::Rust, true);
+        let linux = gitignore_content_for_platform(ProjectType::Rust, false);
+        assert!(windows.contains("$RECYCLE.BIN/"));
+        assert!(windows.contains("*.lnk"));
+        assert!(!windows.contains(".Trash-*/"));
+        assert!(linux.contains(".directory"));
+        assert!(linux.contains(".Trash-*/"));
+        assert!(!linux.contains("$RECYCLE.BIN/"));
+    }
+
+    #[test]
+    fn context_gitignore_merge_preserves_user_rules_and_is_idempotent() {
+        let existing = "# user rules\ncustom-cache/\ntarget/\n";
+        let required = gitignore_content_for_platform(ProjectType::Rust, false);
+        let merged = merge_gitignore(existing, &required);
+        assert!(merged.starts_with(existing));
+        assert!(merged.contains("custom-cache/"));
+        assert!(merged.contains("target/"));
+        assert!(merged.contains(".directory"));
+        assert_eq!(merge_gitignore(&merged, &required), merged);
+        assert_eq!(merged.matches("target/").count(), 1);
     }
 
     /// Ninguna plantilla debe ignorar el código fuente.

@@ -72,6 +72,7 @@ const VIBE_PREFIX: &str = "Vibe Coding: ";
 
 /// Prefijo en tiempo de compilación, para `install`/`uninstall` sin deserializar.
 const VIBE_PREFIX_STR: &str = VIBE_PREFIX;
+const GITIGNORE_NAME: &str = "Compass: Add .gitignore";
 
 /// Nombre exacto de la entrada que abre el TUI de compass.
 ///
@@ -136,6 +137,15 @@ impl Preset {
         .with_selection(Selection::Any)
     }
 
+    fn gitignore(wrapper: &PathBuf) -> Self {
+        Preset {
+            name: GITIGNORE_NAME.to_string(),
+            steps: vec![exec_step(wrapper)],
+            ..Default::default()
+        }
+        .with_selection(Selection::Folders)
+    }
+
     fn with_selection(mut self, selection: Selection) -> Self {
         self.selection = selection;
         self
@@ -146,7 +156,10 @@ impl Preset {
     /// Cubre las de Vibe Coding (por prefijo) y la de Compass (por nombre
     /// exacto). Se usa en `install`/`uninstall` para preservar las del usuario.
     fn is_ours(&self) -> bool {
-        self.name.starts_with(VIBE_PREFIX_STR) || self.name == COMPASS_NAME || self.name == "Code Runner"
+        self.name.starts_with(VIBE_PREFIX_STR)
+            || self.name == COMPASS_NAME
+            || self.name == GITIGNORE_NAME
+            || self.name == "Code Runner"
     }
 }
 
@@ -215,6 +228,7 @@ fn wrapper_name(title: &str) -> String {
 
 /// Nombre del wrapper de la entrada principal de Compass.
 const COMPASS_WRAPPER: &str = "compass-open.sh";
+const GITIGNORE_WRAPPER: &str = "compass-gitignore.sh";
 
 /// Ruta del ejecutable de compass.
 ///
@@ -296,6 +310,18 @@ fn write_compass_wrapper(dir: &std::path::Path) -> Result<PathBuf> {
     // cadena que `sh -lc` re-evalúa con comillas dobles.
     let cmd = format!("exec {} --path \"$target\"", shell_quote(&exe.display().to_string()));
     write_terminal_script(&path, COMPASS_NAME, &cmd)?;
+    Ok(path)
+}
+
+/// Escribe un wrapper no interactivo para crear/actualizar el .gitignore.
+fn write_gitignore_wrapper(dir: &std::path::Path) -> Result<PathBuf> {
+    let path = dir.join(GITIGNORE_WRAPPER);
+    let exe = compass_exe()?;
+    let command = format!(
+        "{} --task context-gitignore --path \"$target\"",
+        shell_quote(&exe.display().to_string())
+    );
+    write_terminal_script(&path, GITIGNORE_NAME, &command)?;
     Ok(path)
 }
 
@@ -430,6 +456,10 @@ pub fn install() -> Result<()> {
         installed.push(Preset::vibe(title, &p));
     }
 
+    let gitignore_wrapper = write_gitignore_wrapper(&dir)?;
+    println!("  ✔ wrapper {}", gitignore_wrapper.display());
+    installed.push(Preset::gitignore(&gitignore_wrapper));
+
     // 2. Merge en la config, preservando los presets que ya tuviera el usuario.
     let mut presets = load_presets(&cfg);
     let user_count = presets.iter().filter(|p| !p.is_ours()).count();
@@ -457,6 +487,7 @@ pub fn install() -> Result<()> {
     for (title, _) in &wanted {
         println!("    {VIBE_PREFIX}{title}");
     }
+    println!("    {GITIGNORE_NAME}");
     println!();
     println!("[INFO] Cierra COSMIC Files por completo y vuelve a abrirlo.");
     println!("[INFO] Las entradas sólo salen con algo seleccionado: cosmic-files no");
@@ -536,4 +567,25 @@ const VIBE_TOOLS: &[VibeToolLinux] = &[
 struct VibeToolLinux {
     title: &'static str,
     cli: &'static str,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gitignore_preset_is_separate_and_uninstallable_without_claiming_user_entries() {
+        let wrapper = PathBuf::from("/home/user/.local/share/compass/compass-gitignore.sh");
+        let preset = Preset::gitignore(&wrapper);
+        assert_eq!(preset.name, "Compass: Add .gitignore");
+        assert_eq!(preset.selection, Selection::Folders);
+        assert!(preset.steps[0].contains("\"%f\""));
+        assert!(preset.is_ours());
+
+        let user = Preset {
+            name: "My gitignore helper".to_string(),
+            ..Default::default()
+        };
+        assert!(!user.is_ours());
+    }
 }

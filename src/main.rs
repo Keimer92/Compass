@@ -99,6 +99,11 @@ fn main() -> Result<()> {
     let ctx = match utils::context::detect() {
         Ok(c) => c,
         Err(e) => {
+            if cli.task.as_deref() == Some("context-gitignore") {
+                anyhow::bail!(
+                    "No se pudo agregar .gitignore: la carpeta no está dentro de un proyecto reconocido.\n{e}"
+                );
+            }
             // Con `--task` el error es el resultado real: no tiene sentido
             // preguntar nada. Sin `--task` damos la opción de elegir carpeta.
             if cli.task.is_some() {
@@ -249,6 +254,7 @@ fn run_task_direct(ctx: &crate::utils::context::ProjectContext, task: &str) -> R
         // Git: una sola ruta para la tarjeta unificada (`git::manage`): init,
         // .gitignore y conexión con el remoto. Los nombres antiguos son alias.
         "git" | "git-init" | "gitignore" => tasks::git::manage(ctx),
+        "context-gitignore" => tasks::git::add_context_gitignore(ctx),
         "whatsapp" => tasks::whatsapp::build(ctx),
         // Empaquetado del instalador (sólo Go + Wails: NSIS/MSIX).
         "package" | "windows-package" => match ctx.project_type {

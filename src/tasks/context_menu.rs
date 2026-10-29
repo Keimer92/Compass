@@ -64,6 +64,7 @@ pub fn install() -> Result<()> {
     if command_is_current("zz_Compass", &exe) && label_is("zz_Compass", "Compass") {
         println!("[SKIP] Menú contextual Compass ya está instalado.");
         println!("  Ruta: {exe}");
+        install_gitignore_action_windows()?;
         remove_old_code_runner_entry();
         return Ok(());
     }
@@ -99,6 +100,8 @@ pub fn install() -> Result<()> {
         anyhow::bail!("Error al instalar menú contextual:\n{}", stderr);
     }
 
+    install_gitignore_action_windows()?;
+
     println!("[OK] Menú contextual Compass instalado.");
     println!("  Ruta: {exe}");
     println!("  Icono: {icon}");
@@ -121,6 +124,46 @@ Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_Co
     let _ = cmd::run("powershell", &["-NoProfile", "-Command", ps]);
 }
 
+const GITIGNORE_KEY: &str = "zz_VibeGitignore";
+const GITIGNORE_LABEL: &str = "Compass: Add .gitignore";
+
+/// Instala el ejecutable no interactivo como hermano inmediato de Vibe Coding.
+/// Las claves se ordenan alfabéticamente, por eso `VibeGitignore` va después
+/// de `VibeCoding`.
+fn install_gitignore_action_windows() -> Result<()> {
+    let exe = exe_path();
+    let icon = icon_path();
+    let folder_command = gitignore_context_command(&exe, "%1");
+    let background_command = gitignore_context_command(&exe, "%V");
+    let ps = format!(
+        "New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{GITIGNORE_KEY}' -Force | Out-Null; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{GITIGNORE_KEY}' -Name '(default)' -Value '{GITIGNORE_LABEL}' -Force; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{GITIGNORE_KEY}' -Name 'Icon' -Type String -Value '{icon}' -Force; \
+         New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{GITIGNORE_KEY}\\command' -Force | Out-Null; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{GITIGNORE_KEY}\\command' -Name '(default)' -Value '{folder_command}' -Force; \
+         \
+         New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\{GITIGNORE_KEY}' -Force | Out-Null; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\{GITIGNORE_KEY}' -Name '(default)' -Value '{GITIGNORE_LABEL}' -Force; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\{GITIGNORE_KEY}' -Name 'Icon' -Type String -Value '{icon}' -Force; \
+         New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\{GITIGNORE_KEY}\\command' -Force | Out-Null; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\{GITIGNORE_KEY}\\command' -Name '(default)' -Value '{background_command}' -Force"
+    );
+    let output = cmd::run("powershell", &["-NoProfile", "-Command", &ps])?;
+    if !output.status.success() {
+        anyhow::bail!(
+            "Error al instalar la acción contextual .gitignore:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    Ok(())
+}
+
+fn gitignore_context_command(exe: &str, placeholder: &str) -> String {
+    format!(
+        "cmd.exe /c start \"\" /D \"{placeholder}\" cmd.exe /k \"\"{exe}\" --task context-gitignore --path \"{placeholder}\"\""
+    )
+}
+
 pub fn uninstall() -> Result<()> {
     if !crate::utils::platform::IS_WINDOWS {
         return super::context_menu_cosmic::uninstall();
@@ -130,7 +173,9 @@ pub fn uninstall() -> Result<()> {
 
     let ps = "\
 Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_Compass' -Recurse -Force -ErrorAction SilentlyContinue; \
-Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_Compass' -Recurse -Force -ErrorAction SilentlyContinue";
+Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_Compass' -Recurse -Force -ErrorAction SilentlyContinue; \
+Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_VibeGitignore' -Recurse -Force -ErrorAction SilentlyContinue; \
+Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_VibeGitignore' -Recurse -Force -ErrorAction SilentlyContinue";
 
     let _ = cmd::run("powershell", &["-NoProfile", "-Command", ps]);
 
@@ -588,6 +633,18 @@ fn es_si(respuesta: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gitignore_context_menu_is_ordered_after_vibe_and_quotes_both_paths() {
+        assert!("zz_VibeCoding" < GITIGNORE_KEY);
+        let exe = r"C:\Program Files\Compass\compass.exe";
+        let folder = gitignore_context_command(exe, "%1");
+        let background = gitignore_context_command(exe, "%V");
+        assert!(folder.contains(r#""C:\Program Files\Compass\compass.exe""#));
+        assert!(folder.contains(r#"--path "%1""#));
+        assert!(background.contains(r#"--path "%V""#));
+        assert!(folder.contains("cmd.exe /k"));
+    }
 
     /// Los comandos de instalación están hardcodeados, así que un cambio de
     /// nombre en el paquete pasaría desapercibido hasta que alguien ejecutase
