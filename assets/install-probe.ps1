@@ -48,6 +48,15 @@ if ($comandoCr -like '*compass.exe*') {
     $menuCompass = 0
 }
 
+# La acción .gitignore se agregó después de la instalación del menú base.
+# También debe activar la reinstalación para migrar instalaciones existentes.
+if ($menuCompass -eq 0 -and (
+        -not (Test-Path 'HKCU:\Software\Classes\Directory\shell\zz_VibeGitignore\command') -or
+        -not (Test-Path 'HKCU:\Software\Classes\Directory\Background\shell\zz_VibeGitignore\command')
+    )) {
+    $menuCompass = 1
+}
+
 # El de Vibe Coding es cascada: la entrada padre `zz_VibeCoding` sólo lleva
 # `ExtendedSubCommandsKey`, y las sub-entadas viven en otra ruta, con prefijo
 # numérico (`01OpenCode`, `04Antigravity`...) porque Windows las ordena

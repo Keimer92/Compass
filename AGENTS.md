@@ -903,7 +903,7 @@ Script de instalación para Windows:
 1. **Salta la compilación si no hace falta** (ver "Saltar lo que ya está al día")
 2. **Siempre** copia `assets/icon/Icon.ico` a `%USERPROFILE%\.cargo\bin\`
 3. **Siempre** copia `assets/icon/opencode.ico` al mismo directorio
-4. Instala los menús contextuales (Compass y Vibe Coding), cada uno sólo si la sonda dice que falta
+4. Instala los menús contextuales de Compass (incluida la acción `.gitignore`) y Vibe Coding, cada uno sólo si la sonda dice que falta
 5. Si `cargo install` falla, avisa y **no** configura los menús: apuntar el registro a un binario roto deja el sistema incoherente
 6. `install.bat --force` rehace todo aunque no haga falta
 
@@ -922,6 +922,8 @@ Reinstalar costaba ~30 s en cada ejecución, casi todo en cosas innecesarias. Lo
 Medido: **~30 s → ~7 s** sin nada que cambiar, ~19 s cuando hay que recompilar, ~32 s con `--force`. El grosso del coste era `opencode-install`, que tardaba **18 s** sólo en detectar las herramientas (un `Get-Command` por herramienta, o sea un arranque de PowerShell cada una). La sonda de `install.bat` hace todas las comprobaciones en **una** invocación, así que añadir herramientas a `VIBE_TOOLS` no encarece el instalador.
 
 ⚠️ La sonda vive en un `.ps1` y no en un one-liner dentro de `for /f` porque las tuberías (`|`) son caracteres especiales de `cmd` y rompen el bucle. Y ⚠️ `1` significa **actuar**: leerlo al revés hace reinstallar siempre (que es lo que pasó en la primera versión de este cambio).
+
+La sonda también considera incompleto el menú de Compass si falta la acción `.gitignore` en el clic derecho sobre una carpeta o sobre el fondo. Así `install.bat` migra instalaciones anteriores que ya tenían Compass, pero no esa acción.
 
 ⚠️ `install.bat` usa `setlocal EnableDelayedExpansion` y `!errorlevel!` dentro de los bloques: con `%errorlevel%` se evalúa al parsear el `if`, antes de que `cargo` corra, y siempre da 0.
 
