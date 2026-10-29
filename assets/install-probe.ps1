@@ -56,6 +56,14 @@ if ($menuCompass -eq 0 -and (
     )) {
     $menuCompass = 1
 }
+$gitignoreFolderCommand = (Get-ItemProperty `
+    -Path 'HKCU:\Software\Classes\Directory\shell\zz_VibeGitignore\command').'(default)'
+$gitignoreBackgroundCommand = (Get-ItemProperty `
+    -Path 'HKCU:\Software\Classes\Directory\Background\shell\zz_VibeGitignore\command').'(default)'
+if ($gitignoreFolderCommand -like '*start "" /D*' -or
+    $gitignoreBackgroundCommand -like '*start "" /D*') {
+    $menuCompass = 1
+}
 
 # El de Vibe Coding es cascada: la entrada padre `zz_VibeCoding` sólo lleva
 # `ExtendedSubCommandsKey`, y las sub-entadas viven en otra ruta, con prefijo

@@ -151,9 +151,7 @@ fn install_gitignore_action_windows() -> Result<()> {
 }
 
 fn gitignore_context_command(exe: &str, placeholder: &str) -> String {
-    format!(
-        "cmd.exe /c start \"\" /D \"{placeholder}\" cmd.exe /k \"\"{exe}\" --task context-gitignore --path \"{placeholder}\"\""
-    )
+    format!("cmd.exe /k \"\"{exe}\" --task context-gitignore --path \"{placeholder}\"\"")
 }
 
 pub fn uninstall() -> Result<()> {
@@ -622,6 +620,7 @@ mod tests {
         assert!(folder.contains(r#"--path "%1""#));
         assert!(background.contains(r#"--path "%V""#));
         assert!(folder.contains("cmd.exe /k"));
+        assert!(!folder.contains("start "));
     }
 
     /// Los comandos de instalación están hardcodeados, así que un cambio de

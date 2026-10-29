@@ -81,6 +81,10 @@ fn main() -> Result<()> {
 
     std::env::set_current_dir(&dir)?;
 
+    if cli.task.as_deref() == Some("context-gitignore") {
+        return tasks::git::add_context_gitignore_from_dir(&dir);
+    }
+
     // ── Instancia única por directorio ──
     //
     // Sólo aplica a la TUI (sin --task). Los procesos hijo que ejecutan tareas
@@ -106,11 +110,6 @@ fn main() -> Result<()> {
     let ctx = match utils::context::detect() {
         Ok(c) => c,
         Err(e) => {
-            if cli.task.as_deref() == Some("context-gitignore") {
-                anyhow::bail!(
-                    "No se pudo agregar .gitignore: la carpeta no está dentro de un proyecto reconocido.\n{e}"
-                );
-            }
             // Con `--task` el error es el resultado real: no tiene sentido
             // preguntar nada. Sin `--task` damos la opción de elegir carpeta.
             if cli.task.is_some() {
@@ -172,6 +171,7 @@ fn run_task_direct(ctx: &crate::utils::context::ProjectContext, task: &str) -> R
             crate::utils::context::ProjectType::Flutter => tasks::flutter::run_windows(ctx),
             crate::utils::context::ProjectType::Kotlin => tasks::kotlin::run_windows(ctx),
             crate::utils::context::ProjectType::Rust => tasks::rust::run(ctx),
+            crate::utils::context::ProjectType::Go => tasks::go::run(ctx),
             crate::utils::context::ProjectType::GoWails => tasks::gowails::dev(ctx),
             crate::utils::context::ProjectType::Python => tasks::python::run(ctx),
         },
@@ -182,6 +182,9 @@ fn run_task_direct(ctx: &crate::utils::context::ProjectContext, task: &str) -> R
             crate::utils::context::ProjectType::Rust => {
                 anyhow::bail!("No aplicable a proyectos Rust")
             }
+            crate::utils::context::ProjectType::Go => {
+                anyhow::bail!("Los proyectos Go puros no tienen tarea Android")
+            }
             crate::utils::context::ProjectType::GoWails => tasks::gowails::install_debug(ctx),
             crate::utils::context::ProjectType::Python => {
                 anyhow::bail!("Python no tiene tarea Android")
@@ -190,13 +193,14 @@ fn run_task_direct(ctx: &crate::utils::context::ProjectContext, task: &str) -> R
         "android-hmr" => match ctx.project_type {
             crate::utils::context::ProjectType::GoWails => tasks::gowails::dev_android(ctx),
             crate::utils::context::ProjectType::Python => tasks::python::reload(ctx),
-            _ => anyhow::bail!("HMR sólo disponible para Go + Wails v3"),
+            _ => anyhow::bail!("HMR sólo disponible para Go + Wails v3 o Python ASGI"),
         },
         "windows-build" => match ctx.project_type {
             crate::utils::context::ProjectType::Tauri => tasks::windows::build(ctx),
             crate::utils::context::ProjectType::Flutter => tasks::flutter::build_windows(ctx),
             crate::utils::context::ProjectType::Kotlin => tasks::kotlin::build_windows(ctx),
             crate::utils::context::ProjectType::Rust => tasks::rust::build(ctx),
+            crate::utils::context::ProjectType::Go => tasks::go::build(ctx),
             crate::utils::context::ProjectType::GoWails => tasks::gowails::build_desktop(ctx),
             crate::utils::context::ProjectType::Python => tasks::python::build(ctx),
         },
@@ -206,6 +210,9 @@ fn run_task_direct(ctx: &crate::utils::context::ProjectContext, task: &str) -> R
             crate::utils::context::ProjectType::Kotlin => tasks::kotlin::build_apk(ctx),
             crate::utils::context::ProjectType::Rust => {
                 anyhow::bail!("No aplicable a proyectos Rust")
+            }
+            crate::utils::context::ProjectType::Go => {
+                anyhow::bail!("Los proyectos Go puros no tienen compilación Android")
             }
             crate::utils::context::ProjectType::GoWails => tasks::gowails::build_apk(ctx),
             crate::utils::context::ProjectType::Python => {
@@ -223,6 +230,9 @@ fn run_task_direct(ctx: &crate::utils::context::ProjectContext, task: &str) -> R
             crate::utils::context::ProjectType::Rust => {
                 anyhow::bail!("No aplicable a proyectos Rust")
             }
+            crate::utils::context::ProjectType::Go => {
+                anyhow::bail!("Los proyectos Go puros no tienen compilación Android")
+            }
             crate::utils::context::ProjectType::GoWails => {
                 anyhow::bail!("No aplicable a proyectos Go + Wails (Wails v3 sólo compila arm64)")
             }
@@ -236,6 +246,9 @@ fn run_task_direct(ctx: &crate::utils::context::ProjectContext, task: &str) -> R
             crate::utils::context::ProjectType::Kotlin => tasks::kotlin::build_aab(ctx),
             crate::utils::context::ProjectType::Rust => {
                 anyhow::bail!("No aplicable a proyectos Rust")
+            }
+            crate::utils::context::ProjectType::Go => {
+                anyhow::bail!("Los proyectos Go puros no tienen compilación Android")
             }
             crate::utils::context::ProjectType::GoWails => tasks::gowails::build_aab(ctx),
             crate::utils::context::ProjectType::Python => {
@@ -255,6 +268,10 @@ fn run_task_direct(ctx: &crate::utils::context::ProjectContext, task: &str) -> R
             crate::utils::context::ProjectType::Python => tasks::python::test(ctx),
             _ => anyhow::bail!("pytest sólo está disponible para proyectos Python"),
         },
+        "go-test" => match ctx.project_type {
+            crate::utils::context::ProjectType::Go => tasks::go::test(ctx),
+            _ => anyhow::bail!("go test sólo está disponible para proyectos Go puros"),
+        },
         "debug-android" => match ctx.project_type {
             crate::utils::context::ProjectType::Tauri => tasks::android::debug(ctx),
             crate::utils::context::ProjectType::Flutter => {
@@ -272,6 +289,10 @@ fn run_task_direct(ctx: &crate::utils::context::ProjectContext, task: &str) -> R
             }
             crate::utils::context::ProjectType::Rust => {
                 println!("[INFO] No aplicable a proyectos Rust.");
+                Ok(())
+            }
+            crate::utils::context::ProjectType::Go => {
+                println!("[INFO] Los proyectos Go puros no tienen depuración Android.");
                 Ok(())
             }
         },

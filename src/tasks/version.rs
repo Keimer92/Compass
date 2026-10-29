@@ -64,8 +64,8 @@ pub fn bump(ctx: &ProjectContext) -> Result<()> {
             Format::Yaml,
         )],
         ProjectType::Python => vec![(ctx.script_dir.join("pyproject.toml"), Format::Pyproject)],
-        ProjectType::Flutter | ProjectType::Kotlin => {
-            println!("[INFO] No aplicable: en Flutter/Kotlin la version se gestiona en pubspec.yaml / gradle.");
+        ProjectType::Flutter | ProjectType::Kotlin | ProjectType::Go => {
+            println!("[INFO] No aplicable: la version se gestiona en la configuracion propia del proyecto.");
             println!();
             pause();
             return Ok(());
@@ -162,6 +162,7 @@ pub fn bump(ctx: &ProjectContext) -> Result<()> {
         "  Tipo de proyecto: {}",
         match ctx.project_type {
             ProjectType::Tauri => "TAURI",
+            ProjectType::Go => "GO",
             ProjectType::GoWails => "GO + WAILS",
             ProjectType::Python => "PYTHON",
             _ => "RUST",

@@ -34,7 +34,7 @@ use ratatui::{
 use crate::theme::{self, Theme};
 use crate::utils::{
     cmd,
-    context::{ProjectContext, ProjectType},
+    context::{classify_dir, ProjectContext, ProjectType},
     platform, ui,
 };
 
@@ -701,6 +701,30 @@ Desktop.ini
 *.log
 "#
         }
+        ProjectType::Go => {
+            r#"# ============================================
+# .gitignore para Go
+# ============================================
+
+# --- Binarios y pruebas ---
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# --- Editor / entorno local ---
+.vscode/
+.idea/
+.env
+.env.*
+!.env.example
+*.log
+"#
+        }
         ProjectType::Python => {
             r#"# ============================================
 # .gitignore para Python
@@ -744,7 +768,11 @@ Thumbs.db
 
 /// Adds Windows-specific rules without removing existing project rules.
 fn gitignore_content_for_platform(project_type: ProjectType) -> String {
-    let mut content = gitignore_content(project_type).trim_end().to_string();
+    with_windows_rules(gitignore_content(project_type).to_string())
+}
+
+fn with_windows_rules(content: String) -> String {
+    let mut content = content.trim_end().to_string();
     content.push_str("\n\n# --- Windows ---\n$RECYCLE.BIN/\nehthumbs.db\n*.lnk\n");
     content
 }
@@ -783,8 +811,35 @@ fn merge_gitignore(existing: &str, required: &str) -> String {
 
 /// Non-interactive .gitignore action used by file-manager context menus.
 pub fn add_context_gitignore(ctx: &ProjectContext) -> Result<()> {
-    let path = ctx.script_dir.join(".gitignore");
-    let required = gitignore_content_for_platform(ctx.project_type);
+    write_context_gitignore(
+        &ctx.script_dir,
+        &gitignore_content_for_platform(ctx.project_type),
+    )
+}
+
+/// Adds a platform-aware .gitignore from a selected directory without requiring
+/// Compass to support that project type for its development menu.
+pub fn add_context_gitignore_from_dir(start: &Path) -> Result<()> {
+    if !start.is_dir() {
+        anyhow::bail!("La ruta no es una carpeta: {}", start.display());
+    }
+
+    let mut dir = Some(start);
+    while let Some(candidate) = dir {
+        if let Some(project_type) = classify_dir(candidate) {
+            return write_context_gitignore(
+                candidate,
+                &gitignore_content_for_platform(project_type),
+            );
+        }
+        dir = candidate.parent();
+    }
+
+    anyhow::bail!("No se encontró un proyecto reconocido en esta carpeta ni en sus padres.")
+}
+
+fn write_context_gitignore(root: &Path, required: &str) -> Result<()> {
+    let path = root.join(".gitignore");
     let existing = if path.exists() {
         Some(
             std::fs::read_to_string(&path)
@@ -794,8 +849,8 @@ pub fn add_context_gitignore(ctx: &ProjectContext) -> Result<()> {
         None
     };
     let content = match &existing {
-        Some(existing) => merge_gitignore(existing, &required),
-        None => required,
+        Some(existing) => merge_gitignore(existing, required),
+        None => required.to_string(),
     };
     if existing.as_deref() == Some(content.as_str()) {
         println!(
@@ -848,6 +903,11 @@ fn print_preserved(project_type: ProjectType) {
             println!("  - gradle/wrapper/ (Gradle Wrapper)");
             println!("  - gradlew + gradlew.bat (wrappers de ambas plataformas)");
         }
+        ProjectType::Go => {
+            println!("  - archivos .go (código fuente)");
+            println!("  - go.mod + go.sum");
+            println!("  - binarios compilados en bin/");
+        }
         ProjectType::GoWails => {
             println!("  - main.go, internal/ (código Go)");
             println!("  - go.mod + go.sum");
@@ -887,6 +947,11 @@ fn print_instructions(project_type: ProjectType) {
             println!("  3. ./gradlew :composeApp:run (Desktop)");
             println!("  4. ./gradlew :composeApp:installDebug (Android)");
         }
+        ProjectType::Go => {
+            println!("  1. git clone <repo>");
+            println!("  2. go mod download");
+            println!("  3. go run . / go test ./...");
+        }
         ProjectType::GoWails => {
             println!("  1. git clone <repo>");
             println!("  2. go install github.com/wailsapp/wails/v3/cmd/wails3@latest");
@@ -908,6 +973,7 @@ fn gitignore_banner(project_type: ProjectType) -> &'static str {
         ProjectType::Tauri => "CREAR .gitignore PARA RUST/TAURI",
         ProjectType::Flutter => "CREAR .gitignore PARA FLUTTER/DART",
         ProjectType::Kotlin => "CREAR .gitignore PARA KOTLIN MULTIPLATFORM",
+        ProjectType::Go => "CREAR .gitignore PARA GO",
         ProjectType::GoWails => "CREAR .gitignore PARA GO + WAILS",
         ProjectType::Python => "CREAR .gitignore PARA PYTHON",
     }
@@ -1473,6 +1539,8 @@ mod tests {
         assert!(gitignore_content(ProjectType::Flutter).contains(".dart_tool/"));
         assert!(gitignore_content(ProjectType::Kotlin).contains(".gradle/"));
         assert!(gitignore_content(ProjectType::GoWails).contains("frontend/node_modules/"));
+        assert!(gitignore_content(ProjectType::Go).contains("bin/"));
+        assert!(gitignore_content(ProjectType::Go).contains("*.exe"));
         assert!(gitignore_content(ProjectType::Python).contains("__pycache__/"));
         assert!(gitignore_content(ProjectType::Python).contains(".venv/"));
     }
@@ -1483,6 +1551,30 @@ mod tests {
         assert!(windows.contains("$RECYCLE.BIN/"));
         assert!(windows.contains("*.lnk"));
         assert!(!windows.contains(".Trash-*/"));
+    }
+
+    #[test]
+    fn context_gitignore_detects_plain_go_projects_and_preserves_existing_rules() {
+        let root = std::env::temp_dir().join(format!("compass-context-go-{}", std::process::id()));
+        let nested = root.join("Output");
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::write(root.join("go.mod"), "module example.com/receipt\n").unwrap();
+        std::fs::write(root.join(".gitignore"), "custom-output/\n").unwrap();
+
+        add_context_gitignore_from_dir(&nested).unwrap();
+        let content = std::fs::read_to_string(root.join(".gitignore")).unwrap();
+        assert!(content.starts_with("custom-output/\n"));
+        assert!(content.contains("*.exe"));
+        assert!(content.contains("*.test"));
+        assert!(content.contains("*.lnk"));
+        assert!(content.contains("bin/"));
+
+        add_context_gitignore_from_dir(&nested).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(root.join(".gitignore")).unwrap(),
+            content
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -1507,6 +1599,7 @@ mod tests {
             ProjectType::Flutter,
             ProjectType::Kotlin,
             ProjectType::Python,
+            ProjectType::Go,
         ] {
             for line in gitignore_content(pt).lines() {
                 let l = line.trim();

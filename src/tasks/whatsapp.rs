@@ -93,6 +93,9 @@ pub fn build(ctx: &ProjectContext) -> Result<()> {
         crate::utils::context::ProjectType::GoWails => {
             ctx.script_dir.join("resources/whatsapp-engine-bundle")
         }
+        crate::utils::context::ProjectType::Go => {
+            ctx.script_dir.join("resources/whatsapp-engine-bundle")
+        }
     };
 
     if bundle_dir.exists() {

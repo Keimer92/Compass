@@ -3,6 +3,7 @@ pub mod cleanup;
 pub mod context_menu;
 pub mod flutter;
 pub mod git;
+pub mod go;
 pub mod gowails;
 pub mod kotlin;
 pub mod python;

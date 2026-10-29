@@ -182,6 +182,7 @@ fn quick_targets(ctx: &ProjectContext) -> Vec<(String, PathBuf)> {
             ("target/debug".into(), root.join("target/debug")),
             ("target/release".into(), root.join("target/release")),
         ],
+        ProjectType::Go => vec![("bin/".into(), root.join("bin"))],
         ProjectType::GoWails => {
             let android = root.join("build").join("android");
             vec![
@@ -251,6 +252,7 @@ fn full_targets(ctx: &ProjectContext) -> Vec<(String, PathBuf)> {
             ]
         }
         ProjectType::Rust => vec![("target/".into(), root.join("target"))],
+        ProjectType::Go => vec![("bin/".into(), root.join("bin"))],
         ProjectType::GoWails => {
             let android = root.join("build").join("android");
             vec![
@@ -342,6 +344,7 @@ fn selectable_targets(ctx: &ProjectContext) -> Vec<Candidate> {
             ]
         }
         ProjectType::Rust => vec![c("target/", root.join("target"), true)],
+        ProjectType::Go => vec![c("bin/", root.join("bin"), false)],
         ProjectType::GoWails => {
             let android = root.join("build").join("android");
             vec![
@@ -416,6 +419,7 @@ fn full_clean(ctx: &ProjectContext) -> Result<()> {
         ProjectType::Flutter => crate::tasks::flutter::clean(ctx),
         ProjectType::Kotlin => crate::tasks::kotlin::clean(ctx),
         ProjectType::Rust => crate::tasks::rust::clean(ctx),
+        ProjectType::Go => crate::tasks::go::clean(ctx),
         ProjectType::GoWails => crate::tasks::gowails::clean(ctx),
         ProjectType::Python => crate::tasks::python::clean(ctx),
     }
@@ -741,6 +745,7 @@ mod tests {
             ProjectType::Kotlin,
             ProjectType::Rust,
             ProjectType::Python,
+            ProjectType::Go,
         ] {
             for (label, path) in quick_targets(&fake_ctx(pt)) {
                 let p = path.to_string_lossy().replace('\\', "/");
@@ -777,6 +782,15 @@ mod tests {
         );
     }
 
+    #[test]
+    fn go_cleanup_targets_only_project_binaries() {
+        let ctx = fake_ctx(ProjectType::Go);
+        assert_eq!(quick_targets(&ctx), full_targets(&ctx));
+        assert_eq!(quick_targets(&ctx).len(), 1);
+        assert!(quick_targets(&ctx)[0].1.ends_with("bin"));
+        assert!(!selectable_targets(&ctx)[0].deps);
+    }
+
     /// Kotlin: el nombre del módulo sale de `kotlin_android_dir`, no hardcodeado.
     #[test]
     fn kotlin_plan_uses_the_detected_module_name() {
@@ -798,6 +812,7 @@ mod tests {
             ProjectType::Kotlin,
             ProjectType::Rust,
             ProjectType::Python,
+            ProjectType::Go,
         ] {
             let cands = selectable_targets(&fake_ctx(pt));
             for a in &cands {
@@ -826,6 +841,7 @@ mod tests {
             ProjectType::Kotlin,
             ProjectType::Rust,
             ProjectType::Python,
+            ProjectType::Go,
         ] {
             let mut labels: Vec<String> = selectable_targets(&fake_ctx(pt))
                 .into_iter()

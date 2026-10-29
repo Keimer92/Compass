@@ -5,7 +5,7 @@
 La aplicación de escritorio tiene soporte exclusivo para Windows; Android sigue disponible como plataforma de destino para los proyectos compatibles.
 
 
-`compass` es una herramienta CLI/TUI multiplataforma que automatiza tareas de desarrollo, compilación y configuración para proyectos **Tauri (Rust)**, **Flutter (Dart)**, **Kotlin Multiplatform (Compose)**, **Go + Wails v3**, **Python** y **Rust puro**. Detecta automáticamente el tipo de proyecto y adapta comandos, rutas y comportamientos.
+`compass` es una herramienta CLI/TUI para Windows que automatiza tareas de desarrollo, compilación y configuración para proyectos **Tauri (Rust)**, **Flutter (Dart)**, **Kotlin Multiplatform (Compose)**, **Go + Wails v3**, **Go puro**, **Python** y **Rust puro**. Detecta automáticamente el tipo de proyecto y adapta comandos, rutas y comportamientos.
 
 ## Project Types
 
@@ -15,10 +15,13 @@ La aplicación de escritorio tiene soporte exclusivo para Windows; Android sigue
 | `Flutter` | `pubspec.yaml` | 🎯 | Completo |
 | `Kotlin` | `gradlew.bat` + `settings.gradle.kts` | 🔷 | Completo |
 | `Go + Wails` | `go.mod` con `wailsapp/wails` + `Taskfile.yml` | 🐹 | Completo (sin firma) |
+| `Go` | `go.mod` (después de detectar Wails v3) | 🐹 | Run, build, test, clean, git |
 | `Python` | `pyproject.toml` con `[project]` o `[tool.poetry]` | 🐍 | Completo (sin Android) |
 | `Rust` | `Cargo.toml` (después de todos los anteriores) | ⚙️ | Reducido (sin Android) |
 
-El orden de detección es: **Flutter → Tauri → Go+Wails → KMP → Python → Rust**. Si un proyecto coincide con `package.json` pero no con `tauri.conf.json`, se clasifica como Tauri (para proyectos JS/Node con frontend).
+El orden de detección es: **Flutter → Tauri → Go+Wails → KMP → package.json/Tauri → Python → Go → Rust**. Go + Wails v3 se detecta antes que Go puro para conservar su menú especializado. Si un proyecto coincide con `package.json` pero no con `tauri.conf.json`, se clasifica como Tauri (para proyectos JS/Node con frontend).
+
+Para Go puro, Compass ofrece `go run .`, `go build` (guarda el `.exe` en `bin/`), `go test ./...`, limpieza de `bin/` y el flujo Git. No muestra acciones Android ni firma.
 
 ## Platform Support
 
@@ -27,7 +30,7 @@ Compass ejecuta como aplicación de escritorio únicamente en **Windows**. Andro
 | Función | Windows |
 |---------|---------|
 | Selector de proyecto (`--pick`) | ✅ |
-| Tauri, Flutter, Kotlin, Go + Wails, Rust y Python desktop | ✅ |
+| Tauri, Flutter, Kotlin, Go + Wails, Go puro, Rust y Python desktop | ✅ |
 | Android (dev + release APK/AAB) | ✅ sólo dispositivo físico |
 | Menú contextual Compass + Vibe Coding + `.gitignore` | ✅ Registro de Windows |
 | Configurar Terminal (PSReadLine) | ✅ |
@@ -131,7 +134,7 @@ Estructura inyectada en todas las funciones de tarea:
 ```
 ProjectContext
   script_dir: PathBuf           # Raíz del proyecto detectado
-  project_type: ProjectType     # Tauri | Flutter | Kotlin | Rust
+  project_type: ProjectType     # Tauri | Flutter | Kotlin | Go | GoWails | Python | Rust
   android_home: Option<PathBuf>
   ndk_home: Option<PathBuf>
   adb_path: Option<PathBuf>
@@ -185,6 +188,7 @@ tasks/
   ├─ flutter.rs — run_windows(), run_android(), profile_windows(), profile_android(), build_*(), clean()
   ├─ kotlin.rs  — run_windows() [con hot reload], run_android(), install_debug() (`:<modulo>:installDebug` + lanza con `am start`), build_*(), clean(); deteccion de modulo Gradle `:app`/`:composeApp` via `gradle_module()`; release_signing_env() [exporta RELEASE_* vars, parseando con `signer::Props`]
   ├─ gowails.rs — dev(), build_desktop(), package_desktop(), build_apk(), build_aab(), install_debug(), debug_android(), clean()  [Go + Wails v3: pipeline Android propio, ver "Go + Wails v3"]
+  ├─ go.rs      — run(), build(), test(), clean()         [Go puro]
   ├─ rust.rs    — run(), build(), clean()                [Rust only]
   ├─ cleanup.rs — manage() [submenú unificado: rápida / completa / reporte de tamaños], quick_targets()/full_targets(), clean_project() [Tauri: portabilidad]
   ├─ git.rs     — manage() [submenú unificado: init / .gitignore / conectar con remoto / estado]; templates de .gitignore por tipo
@@ -217,7 +221,14 @@ tasks/
 | ConfigureTerminal | `terminal::configure` | `terminal::configure` | `terminal::configure` | `terminal::configure` | `terminal::configure` |
 | Salir | `Esc` → `process::exit(0)` | ídem | ídem | ídem | ídem |
 
-### Tareas globales (sin projecto)
+### Go puro
+
+- `windows-dev` → `go run .`
+- `windows-build` → `go build -o bin/<nombre>.exe .`
+- `go-test` → `go test ./...`
+- `clean` → `go clean` + `bin/`
+
+### Tareas globales (sin proyecto)
 
 | Task | Ruta |
 |------|------|
@@ -892,6 +903,7 @@ Cada tipo de proyecto tiene su propio `.gitignore`:
 - **Tauri**: ignorar Rust target, gen/android, node_modules, dist, Vite cache
 - **Flutter**: ignorar build, .dart_tool, Android builds, ios symlinks
 - **Kotlin**: ignorar build, .gradle, .kotlin, local.properties, APK/AAB artefactos
+- **Go puro**: ignorar binarios, tests compilados, `bin/` y archivos `.env`
 - **Go + Wails**: ignorar bin/, frontend/node_modules, frontend/dist, frontend/bindings, build/android (build, .gradle, jniLibs, overlay.json, local.properties), *.syso, APK/AAB
 
 Todos preservan: fuente, config, wrapper/scripts, firmas, motor WhatsApp.

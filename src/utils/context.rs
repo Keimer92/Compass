@@ -11,6 +11,8 @@ pub enum ProjectType {
     Kotlin,
     Python,
     Rust,
+    /// Proyecto Go sin framework de escritorio.
+    Go,
     /// Go + Wails v3 (`go.mod` con `wailsapp/wails` + `Taskfile.yml`).
     GoWails,
 }
@@ -28,7 +30,7 @@ impl ProjectType {
     pub fn whatsapp_path(&self, root: &PathBuf) -> PathBuf {
         match self {
             Self::Tauri => root.join("src-tauri").join("whatsapp-engine"),
-            Self::Flutter | Self::Kotlin | Self::Python | Self::Rust | Self::GoWails => {
+            Self::Flutter | Self::Kotlin | Self::Python | Self::Rust | Self::Go | Self::GoWails => {
                 root.join("whatsapp_engine")
             }
         }
@@ -92,6 +94,7 @@ pub fn detect() -> Result<ProjectContext> {
         ProjectType::Kotlin => platform::find_gradlew(&script_dir).is_some(),
         ProjectType::Python => false,
         ProjectType::Rust => false,
+        ProjectType::Go => false,
         // Wails v3 deja el proyecto Gradle en `build/android/`.
         ProjectType::GoWails => {
             platform::find_gradlew(&script_dir.join("build").join("android")).is_some()
@@ -139,6 +142,9 @@ pub fn classify_dir(d: &Path) -> Option<ProjectType> {
     if is_python_project(d) {
         return Some(ProjectType::Python);
     }
+    if d.join("go.mod").is_file() {
+        return Some(ProjectType::Go);
+    }
     if d.join("Cargo.toml").exists() {
         return Some(ProjectType::Rust);
     }
@@ -172,7 +178,7 @@ fn detect_project_root() -> Result<(PathBuf, ProjectType)> {
     }
 
     anyhow::bail!(
-        "No se encontró un proyecto Tauri, Flutter/Dart, Kotlin Multiplatform, Python, Rust o Go/Wails en este directorio ni en sus padres.\n\
+        "No se encontró un proyecto Tauri, Flutter/Dart, Kotlin Multiplatform, Go, Python o Rust en este directorio ni en sus padres.\n\
          Usa el selector con 'compass --pick' para elegir la carpeta del proyecto."
     );
 }
@@ -185,6 +191,7 @@ fn type_label(pt: ProjectType) -> &'static str {
         ProjectType::Kotlin => "Kotlin",
         ProjectType::Python => "Python",
         ProjectType::Rust => "Rust",
+        ProjectType::Go => "Go",
         ProjectType::GoWails => "Go + Wails",
     }
 }
@@ -416,6 +423,23 @@ mod tests {
         )
         .unwrap();
         assert_eq!(classify_dir(&root), Some(ProjectType::Python));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn go_projects_are_detected_and_wails_v3_keeps_priority() {
+        let root = env::temp_dir().join(format!("compass-go-detect-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("go.mod"), "module example.com/receipt\n").unwrap();
+        assert_eq!(classify_dir(&root), Some(ProjectType::Go));
+
+        std::fs::write(
+            root.join("go.mod"),
+            "module example.com/app\nrequire github.com/wailsapp/wails/v3 v3.0.0\n",
+        )
+        .unwrap();
+        std::fs::write(root.join("Taskfile.yml"), "version: '3'\n").unwrap();
+        assert_eq!(classify_dir(&root), Some(ProjectType::GoWails));
         let _ = std::fs::remove_dir_all(&root);
     }
 }

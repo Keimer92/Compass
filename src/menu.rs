@@ -62,7 +62,7 @@ pub enum MenuItem {
     AndroidBuildAll,
     InstallDebug,
     FlutterProfile,
-    PythonTest,
+    Tests,
     // MNT section
     Clean,
     DebugAndroid,
@@ -90,7 +90,7 @@ impl MenuItem {
             Self::AndroidBuildAll => "\u{1f680}",
             Self::InstallDebug => "\u{1f4e6}",
             Self::FlutterProfile => "\u{1f3af}",
-            Self::PythonTest => "\u{1f9ea}",
+            Self::Tests => "\u{1f9ea}",
             Self::Clean => "\u{1f9f9}",
             Self::DebugAndroid => "\u{1f50d}",
             Self::Signing => "\u{1f511}",
@@ -112,7 +112,7 @@ impl MenuItem {
             | Self::AndroidBuildAll
             | Self::InstallDebug
             | Self::FlutterProfile
-            | Self::PythonTest => "DEV",
+            | Self::Tests => "DEV",
             Self::Clean | Self::DebugAndroid | Self::Signing | Self::Version => "MNT",
             Self::Git | Self::BuildWhatsApp | Self::ConfigureTerminal => "CFG",
         }
@@ -123,6 +123,7 @@ impl MenuItem {
             Self::WindowsDev => match project_type {
                 ProjectType::Rust => "Run",
                 ProjectType::Python => "Run",
+                ProjectType::Go => "Run",
                 _ => "Windows",
             },
             Self::AndroidDev => match project_type {
@@ -139,6 +140,7 @@ impl MenuItem {
             Self::WindowsBuild => match project_type {
                 ProjectType::Rust => "Build",
                 ProjectType::Python => "Package",
+                ProjectType::Go => "Build",
                 // En Go + Wails el release ya no es un `.exe` portable: la
                 // tarea empaqueta el instalador (NSIS en Windows).
                 ProjectType::GoWails => "Installer",
@@ -149,6 +151,7 @@ impl MenuItem {
                 ProjectType::Flutter => "APK",
                 ProjectType::Kotlin => "APK",
                 ProjectType::Rust => "",
+                ProjectType::Go => "",
                 ProjectType::GoWails => "APK",
                 ProjectType::Python => "",
             },
@@ -157,6 +160,7 @@ impl MenuItem {
                 ProjectType::Flutter => "",
                 ProjectType::Kotlin => "",
                 ProjectType::Rust => "",
+                ProjectType::Go => "",
                 ProjectType::GoWails => "",
                 ProjectType::Python => "",
             },
@@ -165,13 +169,14 @@ impl MenuItem {
                 ProjectType::Flutter => "AAB",
                 ProjectType::Kotlin => "AAB",
                 ProjectType::Rust => "",
+                ProjectType::Go => "",
                 ProjectType::GoWails => "AAB",
                 ProjectType::Python => "",
             },
             Self::InstallDebug => "Install",
             Self::FlutterProfile => "Profile",
-            Self::PythonTest => {
-                if project_type == ProjectType::Python {
+            Self::Tests => {
+                if matches!(project_type, ProjectType::Python | ProjectType::Go) {
                     "Test"
                 } else {
                     ""
@@ -205,7 +210,7 @@ impl MenuItem {
                 Self::BuildWhatsApp => "Compila WhatsApp",
                 Self::ConfigureTerminal => "Autocompletado",
                 Self::FlutterProfile => "",
-                Self::PythonTest => "",
+                Self::Tests => "",
                 Self::AndroidHmr => "",
             },
             ProjectType::Tauri => match self {
@@ -225,7 +230,7 @@ impl MenuItem {
                 Self::ConfigureTerminal => "Autocompletado",
                 Self::FlutterProfile => "",
                 Self::AndroidHmr => "",
-                Self::PythonTest => "",
+                Self::Tests => "",
             },
             ProjectType::Flutter => match self {
                 Self::WindowsDev => "flutter run windows",
@@ -244,7 +249,7 @@ impl MenuItem {
                 Self::ConfigureTerminal => "Autocompletado",
                 Self::FlutterProfile => "flutter run --profile",
                 Self::AndroidHmr => "",
-                Self::PythonTest => "",
+                Self::Tests => "",
             },
             ProjectType::Kotlin => match self {
                 Self::WindowsDev => "gradlew :composeApp:run",
@@ -263,7 +268,7 @@ impl MenuItem {
                 Self::ConfigureTerminal => "Autocompletado",
                 Self::FlutterProfile => "",
                 Self::AndroidHmr => "",
-                Self::PythonTest => "",
+                Self::Tests => "",
             },
             ProjectType::GoWails => match self {
                 Self::WindowsDev => "dev escritorio",
@@ -282,7 +287,7 @@ impl MenuItem {
                 Self::Version => "build/config.yml",
                 Self::ConfigureTerminal => "Autocompletado",
                 Self::FlutterProfile => "",
-                Self::PythonTest => "",
+                Self::Tests => "",
             },
             ProjectType::Python => match self {
                 Self::WindowsDev => "python <script/module>",
@@ -301,7 +306,26 @@ impl MenuItem {
                 Self::BuildWhatsApp => "",
                 Self::ConfigureTerminal => "Autocompletado",
                 Self::FlutterProfile => "",
-                Self::PythonTest => "python -m pytest",
+                Self::Tests => "python -m pytest",
+            },
+            ProjectType::Go => match self {
+                Self::WindowsDev => "go run .",
+                Self::AndroidDev => "",
+                Self::AndroidHmr => "",
+                Self::WindowsBuild => "go build",
+                Self::AndroidBuildArm64 => "",
+                Self::AndroidBuildArmv7 => "",
+                Self::AndroidBuildAll => "",
+                Self::InstallDebug => "",
+                Self::Clean => "Limpia binarios",
+                Self::DebugAndroid => "",
+                Self::Signing => "",
+                Self::Version => "",
+                Self::Git => "Init · gitignore · remoto",
+                Self::BuildWhatsApp => "",
+                Self::ConfigureTerminal => "Autocompletado",
+                Self::FlutterProfile => "",
+                Self::Tests => "go test ./...",
             },
         }
     }
@@ -343,7 +367,7 @@ impl MenuState {
             MenuItem::AndroidBuildAll,
             MenuItem::InstallDebug,
             MenuItem::FlutterProfile,
-            MenuItem::PythonTest,
+            MenuItem::Tests,
             MenuItem::Clean,
             MenuItem::DebugAndroid,
             MenuItem::Signing,
@@ -367,14 +391,14 @@ impl MenuState {
                         | MenuItem::Signing
                         | MenuItem::FlutterProfile
                         | MenuItem::AndroidHmr
-                        | MenuItem::PythonTest
+                        | MenuItem::Tests
                 ),
                 ProjectType::Tauri => !matches!(
                     item,
                     MenuItem::InstallDebug
                         | MenuItem::FlutterProfile
                         | MenuItem::AndroidHmr
-                        | MenuItem::PythonTest
+                        | MenuItem::Tests
                 ),
                 ProjectType::Flutter => !matches!(
                     item,
@@ -382,7 +406,7 @@ impl MenuState {
                         | MenuItem::Version
                         | MenuItem::InstallDebug
                         | MenuItem::AndroidHmr
-                        | MenuItem::PythonTest
+                        | MenuItem::Tests
                 ),
                 ProjectType::Kotlin => !matches!(
                     item,
@@ -390,7 +414,7 @@ impl MenuState {
                         | MenuItem::Version
                         | MenuItem::FlutterProfile
                         | MenuItem::AndroidHmr
-                        | MenuItem::PythonTest
+                        | MenuItem::Tests
                 ),
                 // Go + Wails: la firma la hace el Gradle de Wails con
                 // variables de entorno (ANDROID_KEYSTORE_*), que Compass
@@ -398,7 +422,7 @@ impl MenuState {
                 // `.properties` de donde salen.
                 ProjectType::GoWails => !matches!(
                     item,
-                    MenuItem::AndroidBuildArmv7 | MenuItem::FlutterProfile | MenuItem::PythonTest
+                    MenuItem::AndroidBuildArmv7 | MenuItem::FlutterProfile | MenuItem::Tests
                 ),
                 ProjectType::Python => !matches!(
                     item,
@@ -410,6 +434,20 @@ impl MenuState {
                         | MenuItem::FlutterProfile
                         | MenuItem::DebugAndroid
                         | MenuItem::Signing
+                        | MenuItem::BuildWhatsApp
+                ),
+                ProjectType::Go => !matches!(
+                    item,
+                    MenuItem::AndroidDev
+                        | MenuItem::AndroidHmr
+                        | MenuItem::AndroidBuildArm64
+                        | MenuItem::AndroidBuildArmv7
+                        | MenuItem::AndroidBuildAll
+                        | MenuItem::InstallDebug
+                        | MenuItem::FlutterProfile
+                        | MenuItem::DebugAndroid
+                        | MenuItem::Signing
+                        | MenuItem::Version
                         | MenuItem::BuildWhatsApp
                 ),
             })
@@ -705,6 +743,7 @@ fn render_header(frame: &mut Frame, area: Rect, ctx: &ProjectContext, theme: &Th
         ProjectType::Flutter => ("\u{1f3af}", "Compass for Dart / Flutter", "FLUTTER"),
         ProjectType::Kotlin => ("\u{1f537}", "Compass for Kotlin / KMP", "KOTLIN"),
         ProjectType::Rust => ("\u{2699}", "Compass for Rust", "RUST"),
+        ProjectType::Go => ("\u{1f4e6}", "Compass for Go", "GO"),
         ProjectType::GoWails => ("\u{1f408}", "Compass for Go / Wails", "GO"),
         ProjectType::Python => ("\u{1f40d}", "Compass for Python", "PYTHON"),
     };
@@ -713,6 +752,7 @@ fn render_header(frame: &mut Frame, area: Rect, ctx: &ProjectContext, theme: &Th
         ProjectType::Flutter => theme.info,
         ProjectType::Kotlin => theme.accent,
         ProjectType::Rust => theme.warning,
+        ProjectType::Go => theme.info,
         ProjectType::GoWails => theme.info,
         ProjectType::Python => theme.accent,
     };
@@ -1094,6 +1134,7 @@ fn menu_item_to_task(item: MenuItem, ptype: ProjectType) -> &'static str {
         (MenuItem::WindowsDev, ProjectType::Flutter) => "windows-dev",
         (MenuItem::WindowsDev, ProjectType::Kotlin) => "windows-dev",
         (MenuItem::WindowsDev, ProjectType::Rust) => "windows-dev",
+        (MenuItem::WindowsDev, ProjectType::Go) => "windows-dev",
         (MenuItem::WindowsDev, ProjectType::GoWails) => "windows-dev",
         (MenuItem::WindowsDev, ProjectType::Python) => "windows-dev",
 
@@ -1118,7 +1159,8 @@ fn menu_item_to_task(item: MenuItem, ptype: ProjectType) -> &'static str {
         (MenuItem::InstallDebug, _) => "android-install-debug",
 
         (MenuItem::FlutterProfile, ProjectType::Flutter) => "flutter-profile",
-        (MenuItem::PythonTest, ProjectType::Python) => "python-test",
+        (MenuItem::Tests, ProjectType::Python) => "python-test",
+        (MenuItem::Tests, ProjectType::Go) => "go-test",
 
         (MenuItem::Clean, _) => "clean",
 
@@ -1245,6 +1287,7 @@ mod tests {
             ProjectType::GoWails,
             ProjectType::Rust,
             ProjectType::Python,
+            ProjectType::Go,
         ] {
             let state = MenuState::new(pt, crate::theme::DEFAULT);
             for item in &state.items {
@@ -1274,7 +1317,7 @@ mod tests {
             MenuItem::WindowsDev,
             MenuItem::AndroidHmr,
             MenuItem::WindowsBuild,
-            MenuItem::PythonTest,
+            MenuItem::Tests,
             MenuItem::Clean,
             MenuItem::Version,
             MenuItem::Git,
@@ -1288,8 +1331,32 @@ mod tests {
             "android-hmr"
         );
         assert_eq!(
-            menu_item_to_task(MenuItem::PythonTest, ProjectType::Python),
+            menu_item_to_task(MenuItem::Tests, ProjectType::Python),
             "python-test"
+        );
+    }
+
+    #[test]
+    fn pure_go_menu_exposes_run_build_tests_clean_and_git() {
+        let state = MenuState::new(ProjectType::Go, crate::theme::DEFAULT);
+        for item in [
+            MenuItem::WindowsDev,
+            MenuItem::WindowsBuild,
+            MenuItem::Tests,
+            MenuItem::Clean,
+            MenuItem::Git,
+        ] {
+            assert!(state.items.contains(&item), "falta {item:?}");
+        }
+        assert!(!state.items.contains(&MenuItem::AndroidDev));
+        assert!(!state.items.contains(&MenuItem::Signing));
+        assert_eq!(
+            menu_item_to_task(MenuItem::WindowsDev, ProjectType::Go),
+            "windows-dev"
+        );
+        assert_eq!(
+            menu_item_to_task(MenuItem::Tests, ProjectType::Go),
+            "go-test"
         );
     }
 
