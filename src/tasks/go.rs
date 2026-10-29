@@ -80,6 +80,7 @@ struct GoIconResource {
 impl GoIconResource {
     fn install(root: &Path) -> Result<Self> {
         let path = root.join(WINDOWS_ICON_FILENAME);
+        remove_stale_icon_resource(&path)?;
         let mut file = OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -104,6 +105,30 @@ impl GoIconResource {
             .with_context(|| format!("No se pudo quitar {}", self.path.display()))?;
         self.installed = false;
         Ok(())
+    }
+}
+
+fn remove_stale_icon_resource(path: &Path) -> Result<()> {
+    match fs::read(path) {
+        Ok(contents) if contents == WINDOWS_ICON_RESOURCE => {
+            fs::remove_file(path).with_context(|| {
+                format!(
+                    "No se pudo quitar el recurso Go anterior: {}",
+                    path.display()
+                )
+            })
+        }
+        Ok(_) => anyhow::bail!(
+            "Ya existe un archivo en la ruta reservada para el icono temporal Go: {}",
+            path.display()
+        ),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error).with_context(|| {
+            format!(
+                "No se pudo comprobar el recurso Go anterior: {}",
+                path.display()
+            )
+        }),
     }
 }
 
@@ -166,7 +191,21 @@ mod tests {
     }
 
     #[test]
-    fn icon_resource_does_not_overwrite_an_existing_file() {
+    fn stale_icon_resource_is_replaced() {
+        let root = temp_dir();
+        let path = root.join(WINDOWS_ICON_FILENAME);
+        fs::write(&path, WINDOWS_ICON_RESOURCE).unwrap();
+
+        let resource = GoIconResource::install(&root).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), WINDOWS_ICON_RESOURCE);
+
+        resource.remove().unwrap();
+        assert!(!path.exists());
+        fs::remove_dir(root).unwrap();
+    }
+
+    #[test]
+    fn icon_resource_does_not_overwrite_an_unrelated_file() {
         let root = temp_dir();
         let path = root.join(WINDOWS_ICON_FILENAME);
         fs::write(&path, b"existing resource").unwrap();
