@@ -106,45 +106,9 @@ fn release_signing_env(ctx: &ProjectContext) -> Option<Vec<(String, String)>> {
 
 /// Comando para invocar el wrapper de Gradle en la raíz del proyecto.
 ///
-/// En Windows Gradle se llama a través de `cmd` porque PowerShell no puede
-/// ejecutar un `.bat` directamente. En Linux se usa el wrapper POSIX `./gradlew`.
-///
-/// No se hardcodea el nombre: un proyecto clonado entre Windows y Linux conserva
-/// sólo uno de los dos wrappers, y `find_gradlew` acepta ambos. Además se
-/// comprueba el bit de ejecución y se añade si falta — git no siempre lo
-/// preserva al clonar entre sistemas de archivos distintos.
-fn gradlew_cmd(ctx: &ProjectContext, args: &str) -> String {
-    if platform::IS_WINDOWS {
-        return format!("cmd /c gradlew.bat {}", args);
-    }
-
-    let wrapper = platform::find_gradlew(&ctx.script_dir)
-        .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
-        .unwrap_or_else(|| platform::gradlew_name().to_string());
-
-    // Si sólo llegó `gradlew.bat` a Linux, hay que ejecutarlo con `sh`: los .bat
-    // no corren en POSIX.
-    if wrapper.ends_with(".bat") {
-        return format!("sh gradlew.bat {}", args);
-    }
-
-    // Sin bit +x, `./gradlew` da Permission denied. Se corrige en el sitio y se
-    // avisa, en vez de fallar con un error poco claro dentro de la ventana.
-    // El bloque va tras la rama de Windows, que ya ha salido antes, así que
-    // `path` sólo se usa aquí.
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let path = ctx.script_dir.join(&wrapper);
-        if let Ok(meta) = std::fs::metadata(&path) {
-            if meta.permissions().mode() & 0o111 == 0 {
-                let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755));
-                println!("[INFO] Se dio +x a {} (no lo tenía).", wrapper);
-            }
-        }
-    }
-
-    format!("./{} {}", wrapper, args)
+/// Ejecuta Gradle mediante `cmd`, que es necesario para invocar `.bat` en Windows.
+fn gradlew_cmd(_ctx: &ProjectContext, args: &str) -> String {
+    format!("cmd /c gradlew.bat {}", args)
 }
 
 /// Detecta si el modulo Gradle de un proyecto Kotlin es `:app` o `:composeApp`
@@ -158,8 +122,7 @@ fn gradle_module(ctx: &ProjectContext) -> String {
 }
 
 fn ensure_gradle(ctx: &ProjectContext) -> Result<()> {
-    // Acepta `gradlew` o `gradlew.bat`: un proyecto clonado entre Windows y
-    // Linux conserva sólo uno de los dos wrappers.
+    // Los proyectos Kotlin requieren el wrapper de Windows.
     if platform::find_gradlew(&ctx.script_dir).is_none() {
         anyhow::bail!(
             "No se encontró el wrapper de Gradle en la raíz del proyecto.\n\
@@ -329,8 +292,6 @@ pub fn build_windows(ctx: &ProjectContext) -> Result<()> {
         &gradlew_cmd(ctx, &format!("{}:packageDistributionForCurrentOS", gradle_module(ctx))),
         &ctx.script_dir,
         &dist_dir,
-        // KMP genera un binario sin extensión en Linux; con la lista de Windows
-        // ("exe") no encontraría nada y nunca se revelaría el artefacto.
         platform::desktop_artifact_exts(),
         read_kotlin_app_meta(ctx).map(|(name, ver)| format!("{} v{}", name, ver)).as_deref(),
     )?;
@@ -440,7 +401,7 @@ pub fn clean(ctx: &ProjectContext) -> Result<()> {
     println!("  - {}/build.gradle.kts", module_name);
     println!("  - settings.gradle.kts, gradle.properties");
     println!("  - gradle/wrapper/ (wrapper no se borra)");
-    println!("  - gradlew + gradlew.bat (wrappers de ambas plataformas)");
+    println!("  - gradlew.bat (wrapper de Windows)");
     println!("  - whatsapp_engine/ (motor WhatsApp)");
     println!("  - {}/resources/whatsapp-engine-bundle/ (bundle WhatsApp compilado)", module_name);
     println!("  - Firmas: keystore.properties, *.keystore, *.jks");
@@ -463,19 +424,7 @@ pub fn clean(ctx: &ProjectContext) -> Result<()> {
 
     // 1. gradle clean
     pb.set_message("Ejecutando gradle clean");
-    let _ = if platform::IS_WINDOWS {
-        cmd::run_in_dir("cmd", &["/c", "gradlew.bat", "clean"], &ctx.script_dir)
-    } else {
-        // Misma resolución que `gradlew_cmd`: usa el wrapper que exista de verdad.
-        let wrapper = platform::find_gradlew(&ctx.script_dir)
-            .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
-            .unwrap_or_else(|| platform::gradlew_name().to_string());
-        if wrapper.ends_with(".bat") {
-            cmd::run_in_dir("sh", &["gradlew.bat", "clean"], &ctx.script_dir)
-        } else {
-            cmd::run_in_dir(&format!("./{wrapper}"), &["clean"], &ctx.script_dir)
-        }
-    };
+    let _ = cmd::run_in_dir("cmd", &["/c", "gradlew.bat", "clean"], &ctx.script_dir);
     pb.inc(1);
 
     // 2. root build/
@@ -530,11 +479,7 @@ pub fn clean(ctx: &ProjectContext) -> Result<()> {
 
     pb.finish_with_message("Limpieza completada");
     println!("\n[OK] Proyecto KMP limpiado!");
-    if cfg!(windows) {
-        println!("Para restaurar dependencias: gradlew.bat build");
-    } else {
-        println!("Para restaurar dependencias: ./gradlew build");
-    }
+    println!("Para restaurar dependencias: gradlew.bat build");
 
     pause();
     Ok(())

@@ -357,13 +357,7 @@ fn cleanup_build_locks(ctx: &ProjectContext) {
     // usuario, incluidos otros proyectos en curso e IDEs como Android Studio o
     // IntelliJ. Se limita a los daemons de Gradle, que es lo que realmente
     // retiene los locks.
-    if platform::IS_WINDOWS {
-        let _ = cmd::run("taskkill", &["/F", "/IM", "java.exe", "/T"]);
-    } else {
-        let _ = cmd::run("pkill", &["-f", "GradleDaemon"]);
-        // Kotlin daemon: también retiene caches de compilación.
-        let _ = cmd::run("pkill", &["-f", "KotlinCompileDaemon"]);
-    }
+    let _ = cmd::run("taskkill", &["/F", "/IM", "java.exe", "/T"]);
 }
 
 fn set_arch_arm64() {
@@ -442,10 +436,7 @@ impl DevLaunch {
     /// ExecutionPolicy por defecto.
     fn command(&self, ctx: &ProjectContext) -> String {
         match self {
-            Self::NpmScript => {
-                let npm = if platform::IS_WINDOWS { "npm.cmd" } else { "npm" };
-                format!("{npm} run {NPM_DEV_ANDROID}")
-            }
+            Self::NpmScript => format!("npm.cmd run {NPM_DEV_ANDROID}"),
             Self::Cli => tauri::command(ctx, "android dev"),
         }
     }
@@ -629,66 +620,18 @@ pub fn debug(ctx: &ProjectContext) -> Result<()> {
 
     println!("[5/5] Abriendo Chrome DevTools...");
 
-    // Windows abre Edge (que trae el inspector de WebView integrado con su
-    // propio prefijo); en Linux se usa Chrome con `chrome://`, porque Edge no
-    // registra ese esquema y `xdg-open` no sabría abrirlo.
-    let (url, browser_hint) = if platform::IS_WINDOWS {
-        ("edge://inspect/#devices", "Edge")
-    } else {
-        ("chrome://inspect/#devices", "Chrome")
-    };
+    let url = "edge://inspect/#devices";
     println!();
-    println!("[INFO] Abriendo {}://inspect/#devices ...", if platform::IS_WINDOWS { "edge" } else { "chrome" });
-
-    if platform::IS_WINDOWS {
-        // `clip` en vez de `powershell Set-Clipboard`: PowerShell tarda ~2-3 s
-        // en arrancar y esto se ejecuta en la tarjeta "Debug Android".
-        let _ = cmd::run("cmd", &["/c", &format!("echo {url} | clip")]);
-        let _ = cmd::run("cmd", &["/c", "start", "msedge", url]);
-    } else {
-        // Copiar al portapapeles vía wl-copy/xclip/xsel (Wayland o X11) y abrir
-        // con xdg-open. Ninguno es obligatorio: si no hay ninguno, se abre igual.
-        let copiers: &[&[&str]] = &[
-            &["wl-copy"],
-            &["xclip", "-selection", "clipboard"],
-            &["xsel", "--clipboard", "--input"],
-        ];
-        let mut copied = false;
-        for args in copiers {
-            let mut argv: Vec<&str> = args.to_vec();
-            argv.push(url);
-            if let Ok(out) = cmd::run(args[0], &argv) {
-                if out.status.success() {
-                    copied = true;
-                    break;
-                }
-            }
-        }
-        if !copied {
-            println!("[WARN] Ningún copiador de portapapeles disponible (wl-copy/xclip/xsel).");
-            println!("       Instala uno con: sudo apt install wl-clipboard");
-        }
-        let _ = cmd::run("xdg-open", &[url]);
-    }
-    let _ = browser_hint;
+    println!("[INFO] Abriendo {}://inspect/#devices ...", "edge");
+    // `clip` evita arrancar PowerShell solo para copiar el enlace.
+    let _ = cmd::run("cmd", &["/c", &format!("echo {url} | clip")]);
+    let _ = cmd::run("cmd", &["/c", "start", "msedge", url]);
 
     if has_device {
-        #[cfg(windows)]
-        {
-            println!("[INFO] Si no ves el dispositivo en Edge, verifica:");
-            println!("  1. En edge://inspect, haz clic en 'Discover USB devices'");
-            println!("  2. O usa: adb forward tcp:9222 localabstract:chrome_devtools_remote");
-            println!("  3. Abre http://localhost:9222/json en Edge");
-        }
-        #[cfg(not(windows))]
-        {
-            println!("[INFO] Si no ves el dispositivo en Chrome, verifica:");
-            println!("  1. En chrome://inspect, activa 'Discover USB devices'");
-            println!("  2. O usa: adb forward tcp:9222 localabstract:chrome_devtools_remote");
-            println!("  3. Abre http://localhost:9222/json en Chrome");
-            println!("  4. En Linux, el navegador debe ser Chromium/Chrome: Firefox");
-            println!("     y Brave no implementan el protocolo de WebView DevTools.");
-        }
+        println!("[INFO] Si no ves el dispositivo en Edge, verifica:");
+        println!("  1. En edge://inspect, haz clic en 'Discover USB devices'");
+        println!("  2. O usa: adb forward tcp:9222 localabstract:chrome_devtools_remote");
+        println!("  3. Abre http://localhost:9222/json en Edge");
     }
 
     ui::pause();
@@ -733,8 +676,7 @@ mod tests {
         assert_eq!(DevLaunch::detect(&ctx), DevLaunch::NpmScript);
 
         let cmd = DevLaunch::NpmScript.command(&ctx);
-        let npm = if platform::IS_WINDOWS { "npm.cmd" } else { "npm" };
-        assert_eq!(cmd, format!("{npm} run dev:android"));
+        assert_eq!(cmd, "npm.cmd run dev:android");
 
         let _ = std::fs::remove_dir_all(&root);
     }

@@ -16,9 +16,7 @@ fn resolve_icon(name: &str) -> String {
         .or_else(|| fallback)
         .and_then(|p| p.to_str().map(|s| s.to_string()))
         .unwrap_or_else(|| {
-            // Sin icono junto al binario, se busca en la carpeta de instalación de
-            // cargo. En Linux el home es `HOME`, no `USERPROFILE` (que ahí no
-            // existe y dejaba la ruta como "\.cargo\bin\Default.ico").
+            // Sin icono junto al binario, se busca en la carpeta de instalación de cargo.
             let home = crate::utils::platform::home_dir().unwrap_or_default();
             home.join(".cargo").join("bin").join("Default.ico").display().to_string()
         })
@@ -32,17 +30,9 @@ fn opencode_icon() -> String {
     resolve_icon("opencode.ico")
 }
 
-/// Ruta del ejecutable de compass.
-///
-/// En Linux no lleva extensión: el registro de Windows guarda
-/// `"…\compass.exe" -p "%1"`, y apuntar a un `.exe` inexistente dejaba la
-/// entrada del menú apuntando al vacío.
+/// Ruta del ejecutable de Compass.
 fn exe_path() -> String {
-    let name = if crate::utils::platform::IS_WINDOWS {
-        "compass.exe"
-    } else {
-        "compass"
-    };
+    let name = "compass.exe";
     exe_dir()
         .and_then(|d| d.join(name).to_str().map(|s| s.to_string()))
         .unwrap_or_else(|| name.to_string())
@@ -50,15 +40,8 @@ fn exe_path() -> String {
 
 // ── Compass (entry principal) ──────────────────────────────────────
 
-/// Todo este módulo manipula el registro de Windows (`ExtendedSubCommandsKey`
-/// para el menú cascada) en Windows, y la config `context_actions` de
-/// cosmic-files en Linux. El enrutado por plataforma ocurre en las funciones
-/// públicas; aquí abajo solo vive la implementación de Windows.
+/// Instala las entradas del menú contextual de Windows.
 pub fn install() -> Result<()> {
-    if !crate::utils::platform::IS_WINDOWS {
-        return super::context_menu_cosmic::install();
-    }
-
     let exe = exe_path();
 
     if command_is_current("zz_Compass", &exe) && label_is("zz_Compass", "Compass") {
@@ -165,10 +148,6 @@ fn gitignore_context_command(exe: &str, placeholder: &str) -> String {
 }
 
 pub fn uninstall() -> Result<()> {
-    if !crate::utils::platform::IS_WINDOWS {
-        return super::context_menu_cosmic::uninstall();
-    }
-
     remove_old_code_runner_entry();
 
     let ps = "\
@@ -209,8 +188,7 @@ struct VibeTool {
     /// Rutas donde el instalador deja el ejecutable cuando **no** lo agrega al
     /// PATH. Los npm globales sí lo hacen, así que para ellos va vacía.
     ///
-    /// Con prefijo `LOCALAPPDATA/` o `HOME/` se expanden; si no, es una ruta
-    /// absoluta. Los instaladores nativos (Antigravity, Hermes) dejan el binario
+    /// Con prefijo `LOCALAPPDATA/` se expanden. Los instaladores nativos dejan el binario
     /// en su propia carpeta y no siempre tocan el PATH del usuario.
     fallback: &'static [&'static str],
     install_via: InstallVia,
@@ -281,9 +259,6 @@ const VIBE_TOOLS: &[VibeTool] = &[
         // agrega al PATH.
         fallback: &[
             "LOCALAPPDATA/agy/bin/agy.exe",
-            "HOME/agy/bin/agy",
-            "HOME/.local/bin/agy",
-            "/usr/local/bin/agy",
         ],
         install_via: InstallVia::PowerShell,
     },
@@ -304,8 +279,6 @@ const VIBE_TOOLS: &[VibeTool] = &[
         // refrescado en este proceso.
         fallback: &[
             "LOCALAPPDATA/Microsoft/WinGet/Links/copilot.exe",
-            "HOME/.local/bin/copilot",
-            "/usr/local/bin/copilot",
         ],
         install_via: InstallVia::Cmd,
     },
@@ -329,14 +302,8 @@ const VIBE_TOOLS: &[VibeTool] = &[
         cli: "hermes",
         // Hermes arranca su TUI a pelo, sin flags: `hermes` a secas.
         install: "iex (irm https://hermes-agent.nousresearch.com/install.ps1)",
-        // El README oficial dice que en Windows nativo vive bajo
-        // `%LOCALAPPDATA%\hermes`; en Linux el instalador usa `~/.local/bin`.
-        fallback: &[
-            "LOCALAPPDATA/hermes/bin/hermes.exe",
-            "HOME/.local/bin/hermes",
-            "HOME/.hermes/bin/hermes",
-            "/usr/local/bin/hermes",
-        ],
+        // El README oficial dice que en Windows nativo vive bajo `%LOCALAPPDATA%\hermes`.
+        fallback: &["LOCALAPPDATA/hermes/bin/hermes.exe"],
         install_via: InstallVia::PowerShell,
     },
 ];
@@ -347,10 +314,6 @@ const VIBE_TOOLS: &[VibeTool] = &[
 /// las rutas de instalación conocidas, porque el instalador de Antigravity no
 /// lo agrega al PATH por defecto.
 ///
-/// En Linux la comprobación del PATH es `command -v` en vez del
-/// `Get-Command` de PowerShell: con el comando de Windows el `if` nunca era
-/// verdadero, así que `resolved` salía vacío y el menú se instalaba sin ninguna
-/// sub-entrada.
 fn resolve_tool_command(tool: &VibeTool) -> Option<(String, String)> {
     if command_exists(tool.cli.split_whitespace().next().unwrap_or(tool.cli)) {
         return Some((tool.cli.to_string(), String::new()));
@@ -375,8 +338,7 @@ fn resolve_tool_command(tool: &VibeTool) -> Option<(String, String)> {
 
 /// Rutas donde puede estar el ejecutable de `tool` sin estar en el PATH.
 ///
-/// Los prefijos `LOCALAPPDATA/` y `HOME/` se expanden; lo que se escriba es
-/// relativo a esas rutas, y una ruta absoluta se deja tal cual.
+/// El prefijo `LOCALAPPDATA/` se expande; las rutas absolutas se dejan tal cual.
 fn fallback_candidates(tool: &VibeTool) -> Vec<std::path::PathBuf> {
     let mut out = Vec::new();
 
@@ -384,10 +346,6 @@ fn fallback_candidates(tool: &VibeTool) -> Vec<std::path::PathBuf> {
         if let Some(rest) = hint.strip_prefix("LOCALAPPDATA/") {
             if let Ok(local) = std::env::var("LOCALAPPDATA") {
                 out.push(join_relative(std::path::Path::new(&local), rest));
-            }
-        } else if let Some(rest) = hint.strip_prefix("HOME/") {
-            if let Some(home) = crate::utils::platform::home_dir() {
-                out.push(join_relative(&home, rest));
             }
         } else {
             out.push(std::path::PathBuf::from(hint));
@@ -407,10 +365,6 @@ fn join_relative(base: &std::path::Path, relative: &str) -> std::path::PathBuf {
 
 /// Instala el menú cascada "Vibe Coding" con las sub-entradas que estén disponibles.
 pub fn install_vibe_coding() -> Result<()> {
-    if !crate::utils::platform::IS_WINDOWS {
-        return super::context_menu_cosmic::install();
-    }
-
     let icon = opencode_icon();
 
     // Limpiar entradas viejas individuales (OpenCode/Cline/Kilo sueltos)
@@ -501,10 +455,6 @@ pub fn install_vibe_coding() -> Result<()> {
 }
 
 pub fn uninstall_vibe_coding() -> Result<()> {
-    if !crate::utils::platform::IS_WINDOWS {
-        return super::context_menu_cosmic::uninstall();
-    }
-
     let ps = format!(
         "Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{VIBE_KEY}' -Recurse -Force -ErrorAction SilentlyContinue; \
          Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\{VIBE_KEY}' -Recurse -Force -ErrorAction SilentlyContinue; \
@@ -786,13 +736,12 @@ mod tests {
 
         // Cada herramienta con fallback debe derivar al menos un camino real de
         // su ejecutable. Se usa `ends_with`, no igualdad, porque en Windows el
-        // el candidato lleva `.exe` y en Linux no.
+        // el candidato lleva `.exe`.
         for tool in VIBE_TOOLS.iter().filter(|t| !t.fallback.is_empty()) {
             let ejecutable = tool.cli.split_whitespace().next().unwrap();
             let candidatas = fallback_candidates(tool);
             assert!(
-                candidatas.iter().all(|p| !p.to_string_lossy().contains("LOCALAPPDATA/")
-                    && !p.to_string_lossy().contains("HOME/")),
+                candidatas.iter().all(|p| !p.to_string_lossy().contains("LOCALAPPDATA/")),
                 "{}: quedaron prefijos sin expandir: {candidatas:?}",
                 tool.title
             );
@@ -917,36 +866,21 @@ pub fn uninstall_antigravity() -> Result<()> {
 pub fn toggle() -> Result<()> {
     loop {
         cmd::clear_screen();
-        let title = if crate::utils::platform::IS_WINDOWS {
-            "MENÚ CONTEXTUAL DE WINDOWS"
-        } else {
-            "MENÚ CONTEXTUAL DE COSMIC FILES"
-        };
+        let title = "MENÚ CONTEXTUAL DE WINDOWS";
         println!("╔══════════════════════════════════════════════════╗");
         println!("║     {title:<49}║");
         println!("╚══════════════════════════════════════════════════╝");
         println!();
 
-        // En COSMIC, instalar y desinstalar afecta a la misma lista de presets
-        // (`context_menu_cosmic`), así que ambas entradas comparten el estado.
-        let cr_installed = if crate::utils::platform::IS_WINDOWS {
-            is_installed("zz_Compass")
-        } else {
-            super::context_menu_cosmic::is_installed()
-        };
-        let vc_installed = if crate::utils::platform::IS_WINDOWS {
-            is_installed(VIBE_KEY)
-        } else {
-            // Presencia de alguna entrada con el prefijo de Vibe Coding.
-            super::context_menu_cosmic::has_vibe_entries()
-        };
+        let cr_installed = is_installed("zz_Compass");
+        let vc_installed = is_installed(VIBE_KEY);
 
         let cr_label = if cr_installed { "✔ Compass" } else { "  Compass" };
         let vc_label = if vc_installed { "✔ Vibe Coding" } else { "  Vibe Coding" };
 
         // `options` y `actions` van en paralelo: el `match` de abajo despacha
         // por acción, no por el prefijo del texto. Antes se emparejaba con
-        // `starts_with("2.")` y en Linux eso hacía que "2. Volver" instalara
+        // `starts_with("2.")` hacía que "2. Volver" instalara
         // Vibe Coding en lugar de volver.
         let mut options: Vec<String> = Vec::new();
         let mut actions: Vec<MenuChoice> = Vec::new();
@@ -1022,15 +956,6 @@ enum MenuChoice {
 
 /// ¿Está instalada la entrada `name`? `name` es `zz_Compass` o `VIBE_KEY`.
 fn is_installed(name: &str) -> bool {
-    // En Linux la fuente de verdad es la config de cosmic-files, no el registro.
-    if !crate::utils::platform::IS_WINDOWS {
-        return if name == VIBE_KEY {
-            super::context_menu_cosmic::is_installed()
-        } else {
-            false
-        };
-    }
-
     // Vibe Coding usa ExtendedSubCommandsKey en vez de command
     let ps = if name == VIBE_KEY {
         format!(
@@ -1055,28 +980,12 @@ fn command_is_current(name: &str, needle: &str) -> bool {
 }
 
 /// ¿Está `name` disponible como comando?
-#[cfg(windows)]
 fn command_exists(name: &str) -> bool {
     let ps = format!(
         "$null -ne (Get-Command -Name '{name}' -ErrorAction SilentlyContinue)"
     );
     let output = cmd::run("powershell", &["-NoProfile", "-Command", &ps]);
     output.map(|o| String::from_utf8_lossy(&o.stdout).trim() == "True").unwrap_or(false)
-}
-
-#[cfg(not(windows))]
-fn command_exists(name: &str) -> bool {
-    std::process::Command::new("sh")
-        .args(["-c", &format!("command -v -- {}", sh_quote(name))])
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
-}
-
-/// Entrecomilla para `sh` (comillas simples, escapando la interna).
-#[cfg(not(windows))]
-fn sh_quote(s: &str) -> String {
-    format!("'{}'", s.replace('\'', r"'\''"))
 }
 
 /// Verifica que el texto visible (`(default)` o `MUIVerb`) de la entrada

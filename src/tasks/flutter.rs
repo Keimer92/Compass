@@ -44,16 +44,6 @@ fn read_flutter_app_meta(ctx: &ProjectContext) -> Option<(String, String)> {
     Some((sanitize_app_name(&name?), version?))
 }
 
-/// Target de Flutter para desktop en la plataforma actual.
-///
-/// Antes era `windows` fijo, así que en Linux `flutter run -d windows` fallaba
-/// con "no supported devices". Flutter usa `linux` en Linux y `windows` en
-/// Windows; `flutter run -d <target>` sin `-d` también valía, pero ser
-/// explícito da un error más claro si falta el toolchain del desktop.
-fn desktop_target() -> &'static str {
-    if crate::utils::platform::IS_WINDOWS { "windows" } else { "linux" }
-}
-
 pub fn run_windows(ctx: &ProjectContext) -> Result<()> {
     ensure_pubget(ctx)?;
     ensure_whatsapp_npm(ctx)?;
@@ -61,7 +51,7 @@ pub fn run_windows(ctx: &ProjectContext) -> Result<()> {
     cmd::spawn_new_window_interactive(
         "Flutter Desktop (Dev)",
         &ctx.script_dir,
-        &format!("flutter run -d {}", desktop_target()),
+        "flutter run -d windows",
     )?;
 
     Ok(())
@@ -115,9 +105,7 @@ pub fn build_windows(ctx: &ProjectContext) -> Result<()> {
     ensure_pubget(ctx)?;
     ensure_whatsapp_npm(ctx)?;
 
-    let target = desktop_target();
-    // Flutter no escribe los artefactos en una ruta fija por plataforma, así que
-    // se busca de forma recursiva bajo build/ en vez de hardcodear la de Windows.
+    let target = "windows";
     let release_dir = ctx.script_dir.join("build");
     let rename = read_flutter_app_meta(ctx).map(|(name, ver)| format!("{} v{}", name, ver));
     cmd::run_build_and_reveal(

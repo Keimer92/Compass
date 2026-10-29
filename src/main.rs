@@ -1,3 +1,6 @@
+#[cfg(not(windows))]
+compile_error!("Compass solo tiene soporte para Windows.");
+
 mod menu;
 mod tasks;
 mod theme;
@@ -10,7 +13,7 @@ use anyhow::Result;
 #[derive(Parser)]
 #[command(
     name = "compass",
-    about = "Compass - Multiplataforma (Tauri/Flutter/KMP/Python)",
+    about = "Compass - Tauri/Flutter/Kotlin/Go/Python/Rust para Windows",
     version = "0.1.0",
 )]
 struct Cli {
@@ -22,8 +25,6 @@ struct Cli {
 
     /// Elegir la carpeta del proyecto con un navegador, en vez de autodetectar.
     ///
-    /// Necesario cuando se lanza desde el launcher de COSMIC, donde el
-    /// directorio actual es `$HOME` y no hay ningún proyecto que detectar.
     #[arg(long, help = "Elegir la carpeta del proyecto con un navegador")]
     pick: bool,
 
@@ -52,8 +53,7 @@ fn main() -> Result<()> {
     //   1. `--pick`      → abre el navegador siempre.
     //   2. `--path`      → usa la ruta explícita.
     //   3. autodetección → sube desde el CWD; si falla y no hay `--task`,
-    //                     cae al navegador (así se puede usar desde el launcher,
-    //                     que arranca en `$HOME` sin ningún proyecto).
+    //                     cae al navegador de proyectos.
     let dir = if cli.pick {
         match utils::context::pick_project_root(&std::env::current_dir()?)? {
             Some(d) => d,
@@ -264,11 +264,7 @@ fn run_task_direct(ctx: &crate::utils::context::ProjectContext, task: &str) -> R
         "terminal" => tasks::terminal::configure(ctx),
         "flutter-profile" => {
             println!("\n[INFO] Selecciona la plataforma para Profile:\n");
-            if utils::platform::IS_WINDOWS {
-                println!("  1. Windows");
-            } else {
-                println!("  1. Linux");
-            }
+            println!("  1. Windows");
             println!("  2. Android");
             print!("\nOpcion: ");
             io::stdout().flush()?;

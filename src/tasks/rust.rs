@@ -8,7 +8,6 @@ pub fn run(ctx: &ProjectContext) -> Result<()> {
 }
 
 pub fn build(ctx: &ProjectContext) -> Result<()> {
-    // Sin extensión en Linux: `desktop_artifact_exts()` lo resuelve por plataforma.
     let release_dir = ctx.script_dir.join("target/release");
     // El binario de release adopta el nombre real + versión: "compass v0.1.0".
     let rename = read_cargo_app_meta(ctx).map(|(name, ver)| format!("{} v{}", name, ver));

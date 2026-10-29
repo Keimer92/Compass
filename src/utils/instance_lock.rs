@@ -57,17 +57,11 @@ fn lock_path_for(dir: &Path) -> Option<PathBuf> {
 
 /// Comprueba si un proceso con el PID dado sigue vivo.
 fn pid_alive(pid: u32) -> bool {
-    if platform::IS_WINDOWS {
-        // En Windows usamos `tasklist` para verificar.
-        std::process::Command::new("tasklist")
-            .args(["/FI", &format!("PID eq {}", pid), "/NH"])
-            .output()
-            .map(|o| String::from_utf8_lossy(&o.stdout).contains(&pid.to_string()))
-            .unwrap_or(false)
-    } else {
-        // En Linux, /proc/<pid> existe si el proceso sigue vivo.
-        Path::new(&format!("/proc/{}", pid)).exists()
-    }
+    std::process::Command::new("tasklist")
+        .args(["/FI", &format!("PID eq {}", pid), "/NH"])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).contains(&pid.to_string()))
+        .unwrap_or(false)
 }
 
 /// Muestra un banner nativo del sistema avisando que Compass ya está abierto.
@@ -78,7 +72,6 @@ pub fn show_already_open_banner(dir: &Path) {
         dir.display()
     );
 
-    #[cfg(windows)]
     {
         use std::ffi::OsStr;
         use std::os::windows::ffi::OsStrExt;
@@ -108,31 +101,6 @@ pub fn show_already_open_banner(dir: &Path) {
         return;
     }
 
-    #[cfg(not(windows))]
-    {
-        // Linux: intentar notify-send, luego zenity, luego kdialog
-        let tools = [
-            ("notify-send", vec![title, &msg]),
-            ("zenity", vec!["--info", "--title", title, "--text", &msg]),
-            ("kdialog", vec!["--msgbox", &msg, "--title", title]),
-        ];
-
-        let mut shown = false;
-        for (cmd, args) in &tools {
-            if std::process::Command::new(cmd)
-                .args(args.iter().map(|s| *s))
-                .status()
-                .map(|s| s.success())
-                .unwrap_or(false)
-            {
-                shown = true;
-                break;
-            }
-        }
-        if !shown {
-            eprintln!("[{}] {}", title, msg);
-        }
-    }
 }
 
 /// Intenta adquirir el lock de instancia para un directorio.

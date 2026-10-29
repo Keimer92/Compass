@@ -6,22 +6,11 @@
 //!
 //! ## Por qué el build de Android **no** usa el Taskfile del proyecto
 //!
-//! Las tareas `android:*` de la plantilla de Wails v3 están escritas en POSIX
-//! (`uname -s`, `ls -d`, `sort -V`, `chmod +x`) y su `case` de host sólo
-//! contempla Darwin y Linux:
-//!
-//! ```sh
-//! case "$(uname -s)" in
-//!   Darwin) HOST_TAG="darwin-x86_64" ;;
-//!   Linux)  HOST_TAG="linux-x86_64" ;;
-//!   *)      echo "Unsupported host OS"; exit 1 ;;
-//! esac
-//! ```
-//!
-//! En Windows el `case` cae en `*)` y el build aborta, aunque la NDK del host
-//! sí exista (`windows-x86_64`). Por eso Compass hace el pipeline de Android
-//! por su cuenta, replicando los pasos del Taskfile pero con el *host tag* y
-//! el compilador correctos para cada plataforma:
+//! Las tareas `android:*` de la plantilla de Wails v3 usan scripts POSIX, que
+//! no se ejecutan en Windows. Aunque la NDK del host sí exista
+//! (`windows-x86_64`), el build del Taskfile aborta. Por eso Compass hace el pipeline de Android
+//! por su cuenta, replicando los pasos del Taskfile con el *host tag* y el
+//! compilador correctos para Windows:
 //!
 //! 1. `wails3 android overlay:gen` → `build/android/overlay.json`
 //! 2. `wails3 generate bindings` (con `GOOS=android`, `CGO_ENABLED=0`)
@@ -194,23 +183,12 @@ fn main_activity(ctx: &ProjectContext) -> String {
 
 /// ¿Está `name` disponible como comando?
 fn command_exists(name: &str) -> bool {
-    #[cfg(windows)]
-    {
-        let ps = format!(
-            "$null -ne (Get-Command -Name '{name}' -ErrorAction SilentlyContinue)"
-        );
-        cmd::run("powershell", &["-NoProfile", "-Command", &ps])
-            .map(|o| String::from_utf8_lossy(&o.stdout).trim() == "True")
-            .unwrap_or(false)
-    }
-    #[cfg(not(windows))]
-    {
-        std::process::Command::new("sh")
-            .args(["-c", &format!("command -v -- {name}")])
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
-    }
+    let ps = format!(
+        "$null -ne (Get-Command -Name '{name}' -ErrorAction SilentlyContinue)"
+    );
+    cmd::run("powershell", &["-NoProfile", "-Command", &ps])
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim() == "True")
+        .unwrap_or(false)
 }
 
 /// Comprueba que estén el CLI de Wails y Go.
@@ -263,19 +241,11 @@ fn ndk_root(ctx: &ProjectContext) -> Option<PathBuf> {
     versions.into_iter().next().map(|(_, p)| p)
 }
 
-/// Carpeta de la toolchain LLVM de la NDK para el host actual.
+/// Carpeta de la toolchain LLVM de la NDK para Windows.
 fn ndk_toolchain(ndk: &Path) -> Option<PathBuf> {
     let prebuilt = ndk.join("toolchains").join("llvm").join("prebuilt");
-    // El NDK de Windows es `windows-x86_64`; en Linux `linux-x86_64` y en
-    // macOS `darwin-x86_64` (universal). Se busca por existencia, no por
-    // plataforma, para no depender de `cfg!`.
-    for tag in ["windows-x86_64", "linux-x86_64", "darwin-x86_64"] {
-        let bin = prebuilt.join(tag).join("bin");
-        if bin.is_dir() {
-            return Some(bin);
-        }
-    }
-    None
+    let bin = prebuilt.join("windows-x86_64").join("bin");
+    bin.is_dir().then_some(bin)
 }
 
 /// Compilador C/C++ de la NDK para la arquitectura objetivo.
@@ -292,11 +262,6 @@ fn ndk_compilers(bin: &Path) -> Option<(String, String)> {
             format!("{} --target={}", bin.join("clang++.exe").display(), target),
         ));
     }
-    let cc = bin.join(format!("aarch64-linux-android{MIN_SDK}-clang"));
-    let cxx = bin.join(format!("aarch64-linux-android{MIN_SDK}-clang++"));
-    if cc.is_file() {
-        return Some((cc.display().to_string(), cxx.display().to_string()));
-    }
     None
 }
 
@@ -305,11 +270,7 @@ fn ndk_compilers(bin: &Path) -> Option<(String, String)> {
 /// En Windows `npm` es `npm.cmd`, que necesita `cmd.exe` para ejecutarse.
 /// Se invoca **sin shell** para que los argumentos lleguen intactos.
 fn npm_run(dir: &Path, script: &str) -> Result<()> {
-    let ok = if platform::IS_WINDOWS {
-        cmd::run_program("cmd", &["/c", "npm.cmd", "run", script], dir, &[])?
-    } else {
-        cmd::run_program("npm", &["run", script], dir, &[])?
-    };
+    let ok = cmd::run_program("cmd", &["/c", "npm.cmd", "run", script], dir, &[])?;
     if !ok {
         anyhow::bail!("`npm run {script}` falló en: {}", dir.display());
     }
@@ -377,10 +338,8 @@ pub fn dev(ctx: &ProjectContext) -> Result<()> {
 /// | Host | Tarea | Artefacto en `bin/` |
 /// |------|-------|---------------------|
 /// | Windows | `windows:package` → NSIS (o MSIX con `FORMAT=msix`) | `<app>-<arch>-installer.exe` / `<app>-<arch>.msix` |
-/// | Linux | `linux:package` → AppImage/deb/rpm | `<app>-<arch>.AppImage`, `.deb`, `.rpm` |
 ///
-/// El Taskfile de la raíz despacha a `windows:package` / `linux:package` según
-/// el host, así que el mismo comando vale para los dos sistemas.
+/// El Taskfile de la raíz despacha a `windows:package`.
 ///
 /// ⚠️ **El filtro por nombre no es cosmético**: `package` compila primero el
 /// binario (es una dependencia de la tarea) y lo deja en la misma carpeta
@@ -390,29 +349,20 @@ pub fn build_desktop(ctx: &ProjectContext) -> Result<()> {
     ensure_wails_cli()?;
 
     println!("\n[INFO] Compilando instalador de escritorio con Wails...\n");
-    if platform::IS_WINDOWS {
-        println!("[INFO] Windows usa NSIS (`makensis` en el PATH). Para MSIX:");
-        println!("[INFO]   wails3 task package FORMAT=msix");
-        println!("[INFO]   (requiere `wails3 tool msix-install-tools`)");
-        println!();
-    }
+    println!("[INFO] Windows usa NSIS (`makensis` en el PATH). Para MSIX:");
+    println!("[INFO]   wails3 task package FORMAT=msix");
+    println!("[INFO]   (requiere `wails3 tool msix-install-tools`)");
+    println!();
 
     let bin = bin_dir(ctx);
 
-    // Windows: el instalador de NSIS es un `.exe` más, así que se distingue del
-    // binario portable por el nombre; el `.msix`/`.msi` se reconocen por su
-    // extensión. Linux: el binario no lleva extensión, así que basta con
-    // filtrar por la extensión del paquete.
+    // El instalador NSIS es un `.exe` más, así que se distingue del binario
+    // portable por el nombre; `.msix`/`.msi` se reconocen por extensión.
     let rename = read_wails_app_meta(ctx).map(|(name, ver)| format!("{} v{}", name, ver));
 
-    if platform::IS_WINDOWS {
-        let exts: &[&str] = &["exe", "msix", "msi"];
-        let names: &[&str] = &["installer", "msix", "msi"];
-        cmd::run_build_and_reveal_named("wails3 task package", &ctx.script_dir, &bin, exts, names, rename.as_deref())?;
-    } else {
-        let exts: &[&str] = &["AppImage", "deb", "rpm"];
-        cmd::run_build_and_reveal("wails3 task package", &ctx.script_dir, &bin, exts, rename.as_deref())?;
-    }
+    let exts: &[&str] = &["exe", "msix", "msi"];
+    let names: &[&str] = &["installer", "msix", "msi"];
+    cmd::run_build_and_reveal_named("wails3 task package", &ctx.script_dir, &bin, exts, names, rename.as_deref())?;
 
     Ok(())
 }
@@ -676,44 +626,17 @@ fn signing_env(ctx: &ProjectContext) -> Option<Vec<(String, String)>> {
 
 /// Ejecuta una tarea de Gradle en `build/android`.
 ///
-/// El wrapper es `gradlew.bat` en Windows y `gradlew` en POSIX. Se invoca
-/// **sin shell**: `cmd /c gradlew.bat …` funciona, pero el `cmd` de Windows
-/// rompe las rutas con espacios, y aquí el directorio del proyecto puede
-/// tenerlas.
+/// Se invoca **sin shell** para conservar el directorio del proyecto cuando
+/// contiene espacios.
 fn gradle(android: &Path, task: &str, envs: &[(String, String)]) -> Result<bool> {
-    let wrapper = platform::find_gradlew(android).ok_or_else(|| {
+    platform::find_gradlew(android).ok_or_else(|| {
         anyhow::anyhow!(
             "[ERROR] No se encontro el wrapper de Gradle en: {}\n\
              Regenera los assets de build con: wails3 update build-assets",
             android.display()
         )
     })?;
-
-    if platform::IS_WINDOWS {
-        if wrapper.extension().map(|e| e.eq_ignore_ascii_case("bat")).unwrap_or(false) {
-            // Un `.bat` necesita `cmd.exe`.
-            Ok(cmd::run_program("cmd", &["/c", "gradlew.bat", task], android, envs)?)
-        } else {
-            let wrapper_arg = wrapper.display().to_string();
-            Ok(cmd::run_program(&wrapper_arg, &[task], android, envs)?)
-        }
-    } else {
-        // Git no siempre preserva el bit de ejecución al clonar entre sistemas.
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            if let Ok(meta) = std::fs::metadata(&wrapper) {
-                if meta.permissions().mode() & 0o111 == 0 {
-                    let _ = std::fs::set_permissions(
-                        &wrapper,
-                        std::fs::Permissions::from_mode(0o755),
-                    );
-                }
-            }
-        }
-        let wrapper_arg = wrapper.display().to_string();
-        Ok(cmd::run_program(&wrapper_arg, &[task], android, envs)?)
-    }
+    Ok(cmd::run_program("cmd", &["/c", "gradlew.bat", task], android, envs)?)
 }
 
 /// Escribe `build/android/local.properties` con `sdk.dir`.

@@ -723,16 +723,10 @@ Thumbs.db
     }
 }
 
-/// Adds ignore rules for the current host without removing the cross-platform
-/// rules already present in the project templates.
-fn gitignore_content_for_platform(project_type: ProjectType, is_windows: bool) -> String {
+/// Adds Windows-specific rules without removing existing project rules.
+fn gitignore_content_for_platform(project_type: ProjectType) -> String {
     let mut content = gitignore_content(project_type).trim_end().to_string();
-    let host_rules = if is_windows {
-        "\n\n# --- Windows ---\n$RECYCLE.BIN/\nehthumbs.db\n*.lnk\n"
-    } else {
-        "\n\n# --- Linux desktop ---\n.directory\n.Trash-*/\n"
-    };
-    content.push_str(host_rules);
+    content.push_str("\n\n# --- Windows ---\n$RECYCLE.BIN/\nehthumbs.db\n*.lnk\n");
     content
 }
 
@@ -771,7 +765,7 @@ fn merge_gitignore(existing: &str, required: &str) -> String {
 /// Non-interactive .gitignore action used by file-manager context menus.
 pub fn add_context_gitignore(ctx: &ProjectContext) -> Result<()> {
     let path = ctx.script_dir.join(".gitignore");
-    let required = gitignore_content_for_platform(ctx.project_type, platform::IS_WINDOWS);
+    let required = gitignore_content_for_platform(ctx.project_type);
     let existing = if path.exists() {
         Some(
             std::fs::read_to_string(&path)
@@ -1451,21 +1445,17 @@ mod tests {
     }
 
     #[test]
-    fn context_gitignore_rules_follow_the_host_platform() {
-        let windows = gitignore_content_for_platform(ProjectType::Rust, true);
-        let linux = gitignore_content_for_platform(ProjectType::Rust, false);
+    fn context_gitignore_includes_windows_rules() {
+        let windows = gitignore_content_for_platform(ProjectType::Rust);
         assert!(windows.contains("$RECYCLE.BIN/"));
         assert!(windows.contains("*.lnk"));
         assert!(!windows.contains(".Trash-*/"));
-        assert!(linux.contains(".directory"));
-        assert!(linux.contains(".Trash-*/"));
-        assert!(!linux.contains("$RECYCLE.BIN/"));
     }
 
     #[test]
     fn context_gitignore_merge_preserves_user_rules_and_is_idempotent() {
         let existing = "# user rules\ncustom-cache/\ntarget/\n";
-        let required = gitignore_content_for_platform(ProjectType::Rust, false);
+        let required = gitignore_content_for_platform(ProjectType::Rust);
         let merged = merge_gitignore(existing, &required);
         assert!(merged.starts_with(existing));
         assert!(merged.contains("custom-cache/"));

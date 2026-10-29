@@ -25,8 +25,8 @@
 //! ## Persistencia
 //!
 //! El tema elegido con `Ctrl+T` se guarda como una línea de texto en
-//! `<data_dir>/compass/theme` (`%LOCALAPPDATA%\compass\theme` en Windows,
-//! `~/.local/share/compass/theme` en Linux). Si el fichero falta o el nombre no
+//! `<data_dir>/compass/theme` (`%LOCALAPPDATA%\compass\theme` en Windows).
+//! Si el fichero falta o el nombre no
 //! existe se vuelve al tema por defecto, [`DEFAULT`].
 
 use std::path::PathBuf;

@@ -22,9 +22,6 @@ pub fn build(ctx: &ProjectContext) -> Result<()> {
     println!("\n[INFO] Compilando aplicación de escritorio (Release)...\n");
 
     let bundle_dir = ctx.script_dir.join("src-tauri/target/release/bundle");
-    // En Linux `tauri build` produce AppImage/deb, no exe/msi; el helper de
-    // plataforma devuelve la lista correcta y, si viene vacía, no se filtra por
-    // extensión y revela igual.
     cmd::run_build_and_reveal(
         &tauri::command(ctx, "build"),
         &ctx.script_dir,

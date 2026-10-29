@@ -173,22 +173,6 @@ fn profile_for(version: Option<&str>) -> &'static str {
 }
 
 pub fn configure(_ctx: &ProjectContext) -> Result<()> {
-    // Esta tarea escribe un perfil de PowerShell (PSReadLine), que no existe en
-    // Linux. La tarjeta está oculta en el menú, pero la task sigue alcanzable
-    // por CLI, así que se informa en vez de escribir un archivo inútil.
-    if !crate::utils::platform::IS_WINDOWS {
-        println!();
-        println!("[INFO] 'Configurar Terminal' sólo está disponible en Windows.");
-        println!("       Escribe un perfil de PowerShell (PSReadLine), que no aplica en Linux.");
-        println!();
-        println!("Alternativa equivalente para bash/zsh:");
-        println!("  - Instala el autocompletado: sudo apt install bash-completion");
-        println!("  - O usa fzf: sudo apt install fzf && \"$(command -v fzf)\" --bash >> ~/.bashrc");
-        println!();
-        pause();
-        return Ok(());
-    }
-
     // El perfil depende de la versión instalada, así que lo primero es asegurarla:
     // sin predictivas (o sin PSReadLine) se actualiza antes de escribir nada.
     // Es el orden que pide el flujo: instalar, y *después* configurar.

@@ -1,35 +1,30 @@
 //! Localización, invocación y reparación automática del CLI de Tauri.
 //!
-//! Existe por una razón concreta: el `node_modules` de un proyecto Tauri que se
-//! desarrolla en Windows **y** en Linux sólo puede servir a un sistema, y al
-//! compartirlo (sync de carpeta, git, o simplemente la misma carpeta en una
-//! máquina con los dos sistemas) `compass` se encuentra con las dos
-//! consecuencias:
+//! Existe por una razón concreta: los `node_modules` de Tauri incluyen shims y
+//! bindings nativos de la plataforma, por lo que un árbol instalado en otro
+//! sistema operativo puede no funcionar en Windows:
 //!
 //! 1. **`node_modules/.bin/tauri` no tiene shim de Windows.** npm genera el shim
-//!    del sistema que hizo el install: en POSIX un fichero `tauri` sin extensión,
-//!    en Windows además `tauri.cmd` y `tauri.ps1`. `cmd` resuelve ejecutables
+//!    del sistema que hizo el install: en Windows existen `tauri.cmd` y `tauri.ps1`. `cmd` resuelve ejecutables
 //!    sólo por `PATHEXT` (`.COM/.EXE/.BAT/.CMD/...`), así que con un
 //!    `node_modules` traído de Linux, `tauri dev` muere con
 //!    *'tauri' is not recognized as an internal or external command*.
 //!
 //! 2. **Falta el binding nativo.** `@tauri-apps/cli` delega en un binario que
 //!    llega como optional dependency con nombre por plataforma
-//!    (`@tauri-apps/cli-win32-x64-msvc`, `@tauri-apps/cli-linux-x64-gnu`, ...).
-//!    Si el install se hizo en el otro sistema, el de esta plataforma no está y
+//!    (`@tauri-apps/cli-win32-x64-msvc`, por ejemplo).
+//!    Si el install se hizo en otro sistema, el binding de Windows no está y
 //!    el CLI aborta con *Cannot find native binding* ([npm/cli#4828]).
 //!
 //! Ambas se resuelven igual, y por eso este módulo centraliza las dos:
 //!
 //! - Se invoca `node` sobre el entry point del paquete en vez de `tauri` a
 //!   secas, así que el shim de `.bin` deja de importar.
-//! - [`ensure`] comprueba que estén el paquete y su binding de esta plataforma y,
+//! - [`ensure`] comprueba que estén el paquete y su binding de Windows y,
 //!   si falta cualquiera de los dos, reinstalla antes de devolver el control.
 //!
-//! Nota: `npm install` **reemplaza** el binding del otro sistema en vez de
-//! añadirlo, así que un `node_modules` compartido ping-ponga entre sistemas
-//! (cada uso pide un install). Es inherente al modelo de optional dependencies:
-//! la alternativa sería un contenedor, no un script.
+//! Nota: `npm install` reemplaza el binding disponible según el sistema donde
+//! se ejecute; Compass lo repara antes de invocar el CLI.
 
 use crate::utils::{cmd, context::ProjectContext, platform};
 use anyhow::{Context, Result};

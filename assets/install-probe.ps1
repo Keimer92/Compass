@@ -1,5 +1,5 @@
 <#
-    Sonda de estado para install.bat / install.sh.
+    Sonda de estado para install.bat.
 
     Devuelve en una única línea, separada por punto y coma:
 

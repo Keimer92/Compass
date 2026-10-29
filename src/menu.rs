@@ -114,11 +114,7 @@ impl MenuItem {
             Self::WindowsDev => match project_type {
                 ProjectType::Rust => "Run",
                 ProjectType::Python => "Run",
-                // La tarjeta cubre el dev de escritorio, así que se nombra por
-                // plataforma: decir "Windows" en Pop!_OS-era confuso y la tarea
-                // emitía `-d windows`, que no existe fuera de Windows.
-                _ if platform::IS_WINDOWS => "Windows",
-                _ => "Linux",
+                _ => "Windows",
             },
             Self::AndroidDev => match project_type {
                 ProjectType::GoWails => "And. Dev",
@@ -137,8 +133,7 @@ impl MenuItem {
                 // En Go + Wails el release ya no es un `.exe` portable: la
                 // tarea empaqueta el instalador (NSIS en Windows).
                 ProjectType::GoWails => "Installer",
-                _ if platform::IS_WINDOWS => "Win Build",
-                _ => "Linux Build",
+                _ => "Win Build",
             },
             Self::AndroidBuildArm64 => match project_type {
                 ProjectType::Tauri => "Android a64",
@@ -259,13 +254,7 @@ impl MenuItem {
                 Self::WindowsDev => "dev escritorio",
                 Self::AndroidDev => "APK dev",
                 Self::AndroidHmr => "HMR (Vite)",
-                Self::WindowsBuild => {
-                    if platform::IS_WINDOWS {
-                        "instalador (.exe)"
-                    } else {
-                        "instalador (.deb)"
-                    }
-                }
+                Self::WindowsBuild => "instalador (.exe)",
                 Self::AndroidBuildArm64 => "APK release",
                 Self::AndroidBuildArmv7 => "",
                 Self::AndroidBuildAll => "AAB release",
@@ -384,11 +373,6 @@ impl MenuState {
                         | MenuItem::BuildWhatsApp
                 ),
             })
-            // `ConfigureTerminal` escribe un perfil de PowerShell (PSReadLine), que
-            // no existe en Linux, así que se oculta en vez de exponer una tarjeta
-            // que fallaría. El menú contextual ya no es una tarjeta: `install.bat`
-            // (o `install.sh --with-context-menu` en COSMIC) lo instala de una.
-            .filter(|item| cfg!(windows) || !matches!(item, MenuItem::ConfigureTerminal))
             .collect();
 
         Self {
@@ -500,11 +484,7 @@ fn draw_menu(frame: &mut Frame, state: &mut MenuState, ctx: &ProjectContext) {
                 Style::default().fg(theme.muted),
             )]),
             Line::from(vec![Span::styled(
-                if cfg!(windows) {
-                    " Maximiza la ventana (Alt+Enter) y presiona una tecla."
-                } else {
-                    " Maximiza la ventana (Shift+Ctrl+Mas o F11) y presiona una tecla."
-                },
+                " Maximiza la ventana (Alt+Enter) y presiona una tecla.",
                 Style::default().fg(theme.muted),
             )]),
         ]))
@@ -743,27 +723,6 @@ fn render_footer(frame: &mut Frame, area: Rect, theme: &Theme, ctx: &ProjectCont
     );
 }
 
-/// ⚠️ El hover **no funciona en cosmic-term**, y no es culpa de este código.
-///
-/// cosmic-term implementa el modo 1002 (movimiento sólo con botón pulsado), no
-/// el 1003 (all-motion). En `mouse_reporter.rs`, tanto `sgr_mouse_code` como
-/// `normal_mouse_code` hacen:
-///
-/// ```text
-/// Event::Mouse(MouseEvent::CursorMoved { .. }) =>
-///     self.button.map(|button| (button_number(button) + 32, "M"))
-/// ```
-///
-/// `Option::map` sobre `None` devuelve `None` ⇒ **sin botón pulsado no se envía
-/// ningún byte**. Además `report_mouse` sólo consulta `SGR_MOUSE` y el modo
-/// normal; nunca mira `ANY_EVENT_MOUSE` (1003), que es el que crossterm activa
-/// con `EnableMouseCapture`.
-///
-/// Resultado: la app pide movimiento, cosmic-term no lo manda, y `state.hover`
-/// nunca cambia de `None`. Los colores de hover de aquí sí son correctos y se
-/// aplican en terminales que sí implementen 1003 (alacritty, kitty,
-/// gnome-terminal, wezterm, foot).
-///
 /// La card **seleccionada** usa el tinte del tema (`theme.selected_bg`, teñido
 /// con el acento de su sección) y la **hovereada** el fondo neutro
 /// (`theme.hover_bg`). A propósito no comparten tinte: antes usaban el mismo
@@ -1068,26 +1027,12 @@ pub fn run(ctx: &ProjectContext) -> anyhow::Result<()> {
             }
             MenuAction::Run(item) => {
                 let task = menu_item_to_task(item, ctx.project_type);
-                // En Windows el comando lo ejecuta `cmd /c` (ver
-                // `spawn_new_window_autoexit`), donde las comillas son dobles y
-                // `&` no es el call-operator de PowerShell. En Linux el script
-                // corre en `sh`, donde las comillas simples sí valen y `&` sería
-                // un error de sintaxis (background job), así que se omite.
-                let command = if cfg!(windows) {
-                    format!(
-                        "\"{}\" --task {} --path \"{}\"",
-                        exe_path.display(),
-                        task,
-                        project_path.display(),
-                    )
-                } else {
-                    format!(
-                        "'{}' --task {} --path '{}'",
-                        exe_path.display(),
-                        task,
-                        project_path.display(),
-                    )
-                };
+                let command = format!(
+                    "\"{}\" --task {} --path \"{}\"",
+                    exe_path.display(),
+                    task,
+                    project_path.display(),
+                );
 
                 cmd::spawn_new_window_autoexit(
                     &format!("Compass - {}", platform::dir_display_name(project_path)),

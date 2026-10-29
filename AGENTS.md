@@ -2,7 +2,10 @@
 
 ## Overview
 
-`compass` es una herramienta CLI/TUI multiplataforma que automatiza tareas de desarrollo, compilación y configuración para proyectos **Tauri (Rust)**, **Flutter (Dart)**, **Kotlin Multiplatform (Compose)**, **Go + Wails v3** y **Rust puro**. Detecta automáticamente el tipo de proyecto y adapta comandos, rutas y comportamientos.
+La aplicación de escritorio tiene soporte exclusivo para Windows; Android sigue disponible como plataforma de destino para los proyectos compatibles.
+
+
+`compass` es una herramienta CLI/TUI multiplataforma que automatiza tareas de desarrollo, compilación y configuración para proyectos **Tauri (Rust)**, **Flutter (Dart)**, **Kotlin Multiplatform (Compose)**, **Go + Wails v3**, **Python** y **Rust puro**. Detecta automáticamente el tipo de proyecto y adapta comandos, rutas y comportamientos.
 
 ## Project Types
 
@@ -12,128 +15,22 @@
 | `Flutter` | `pubspec.yaml` | 🎯 | Completo |
 | `Kotlin` | `gradlew.bat` + `settings.gradle.kts` | 🔷 | Completo |
 | `Go + Wails` | `go.mod` con `wailsapp/wails` + `Taskfile.yml` | 🐹 | Completo (sin firma) |
+| `Python` | `pyproject.toml` con `[project]` o `[tool.poetry]` | 🐍 | Completo (sin Android) |
 | `Rust` | `Cargo.toml` (después de todos los anteriores) | ⚙️ | Reducido (sin Android) |
 
-El orden de detección es: **Flutter → Tauri → Go+Wails → KMP → Rust**. Si un proyecto coincide con `package.json` pero no con `tauri.conf.json`, se clasifica como Tauri (para proyectos JS/Node con frontend).
+El orden de detección es: **Flutter → Tauri → Go+Wails → KMP → Python → Rust**. Si un proyecto coincide con `package.json` pero no con `tauri.conf.json`, se clasifica como Tauri (para proyectos JS/Node con frontend).
 
 ## Platform Support
 
-| Función | Windows | Linux (Pop!_OS / Ubuntu) |
-|---------|---------|-------------------------|
-| Entrada del launcher (`.desktop` + iconos) | ❌ | ✅ `install.sh` |
-| Selector de proyecto (`--pick`) | ✅ | ✅ |
-| Tauri dev/build (Windows + Android) | ✅ | ✅ |
-| Rust puro | ✅ | ✅ |
-| Android (dev + release APK/AAB) | ✅ | ✅ sólo dispositivo físico |
-| Kotlin Multiplatform (Android + `packageDistributionForCurrentOS`) | ✅ | ✅ |
-| Go + Wails v3 (**desktop**) | ✅ (exe) | ✅ binario sin extensión |
-| Go + Wails v3 (**Android**) | ✅ pipeline propio (el Taskfile de Wails es POSIX) | ✅ |
-| Flutter Android (APK/AAB) | ✅ | ✅ |
-| Flutter **desktop** | ✅ | ✅ `-d linux` / `flutter build linux` |
-| Tauri **desktop** | ✅ (exe/msi) | ✅ AppImage/deb (`platform::desktop_artifact_exts()`) |
-| KMP **desktop** | ✅ (exe) | ✅ binario sin extensión (mismo helper) |
-| Menú contextual Compass + Vibe Coding | ✅ registro | ⚠️ COSMIC Files ≥ 1.0.10, entradas **planas** (ver abajo) |
-| Configurar Terminal (PSReadLine) | ✅ | ❌ oculto (perfil de PowerShell) |
+Compass ejecuta como aplicación de escritorio únicamente en **Windows**. Android sigue siendo un destino de desarrollo y compilación para proyectos compatibles; sus targets `*-linux-android` son ABI de Android, no soporte Linux de Compass.
 
-### Vibe Coding en COSMIC Files (`context_menu_cosmic.rs`)
-
-COSMIC 1.0.10 (mayo 2026) añadió *user-defined context menu actions*. Se configuran como presets `ContextActionPreset` en el campo `context_actions` de la config de cosmic-files.
-
-**Ruta** — cosmic-files usa `cosmic_config::Config::new(App::APP_ID, CONFIG_VERSION)`, que resuelve como `$XDG_CONFIG_HOME/cosmic/<APP_ID>/v<VERSION>/<campo>`. Con `APP_ID = "com.system76.CosmicFiles"` y `CONFIG_VERSION = 1`:
-
-```
-$XDG_CONFIG_HOME/cosmic/com.system76.CosmicFiles/v1/context_actions
-```
-
-⚠️ El APP_ID lleva punto y mayúsculas. **No** es `cosmic-files`: escribir en `cosmic-files/` deja el fichero donde cosmic-files nunca lo busca, y el síntoma es que el menú simplemente no aparece — sin error en la app, sin error en los logs, nada.
-
-**Formato: RON, no JSON.** cosmic-config serializa con `ron`. De ahí la dependencia `ron` en `Cargo.toml`; `serde_json` no sirve aquí.
-
-```ron
-[
-    (
-        name: "Vibe Coding: OpenCode",
-        confirm: false,
-        selection: Folders,
-        steps: [
-            "/ruta/al/wrapper.sh \"%f\"",
-        ],
-    ),
-]
-```
-
-- `selection`: enum `Any` | `Files` | `Folders`, con alias de serde en minúsculas.
-- `steps`: se parsean con `mime_app::exec_to_command`, o sea **sintaxis `Exec=` de freedesktop**. El `%f` debe ir entrecomillado: se sustituye literalmente, y sin comillas una ruta con espacios rompe el tokenizado.
-- **Un wrapper `vibe-<slug>.sh` por herramienta** en `$XDG_DATA_HOME/compass/vibe/`, en vez de incrustar `sh -c "cd %f && …"`. El `cd` y el quoting viven en el archivo (se escapan una vez); el preset sólo invoca el wrapper. ⚠️ El cuerpo del wrapper lo emite `cmd::terminal_launch_shell()`, y su rama de kitty tiene un **doble parseo** documentado en "Bug conocido: doble parseo en la rama kitty-tab".
-- **Limitación: sin submenús anidados.** `ContextActionPreset` sólo tiene `name`, `confirm`, `selection`, `steps` — no hay campo de agrupación. Las entradas quedan **planas**, no en cascada como en Windows. El prefijo `"Vibe Coding: "` las agrupa visualmente y es el criterio que usa `uninstall()` para borrarlas sin tocar las del usuario.
-- `install()` hace **merge**: preserva los presets previos del usuario, y sólo reemplaza los que empiezan con el prefijo. Respalda el archivo previo a `context_actions.ron.compass-bak` antes de escribir.
-- Requiere cerrar y reabrir COSMIC Files. Sin `cosmic-files` en el PATH, `install()` falla con mensaje explícito.
-- `VIBE_TOOLS` está duplicado (el de `context_menu.rs` usa `key` de registro, que aquí no aplica). Si se unifica, debe subir a un módulo común. ⚠️ **Hay que actualizar los dos arrays a la vez**: añadir una herramienta sólo al de Windows deja el menú de COSMIC Files sin ella, sin error ni aviso.
-
-### Launcher de COSMIC (`.desktop`)
-
-`install.sh` genera `~/.local/share/applications/compass.desktop` e instala los
-PNG en `~/.local/share/icons/hicolor/{16,24,32,48,64,128}x*/apps/`.
-
-- **El `.ico` no le sirve al launcher.** Pop!_OS no trae ImageMagick ni
-  `icoutils`, así que `tools/ico2png.py` (solo stdlib) decodifica el BMP-DIB de
-  32bpp de `Icon.ico` y genera el set de PNG. Ejecuta `python3 tools/ico2png.py`
-  tras cambiar el icono original.
-- **`compass` es una TUI: el launcher no puede lanzarla directamente** (no
-  hay tty). El `Exec` envuelve el binario en el emulador detectado:
-  `cosmic-term --title "Compass" -e "<exe>" --pick`.
-- **`--pick` es obligatorio en el `.desktop`**: desde el launcher el directorio
-  actual es `$HOME`, donde no hay proyecto que autodetectar. Sin `--pick`,
-  `detect()` fallaría y la app no abriría.
-- El `Exec` se valida con `desktop-file-validate` si está disponible; una entrada
-  mal formada desaparece del launcher en silencio.
-- La tabla de terminales está **duplicada** entre `install.sh` y `TERMINALS` en
-  `cmd.rs` (`lead`/`title_flag`/`exec_flag`). Si se unifica, ha de incluir el
-  `lead` de wezterm (`start --`), que no admite `--title`.
-
-### run-sh: ejecutar `.sh` con doble clic
-
-Utilidad **del sistema**, no de compass, pero `install.sh` la instala siempre.
-
-| Pieza | Ruta |
-|-------|------|
-| Script | `~/.local/bin/run-sh` |
-| Entry | `~/.local/share/applications/run-sh.desktop` (`NoDisplay=true`) |
-| Default | `application/x-shellscript` en `~/.config/mimeapps.list` |
-
-- **`Exec` con ruta absoluta**: cosmic-files no tiene `~/.local/bin` en el PATH,
-  así que `Exec=run-sh %f` no se resolvería.
-- **`Terminal=false` a propósito**: es `run-sh` quien abre la terminal, y así
-  controla intérprete, código de salida y ventana abierta al final.
-- **El intérprete sale del shebang**, no de asumir `sh`: un `#!bash` ejecutado
-  con dash falla con errores de sintaxis que no dicen nada.
-- **Cambia el default de todos los `.sh`**: antes se abrían en Cosmic Edit. Éste
-  sigue registrado ("Abrir con"), y para revertir:
-  `xdg-mime default com.system76.CosmicEdit.desktop application/x-shellscript`.
-- `xdg-mime default` preserva el resto de entradas de `mimeapps.list`; si no
-  está, `install.sh` edita la sección `[Default Applications]` a mano.
-
-Dos trampas del propio script, ya corregidas y documentadas en él: `set --` para
-parsear el shebang pisaba los argumentos del script, y `$'\n'` no expande en
-todos los `sh` (la cola se arma con `printf '%s\n'`).
-
-Aviso al verificar que el script recibe un tty: comprobar `[ -t 1 ]` **antes** de
-cualquier redirección. Si el script hace `> fichero` y luego comprueba `-t 1`, da
-falso por definición y parece un fallo del runner.
-
-### Atajos de terminal (`assets/scripts/`, instalados en `~/.local/bin`)
-
-| Script | Qué hace |
-|--------|----------|
-| `crh` | TUI en `$PWD`. Atajo de `compass-here`, que se retiró. |
-| `compass-open [RUTA]` | TUI en `RUTA`, o en la carpeta de un fichero. Acepta `%f`. |
-
-Se instalan con `sed s/@EXE@/ruta/g`, igual que el `.desktop`. `install.sh`
-retira los nombres antiguos para no dejar dos comandos haciendo lo mismo.
-
-Existen por una limitación de cosmic-files: las `context_actions` **sólo se
-muestran con algo seleccionado**, así que el clic en el fondo de la carpeta no
-puede lanzar nada. El flujo equivalente es "Open in Terminal" → `crh`.
+| Función | Windows |
+|---------|---------|
+| Selector de proyecto (`--pick`) | ✅ |
+| Tauri, Flutter, Kotlin, Go + Wails, Rust y Python desktop | ✅ |
+| Android (dev + release APK/AAB) | ✅ sólo dispositivo físico |
+| Menú contextual Compass + Vibe Coding + `.gitignore` | ✅ Registro de Windows |
+| Configurar Terminal (PSReadLine) | ✅ |
 
 ### Estados visuales de una card (`menu.rs::create_card`)
 
@@ -208,8 +105,7 @@ aplica el tema; `render_theme_picker()` dibuja la capa.
   porque el "vidrio esmerilado" es una decisión estética. El helper `const fn dark()`
   evita tener que calcular los tintes a mano.
 - **Persistencia**: el tema elegido se guarda como una línea de texto en
-  `<data_dir>/compass/theme` (`%LOCALAPPDATA%\compass\theme` en Windows,
-  `~/.local/share/compass/theme` en Linux) con `theme::save()`, y se recupera en
+  `<data_dir>/compass/theme` (`%LOCALAPPDATA%\compass\theme` en Windows) con `theme::save()`, y se recupera en
   `menu::run` con `theme::load()`. Un fichero ausente o con un nombre desconocido
   cae al tema por defecto sin error.
 - Añadir un tema = añadir una entrada a `theme::THEMES`. `next()`/`prev()` operan
@@ -228,67 +124,6 @@ hace utilizable la entrada del launcher.
   es un proyecto antes de entrar.
 - Los ocultos se listan al final, no se ocultan.
 - Esc / Ctrl-C devuelven `Ok(None)`; `main.rs` sale sin error.
-
-### Notas de implementación Linux
-
-- **Artefactos de desktop sin extensión**: `platform::desktop_artifact_exts()`
-  devuelve `["exe","msi"]` en Windows y `[]` en Linux. `newest_artifact`
-  interpreta la lista vacía como "cualquier archivo regular", no como "nada que
-  buscar": con `["exe"]` en Linux, `reveal_artifact` nunca encontraba el
-  binario (que no lleva extensión) y siempre caía al fallback.
-- **Wrappers de Vibe Coding**: abren su propia terminal. cosmic-files lanza el
-  paso sin tty, así que un `exec opencode` directo vuelca secuencias ANSI a un
-  pipe. `cmd::terminal_prefix()` construye el argv; se comparte con
-  `spawn_in_terminal` para que ambos coincidan en la forma de invocar el emulador.
-- **Detección de CLIs en `command_exists`**: en Linux es `command -v`, no el
-  `Get-Command` de PowerShell (que siempre daba falso ⇒ menú sin sub-entradas).
-- **Rutas**: todos los literales de ruta en el crate usan `/` como separador. Windows lo acepta y `std::path` lo normaliza, y en Linux el `\` se trataría como carácter literal de nombre de archivo (haría que `clean_project` reportara `[OK]` sin borrar nada). `src/utils/platform.rs` cubre los casos dinámicos.
-- **Ejecutables**: `platform::exe_name("adb")` → `adb.exe` en Windows, `adb` en Linux. Lo usan `adb`, `emulator`, `sdkmanager` y `keytool`.
-- **Gradle**: `platform::find_gradlew()` acepta `gradlew` **y** `gradlew.bat`, porque un proyecto KMP clonado entre Windows y Linux conserva sólo uno de los dos wrappers. `ensure_gradle()` abortaba en Linux antes de hacer nada. `gradlew_cmd(ctx, args)` usa el wrapper que exista de verdad (y ejecuta `gradlew.bat` con `sh` si es el único presente); también da `+x` a `gradlew` cuando falta, porque git no siempre lo preserva al clonar entre sistemas.
-- **ANDROID_HOME**: se resuelve por `ANDROID_HOME` → `ANDROID_SDK_ROOT` → `$HOME/Android/Sdk` → `$HOME/android-sdk` → `$XDG_DATA_HOME/Android/Sdk` → `/usr/lib/android-sdk`.
-- **Ventanas**: `spawn_new_window_autoexit()`/`spawn_new_window_interactive()` detectan un emulador de terminal (`cosmic-term`, `gnome-terminal`, `konsole`, `xfce4-terminal`, `alacritty`, `kitty`, `wezterm`, `xterm`) y ejecutan el comando con `sh -lc`. Antes, la rama `#[cfg(not(windows))]` seguía invocando `powershell`, lo que dejaba la TUI inutilizable.
-- **Builds**: `cmd::run_build_and_reveal()` ejecuta el build con `sh -lc` en la ventana actual y, si tiene éxito, busca el artefacto más reciente en Rust (`newest_artifact`, recursivo), lo renombra (`rename_artifact`) y lo revela con `xdg-open` (abre la carpeta contenedora, no el binario). Termina con `ui::pause()` para no perder la salida.
-- **Variables de entorno para builds**: `RELEASE_*` (firma Kotlin) y `ANDROID_SERIAL` ya no se prefijan al comando con sintaxis de shell (`set X=Y &` / `$env:X=` / `export X=`). Se inyectan con `Command::env` en `cmd::run_shell_status`, que es la única forma de que el hijo las herede en ambas plataformas.
-- **PowerShell call-operator**: `menu.rs` omite el `&` al construir el comando en Linux (en `sh` sería un error de sintaxis).
-- **Instalador**: `install.sh` (Linux) reemplaza a `install.bat` (Windows). No instala menús contextuales.
-- **Paridad pendiente** (fuera del MVP): targets Linux de Flutter y Tauri desktop (comandos y `exts` de artefactos), `find_keytool` ya cubre `/usr/lib/jvm` pero `debug()` de Android en Linux usa `chrome://inspect` en vez de `edge://inspect`.
-
-### 🐛 Bug conocido: doble parseo en la rama kitty-tab
-
-**Sin arreglar a propósito.** Está en `terminal_launch_shell` (`src/utils/cmd.rs`), rama `spec.bin == "kitty"`, que es lo que se hornea en los wrappers `vibe-*.sh` de `context_menu_cosmic.rs`. **Sin verificar en Linux**: no hay forma de probarlo sin un `kitty` real en Pop!_OS.
-
-Hoy emite:
-
-```sh
-exec script -qec "kitty @ --to unix:$socket launch --type=tab --title 'X' sh -lc \"$CR_SCRIPT\"" /dev/null
-```
-
-El cuerpo del script **se parsea dos veces**. La primera da un argv con `sh -lc "cd "$target" || exit 1; …"`; el shell intermedio que invoca `script -c` re-parsea esa cadena, y ahí:
-
-- `$target` está **sin definir** en ese shell y **sin comillas** (porque las comillas del nivel anterior ya se consumieron), así que se expande a vacío.
-- La expansión sin comillas **parte por IFS**: `sh -lc` recibe el primer trozo como `-c` y el resto como argumentos sueltos, o sea que el comando se trunca.
-
-Síntoma esperado: la pestaña de kitty se abre pero `cd "$target"` falla o el script se queda en `target: not found`. **La rama de ventana nueva** (`exec kitty --title 'X' -e sh -lc "$CR_SCRIPT"`) sí es correcta: kitty hace `exec` directo de `sh -lc <script>` sin re-parsear, porque `"$CR_SCRIPT"` llega como un único elemento de argv.
-
-**Por qué se llegó aquí**: la versión anterior embebía el script directamente en la cadena de `script -qec`, y `script` abortaba con *"unexpected number of arguments"* al encontrar el `"$target"` o el `read -r` de dentro. Pasarlo por variable de entorno arregla el quoting *de esa* capa, pero no el del shell intermedio.
-
-**Arreglo propuesto** (no aplicado): que sea el shell intermedio el que cite, y que el script llegue a kitty como tres argv distintos en vez de re-parseado. El `export` es lo que hace que el shell intermedio herede las variables:
-
-```sh
-CR_SCRIPT=$(cat <<'CR_EOF'
-{script}
-CR_EOF
-)
-export CR_SCRIPT CR_SOCKET CR_TITLE
-if [ -n "$CR_SOCKET" ]; then
-    exec script -qec 'kitty @ --to "unix:$CR_SOCKET" launch --type=tab --title "$CR_TITLE" sh -lc "$CR_SCRIPT"' /dev/null
-fi
-exec kitty --title "$CR_TITLE" -e sh -lc "$CR_SCRIPT"
-```
-
-Lo de `script -qec '…'` con comillas simples es lo clave: el wrapper no expande nada y el shell intermedio recibe las tres variables ya como argumentos entrecomillados.
-
-**Cómo verificarlo** (Pop!_OS, sin emulador): `ss -xlH | grep kitty-compass` debe listar `@kitty-compass-<pid>`, que es el requisito para que se pruebe la rama de pestaña en vez de la de ventana. Sin instancia de kitty abierta, la rama con el bug no se ejecuta y el fallo queda oculto.
 
 ## ProjectContext
 
@@ -357,7 +192,6 @@ tasks/
   ├─ signer.rs  — dominio único de firmas: manage() [submenú], android_layout(), detect()/SigningInfo [autodetección], Props (parseo de properties), crear/importar/manual, patch_build_gradle(), huellas (keytool), respaldos, base64 + secretos de GitHub Actions, verify_apk() [apksigner]
   ├─ terminal.rs — configure() [perfil PSReadLine según la versión instalada]
   ├─ context_menu.rs — install/uninstall/toggle para Compass + Vibe Coding (menú cascada con ExtendedSubCommandsKey: OpenCode, Kilo Code, Cline, Antigravity, Kiro CLI, Hermes, Copilot CLI)
-  ├─ context_menu_cosmic.rs — install/uninstall para COSMIC Files (context_actions, COSMIC ≥ 1.0.10)
   └─ whatsapp.rs — build()
   └─ version.rs — bump() [port de versionar.bat: Tauri/Rust, todo-o-nada]
 ```
@@ -513,7 +347,7 @@ HKCU\Software\Classes\Directory\ContextMenus\VibeCoding\shell
 - `remove_vibe_ctx_tree()` borra el árbol `ContextMenus\VibeCoding` completo en cada instalación — evita claves huérfanas de versiones previas que alteraban el orden.
 - Se limpian entradas viejas individuales (`zz_OpenCode`, `zz_pCline`, `zz_pKilo`) al instalar.
 - **Antigravity CLI**: binario nativo (no npm) instalado por `irm https://antigravity.google/cli/install.ps1 | iex` → `%LOCALAPPDATA%\agy\bin\agy.exe`. No siempre está en PATH; `resolve_tool_command()` hace fallback a esa ruta si `Get-Command agy` falla.
-- **Hermes CLI** (Nous Research): instalador nativo `iex (irm https://hermes-agent.nousresearch.com/install.ps1)`. En Windows nativo vive bajo `%LOCALAPPDATA%\hermes\bin` (el README lo dice explícitamente), en Linux el `install.sh` lo deja en `~/.local/bin`. Mismo caso de fallback que Antigravity. `hermes` arranca su TUI sin flags; `hermes-acp` es el servidor ACP para editores y no va al menú.
+- **Hermes CLI** (Nous Research): instalador nativo `iex (irm https://hermes-agent.nousresearch.com/install.ps1)`. En Windows nativo vive bajo `%LOCALAPPDATA%\hermes\bin` (el README lo dice explícitamente). Mismo caso de fallback que Antigravity. `hermes` arranca su TUI sin flags; `hermes-acp` es el servidor ACP para editores y no va al menú.
 - **Kiro CLI** (AWS): se instala con su `.exe` (`winget install Kiro-CLI` o el instalador de kiro.dev), **no hay comando de terminal**. El ejecutable queda en `%LOCALAPPDATA%\Kiro-Cli\kiro-cli.exe` — nótese que **no** sigue el patrón `…\<tool>\bin` del resto, por eso la sonda de `install.bat` lo lleva en un mapa. El subcomando para chatear es `kiro-cli chat`; `--tui` fuerza la interfaz nueva y `--legacy-ui` la antigua. `install` va vacío en `VIBE_TOOLS`, que significa "detectar, nunca preguntar por instalarlo".
 - **Copilot CLI** (GitHub): se instala con `winget install --id GitHub.Copilot --exact` (paquete `GitHub.Copilot`), **no por npm**. Con `--yolo` arranca con todos los permisos concedidos (`--allow-all` = `--allow-all-tools --allow-all-paths --allow-all-urls`); sin flags la TUI pide confirmación por herramienta. ⚠️ winget **no** sigue el patrón `%LOCALAPPDATA%\<tool>\bin`: crea el enlace en `%LOCALAPPDATA%\Microsoft\WinGet\Links\copilot.exe`, y ésa es la ruta que declara `VibeTool::fallback` y la que comprueba la sonda de `install.bat`. Ojo también con el shim que instala VS Code en `%ProgramFiles%\Microsoft VS Code\bin\copilot-shim\`, que está antes en el PATH y responde igual, así que `Get-Command copilot` puede acertar aunque winget aún no haya refrescado el PATH.
 - `install.bat` instala/actualiza Vibe Coding con detección de "ya instalado".
@@ -545,7 +379,7 @@ la ruta). Y en Linux `menu.rs` omite el `&` del call-operator de PowerShell (en
 Los builds **no abren una segunda ventana**. Llaman a
 `cmd::run_build_and_reveal(command, dir, folder, exts, rename)`:
 
-1. Ejecuta `command` con `cmd /c` (Windows) o `sh -lc` (Linux) heredando
+1. Ejecuta `command` con `cmd /c` heredando
    stdio, **en la ventana que el TUI ya abrió** (la de `spawn_new_window_autoexit`).
 2. Si termina bien, busca el artefacto más reciente de `folder` en Rust
    (`newest_artifact`, recursivo y filtrando por extensión), lo renombra a
@@ -554,7 +388,7 @@ Los builds **no abren una segunda ventana**. Llaman a
 
 Así sólo hay **una** ventana y es la rápida. Antes se generaba un script de
 shell con la lógica de revelado incrustada (PowerShell en Windows, `sh` en
-Linux) y se abría con `powershell -NoExit -Command`: lento y con la lógica de
+y se abría con `powershell -NoExit -Command`: lento y con la lógica de
 "artefacto más reciente" duplicada en dos sintaxis.
 
 `cmd::run_in_current_window(command, dir)` es la variante sin revelado, para
@@ -562,7 +396,7 @@ procesos largos que no producen artefacto (`rust::run` → `cargo run`).
 
 El revelado usa `explorer.exe /select,"<ruta>"` (con `raw_arg`, para que Explorer
 reciba las comillas alrededor de la ruta) en Windows y `xdg-open` sobre la
-carpeta contenedora en Linux. Si no encuentra artefacto, abre `folder`.
+carpeta contenedora. Si no encuentra artefacto, abre `folder`.
 
 ⚠️ **Los separadores se normalizan a `\` antes del Explorer** (helper
 `windows_path_for_explorer`): los literales `join("a/b/c")` conservan las `/` del
@@ -648,7 +482,7 @@ Sólo se llama cuando `is_predictive()` es falso, así que en una máquina al d�
 
 ⚠️ **El perfil se escribe con BOM UTF-8** (`write_utf8_bom`). PS 5.1 lee un `.ps1` sin BOM como ANSI/CP1252, así que cada acento se parte en dos caracteres (`ú` = bytes `C3 BA` → 195 y 186). Hoy son sólo comentarios, pero cualquier ruta con acento en un alias dejaría de funcionar. El BOM forma parte de la comparación de idempotencia: un perfil correcto *sin* BOM tiene que reescribirse.
 
-Antes de sobrescribir se copia el perfil previo a `Microsoft.PowerShell_profile.ps1.compass-bak` (mismo convenio que `context_actions.ron.compass-bak`). Si el contenido ya coincide, no se toca el archivo.
+Antes de sobrescribir se copia el perfil previo a `Microsoft.PowerShell_profile.ps1.compass-bak` . Si el contenido ya coincide, no se toca el archivo.
 
 Cubierto por `tasks::terminal::tests` (8 tests): parseo de versión, decisión de actualizar, elección de perfil, **los nombres del perfil legacy existen todos en la 2.0.0** (lista real sacada con `Get-Command`), ausencia de nombres predictivos, `-PredictionSource` protegido por `try`/`catch`, y BOM (incluido que su presencia forma parte de la comparación).
 
@@ -851,8 +685,8 @@ usaba `wails.json` y otro CLI, así que no se mezcla (`context::is_wails_v3`).
 
 | Tarjeta | Qué hace |
 |---------|----------|
-| Windows/Linux | `wails3 task dev` en ventana interactiva (Vite en modo dev + hot reload) |
-| Win/Linux Build | `wails3 task package` → **instalador**: `bin/<APP>-<arch>-installer.exe` (NSIS) o `bin/<APP>-<arch>.msix` en Windows; `bin/<APP>-<arch>.AppImage` / `.deb` / `.rpm` en Linux. Revelado en el explorador |
+| Windows | `wails3 task dev` en ventana interactiva (Vite en modo dev + hot reload) |
+| Windows Build | `wails3 task package` → **instalador**: `bin/<APP>-<arch>-installer.exe` (NSIS) o `bin/<APP>-<arch>.msix`. Revelado en el explorador |
 | APK (release) | Pipeline Android propio → `build/android/app/build/outputs/apk/release/`, copiada a `bin/<APP>.apk` y **opción de instalarla en el teléfono** |
 | AAB (release) | Lo mismo + `bundleRelease` → `bin/<APP>.aab` |
 | Install (debug) | APK debug + `adb install` + `am start`; la ventana se cierra sola a los 10 s tras compilar bien |
@@ -1106,28 +940,8 @@ Medido: **~30 s → ~7 s** sin nada que cambiar, ~19 s cuando hay que recompilar
 
 ⚠️ `install.bat` usa `setlocal EnableDelayedExpansion` y `!errorlevel!` dentro de los bloques: con `%errorlevel%` se evalúa al parsear el `if`, antes de que `cargo` corra, y siempre da 0.
 
-## install.sh
-
-Script de instalación para Linux (Pop!_OS / Ubuntu). Diferencias con `install.bat`:
-
-1. Hace `cd` a su propio directorio (el check de `Cargo.toml` miraba el CWD de
-   quien lo invocaba, y fallaba con `./ruta/al/proyecto/install.sh`)
-2. Verifica `command -v cargo` en vez de `where cargo`
-3. Cierra instancias con `pkill -x compass` en vez de `taskkill`
-4. Compila con `cargo install --path . --force`, **salvo** que ninguna fuente sea
-   más nueva que el binario instalado (`find … -newer`). `install.sh --force`
-   fuerza la recompilación. La lógica va en `tools/test-skip.sh`, que se puede
-   ejecutar para comprobar los dos casos sin instalar nada
-5. Instala la **entrada del launcher** (`.desktop`) e iconos PNG en hicolor
-6. Comprueba SDK, **JDK** y node/npm por separado: sin `java` no hay `keytool`
-   (firmas/huellas), ni `sdkmanager` (NDK), ni Gradle
-7. Avisa si `ANDROID_HOME` no está configurado
-8. Menú contextual: **no** se instala por defecto (el de Windows es registro).
-   Opt-in con `./install.sh --with-context-menu`
-
 ## Testing
 
 `cargo test` cubre el renderizado de las cards del menú (ver "Estados visuales
-de una card"). El resto —detección de proyectos, `newest_artifact`, wrappers
-del menú contextual, generación del `.desktop`— se verifica con compilación
+de una card"). El resto —detección de proyectos, `newest_artifact` y acciones del menú contextual— se verifica con compilación
 (`cargo build`) y pruebas manuales en la máquina de destino.

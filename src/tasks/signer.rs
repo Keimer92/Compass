@@ -287,7 +287,7 @@ pub(crate) fn find_keytool() -> Result<String> {
     let mut paths: Vec<String> = vec!["keytool".to_string()];
     let kt = platform::exe_name("keytool");
 
-    // JAVA_HOME es portable y es la vía más fiable en ambas plataformas.
+    // JAVA_HOME es la vía más fiable.
     if let Ok(jh) = env::var("JAVA_HOME") {
         paths.push(
             Path::new(&jh)
@@ -298,37 +298,25 @@ pub(crate) fn find_keytool() -> Result<String> {
         );
     }
 
-    if platform::IS_WINDOWS {
-        paths.push(format!(r"C:\Program Files\Android\Android Studio\jbr\bin\{kt}"));
-        paths.push(format!(r"C:\Program Files\Android\Android Studio\jre\bin\{kt}"));
+    paths.push(format!(r"C:\Program Files\Android\Android Studio\jbr\bin\{kt}"));
+    paths.push(format!(r"C:\Program Files\Android\Android Studio\jre\bin\{kt}"));
 
-        for base in &[r"C:\Program Files\Java", r"C:\Program Files (x86)\Java"] {
-            if let Ok(entries) = fs::read_dir(base) {
-                for entry in entries.flatten() {
-                    let k = entry.path().join("bin").join(&kt);
-                    if k.exists() {
-                        paths.push(k.to_string_lossy().into_owned());
-                    }
-                }
-            }
-        }
-
-        if let Ok(local) = env::var("LOCALAPPDATA") {
-            for jbr in ["jbr", "jre"] {
-                let c = format!("{}\\Programs\\Android Studio\\{}\\bin\\{}", local, jbr, kt);
-                if Path::new(&c).exists() {
-                    paths.push(c);
-                }
-            }
-        }
-    } else {
-        // Linux: el JDK suele estar en /usr/lib/jvm/<distro>-<version>/
-        if let Ok(entries) = fs::read_dir("/usr/lib/jvm") {
+    for base in &[r"C:\Program Files\Java", r"C:\Program Files (x86)\Java"] {
+        if let Ok(entries) = fs::read_dir(base) {
             for entry in entries.flatten() {
                 let k = entry.path().join("bin").join(&kt);
                 if k.exists() {
                     paths.push(k.to_string_lossy().into_owned());
                 }
+            }
+        }
+    }
+
+    if let Ok(local) = env::var("LOCALAPPDATA") {
+        for jbr in ["jbr", "jre"] {
+            let c = format!("{}\\Programs\\Android Studio\\{}\\bin\\{}", local, jbr, kt);
+            if Path::new(&c).exists() {
+                paths.push(c);
             }
         }
     }

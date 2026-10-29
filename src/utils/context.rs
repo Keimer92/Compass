@@ -50,15 +50,9 @@ pub struct ProjectContext {
 impl ProjectContext {
     pub fn assert_android_sdk(&self) -> Result<()> {
         if self.android_home.is_none() {
-            #[cfg(windows)]
             anyhow::bail!(
                 "[ERROR] ANDROID_HOME no está configurado.\n\
                  Asegúrate de tener instalado Android SDK, o define ANDROID_HOME."
-            );
-            #[cfg(not(windows))]
-            anyhow::bail!(
-                "[ERROR] ANDROID_HOME no está configurado.\n\
-                 Define la variable con: export ANDROID_HOME=$HOME/Android/Sdk"
             );
         }
         Ok(())
@@ -135,7 +129,7 @@ pub fn classify_dir(d: &Path) -> Option<ProjectType> {
     if is_wails_v3(d) {
         return Some(ProjectType::GoWails);
     }
-    // Acepta `gradlew` o `gradlew.bat`: en Linux el wrapper no lleva extensión.
+    // Los proyectos Kotlin requieren `gradlew.bat`.
     if platform::find_gradlew(d).is_some() && d.join("settings.gradle.kts").exists() {
         return Some(ProjectType::Kotlin);
     }
@@ -197,8 +191,6 @@ fn type_label(pt: ProjectType) -> &'static str {
 
 /// Navegador interactivo para elegir la carpeta de un proyecto.
 ///
-/// Hace falta porque desde el launcher de COSMIC el proceso arranca con el
-/// directorio actual en `$HOME`, donde no hay ningún proyecto que detectar.
 /// `compass` cae aquí cuando [`detect`] falla y no se pasó `--task`.
 ///
 /// contract: devuelve la raíz elegida, o `Ok(None)` si el usuario cancela con Esc.
@@ -334,11 +326,8 @@ enum Action {
 /// La documentación y casi todas las herramientas asumen el nombre estable
 /// `cmdline-tools/latest`, pero el layout real varía:
 ///
-/// - El instalador de Google descarga una carpeta versionada (`13.0`) y el
-///   usuario (o el paquete de Ubuntu) crea `latest` como symlink.
-/// - El paquete `google-android-cmdline-tools-*-installer` de Ubuntu **no**
-///   crea ese symlink: deja `13.0` a secas, y sin él el runner nunca encontraba
-///   `sdkmanager` y por tanto no podía instalar el NDK.
+/// - El instalador de Google descarga una carpeta versionada (`13.0`) y suele
+///   crear `latest`; también se buscan versiones numeradas si ese enlace falta.
 ///
 /// Se prueba `latest` primero (layout recomendado) y luego la carpeta
 /// versionada más alta, ordenando numéricamente para que `9.0` no gane a
@@ -375,7 +364,7 @@ fn find_sdkmanager(android_home: &Path) -> Option<PathBuf> {
 }
 
 fn detect_android_home() -> Option<PathBuf> {
-    // 1. Variables de entorno (funcionan en ambas plataformas)
+    // 1. Variables de entorno
     for key in ["ANDROID_HOME", "ANDROID_SDK_ROOT"] {
         if let Ok(val) = env::var(key) {
             if val.is_empty() {
@@ -390,30 +379,17 @@ fn detect_android_home() -> Option<PathBuf> {
 
     let mut candidates: Vec<PathBuf> = Vec::new();
 
-    if platform::IS_WINDOWS {
-        candidates.push(PathBuf::from(r"C:\Users\Admin\Android"));
-        if let Some(local) = env::var_os("LOCALAPPDATA") {
-            candidates.push(PathBuf::from(local).join("Android").join("Sdk"));
-        }
-        if let Some(up) = env::var_os("USERPROFILE") {
-            candidates.push(
-                PathBuf::from(up)
-                    .join("AppData")
-                    .join("Local")
-                    .join("Android")
-                    .join("Sdk"),
-            );
-        }
-    } else {
-        if let Some(h) = platform::home_dir() {
-            candidates.push(h.join("Android").join("Sdk"));
-            candidates.push(h.join("android-sdk"));
-            candidates.push(h.join("Android").join("sdk"));
-        }
-        if let Some(d) = platform::data_dir() {
-            candidates.push(d.join("Android").join("Sdk"));
-        }
-        candidates.push(PathBuf::from("/usr/lib/android-sdk"));
+    if let Some(local) = env::var_os("LOCALAPPDATA") {
+        candidates.push(PathBuf::from(local).join("Android").join("Sdk"));
+    }
+    if let Some(up) = env::var_os("USERPROFILE") {
+        candidates.push(
+            PathBuf::from(up)
+                .join("AppData")
+                .join("Local")
+                .join("Android")
+                .join("Sdk"),
+        );
     }
 
     candidates.into_iter().find(|c| c.exists())

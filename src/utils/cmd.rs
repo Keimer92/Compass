@@ -98,12 +98,8 @@ pub fn run_npm_install(dir: &std::path::Path) -> Result<()> {
         anyhow::bail!("No se encontró package.json en: {}", dir.display());
     }
 
-    let program = if cfg!(windows) { "cmd" } else { "npm" };
-    let args: &[&str] = if cfg!(windows) {
-        &["/c", "npm.cmd", "install"]
-    } else {
-        &["install"]
-    };
+    let program = "cmd";
+    let args: &[&str] = &["/c", "npm.cmd", "install"];
 
     let status = Command::new(program)
         .args(args)
@@ -121,299 +117,6 @@ pub fn run_npm_install(dir: &std::path::Path) -> Result<()> {
         anyhow::bail!("npm install falló en: {}", dir.display());
     }
     Ok(())
-}
-
-// ── Spawn de ventanas ─────────────────────────────────────────────────
-//
-// En Windows: `powershell` / `cmd` con `CREATE_NEW_CONSOLE`.
-// En Linux: se delega en un emulador de terminal detectado (`gnome-terminal`,
-// `konsole`, `xterm`, ...). Sin esto, `spawn_new_window*` heredaba la terminal
-// de la TUI y la pintaba encima, dejándola inutilizable.
-
-/// Emulador de terminal conocido, con su forma exacta de invocar un comando.
-///
-/// **El orden es la preferencia**: se usa el primero que esté en el PATH.
-///
-/// `alacritty` va primero por defecto porque, a diferencia de `cosmic-term`,
-/// implementa el modo de ratón **1003 (all-motion)**. Eso importa para el menú
-/// TUI: con 1002 (sólo movimiento con botón pulsado) el hover de las cards no
-/// se activa nunca, porque el terminal no envía ningún evento.
-///
-/// Ver `MouseReporter` en `cosmic-term/src/mouse_reporter.rs`: para
-/// `CursorMoved` hace `self.button.map(...)`, y `Option::map` sobre `None`
-/// devuelve `None` — sin botón no se envía nada.
-///
-/// Los tres campos separan lo que antes se mezclaba en un único `&[&str]`:
-/// - `lead`: argumentos previos, sólo para los que lanzan subcomando
-///   (`wezterm start --`).
-/// - `title_flag`: flag del título, o `None` si el terminal no lo expone.
-/// - `exec_flag`: flag que introduce el comando a ejecutar.
-///
-/// `wezterm` necesita `lead` porque no acepta `--title`; con el modelo anterior
-/// (`&["start", "--"]` playing el papel de flag de título) se le pasaba
-/// `'título' -e ...` como argumentos sueltos.
-#[cfg(not(windows))]
-struct TerminalSpec {
-    bin: &'static str,
-    lead: &'static [&'static str],
-    title_flag: Option<&'static str>,
-    exec_flag: &'static str,
-}
-
-#[cfg(not(windows))]
-const TERMINALS: &[TerminalSpec] = &[
-    // kitty va primero porque es el único ligero que tiene a la vez las dos
-    // cosas que necesita el TUI: modo de ratón 1003 (hover de las cards) y
-    // pestañas de verdad. Ni alacritty ni cosmic-term tienen pestañas — no es
-    // una opción de configuración, la funcionalidad no existe en Linux.
-    TerminalSpec { bin: "kitty",           lead: &[],                title_flag: Some("--title"), exec_flag: "-e" },
-    TerminalSpec { bin: "alacritty",       lead: &[],                title_flag: Some("--title"), exec_flag: "-e" },
-    TerminalSpec { bin: "cosmic-term",     lead: &[],                title_flag: Some("--title"), exec_flag: "-e" },
-    TerminalSpec { bin: "gnome-terminal",  lead: &[],                title_flag: Some("--title"), exec_flag: "-e" },
-    TerminalSpec { bin: "konsole",         lead: &[],                title_flag: Some("--title"), exec_flag: "-e" },
-    TerminalSpec { bin: "xfce4-terminal",  lead: &[],                title_flag: Some("--title"), exec_flag: "-e" },
-    TerminalSpec { bin: "kitty",           lead: &[],                title_flag: Some("--title"), exec_flag: "-e" },
-    TerminalSpec { bin: "wezterm",         lead: &["start", "--"],    title_flag: None,           exec_flag: "" },
-    TerminalSpec { bin: "xterm",           lead: &[],                title_flag: Some("-T"),      exec_flag: "-e" },
-];
-
-/// Primer emulador de terminal disponible en el PATH.
-///
-/// Se busca en el orden de [`TERMINALS`], que pone primero los de Pop!_OS.
-#[cfg(not(windows))]
-fn detect_terminal() -> Option<&'static TerminalSpec> {
-    TERMINALS.iter().find(|spec| {
-        Command::new("sh")
-            .args(["-c", &format!("command -v {}", spec.bin)])
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
-    })
-}
-
-/// Base del socket IPC de kitty, tal y como se declara en su `kitty.conf`
-/// (`listen_on unix:@kitty-compass`).
-#[cfg(not(windows))]
-const KITTY_SOCKET_PREFIX: &str = "@kitty-compass";
-
-/// Dirección del socket IPC de una instancia de kitty viva, si la hay.
-///
-/// kitty crea el socket a partir de `listen_on unix:@kitty-compass` y le
-/// **añade el PID**: `@kitty-compass-<pid>`. Por eso no puede usarse una
-/// ruta fija. El nombre va sin barra inicial, o sea que es relativo, y en la
-/// práctica **no aparece como fichero en disco** (se ve en `ss` como
-/// `LISTEN @kitty-compass-<pid>`, pero `find -type s` no lo encuentra), así
-/// que la única forma fiable de descubrirlo es leer la tabla de sockets.
-///
-/// Se elige el PID más alto, que es la instancia creada más recientemente: es la
-/// que el usuario tiene delante.
-///
-/// Devuelve `None` si no hay kitty abierto, que es el caso normal cuando
-/// compass se lanza desde el launcher sin ninguna ventana de kitty previa.
-#[cfg(not(windows))]
-fn kitty_socket() -> Option<String> {
-    let out = Command::new("ss")
-        .args(["-xlH"])
-        .output()
-        .ok()?;
-    let text = String::from_utf8_lossy(&out.stdout);
-
-    let mut best: Option<(u32, String)> = None;
-    for token in text.split_whitespace() {
-        let Some(pid) = token
-            .strip_prefix(KITTY_SOCKET_PREFIX)
-            .and_then(|s| s.strip_prefix('-'))
-            .and_then(|s| s.parse::<u32>().ok())
-        else {
-            continue;
-        };
-        if best.as_ref().map_or(true, |(bp, _)| pid > *bp) {
-            best = Some((pid, token.to_string()));
-        }
-    }
-    best.map(|(_, name)| format!("unix:{name}"))
-}
-
-/// Abre `script` como **pestaña** de la ventana de kitty que ya está abierta.
-///
-/// Devuelve `false` si no hay instancia kitty con la que hablar, y entonces el
-/// llamante debe abrir una ventana nueva.
-///
-/// Nota sobre por qué hace falta el socket: `kitty @ launch` busca el socket en
-/// `$KITTY_LISTEN_ON` y, si no lo encuentra, envía el mensaje a la terminal
-/// controladora — o sea, sólo funciona dentro de una ventana de kitty. Como
-/// compass se lanza desde un terminal cualquiera (alacritty, cosmic-term), no
-/// encontraría nada, de ahí el `--to` explícito.
-#[cfg(not(windows))]
-fn spawn_kitty_tab(title: &str, script: &str) -> bool {
-    let Some(socket) = kitty_socket() else { return false };
-
-    // `kitty @` necesita un terminal para trabajar; `script` le presta uno
-    // descartable. Sin él responde "open /dev/tty: no such device or address".
-    // `script -c` ejecuta el comando y propaga su código de salida.
-    let status = Command::new("script")
-        .arg("-qec")
-        .arg(format!(
-            "kitty @ --to {socket} launch --type=tab --title {} sh -lc {}",
-            sh_quote(title),
-            sh_quote(script)
-        ))
-        .arg("/dev/null")
-        .stdin(std::process::Stdio::null())
-        .status();
-
-    matches!(status, Ok(s) if s.success())
-}
-
-/// Cuerpo de shell que lanza `script` decidiendo en **tiempo de ejecución**
-/// entre pestaña de kitty y ventana nueva.
-///
-/// Existe porque los wrappers `vibe-*` se generan una sola vez y se quedan
-/// escritos en disco, pero en el momento de generarlos no se sabe si el
-/// usuario tendrá kitty abierto: si se hornea el argv con
-/// [`terminal_prefix`], siempre abrirá una ventana nueva. En vez de eso se emite
-/// el condicional y el wrapper decide cuando se ejecuta.
-///
-/// ⚠️ **La rama de la pestaña parsea el script dos veces, y está roto.** El
-/// `script -qec "… sh -lc \"$CR_SCRIPT\""` de abajo llega al shell intermedio
-/// como una cadena con las comillas ya consumidas, así que ese shell vuelve a
-/// parsearla: `$target` sale vacío (no está definido ahí) y la división por IFS
-/// trunca el comando. La rama de ventana nueva sí funciona, porque kitty hace
-/// `exec` directo de `sh -lc <script>` sin re-parsear.
-///
-/// Arreglo propuesto: exportar `CR_SCRIPT`/`CR_SOCKET`/`CR_TITLE` y pasarle a
-/// `script -qec` **un argumento con comillas simples**, para que cite el shell
-/// intermedio. Está sin aplicar porque no se ha podido probar con un kitty real:
-/// hace falta `ss -xlH | grep kitty-compass` listando
-/// `@kitty-compass-<pid>`, o sea una instancia de kitty ya abierta. Ver
-/// "Bug conocido: doble parseo en la rama kitty-tab" en AGENTS.md.
-///
-/// Devuelve `None` si no hay ningún emulador instalado.
-#[cfg(not(windows))]
-pub fn terminal_launch_shell(title: &str, script: &str) -> Option<String> {
-    let spec = detect_terminal()?;
-
-    if spec.bin == "kitty" {
-        let quoted_title = sh_quote(title);
-        // El script NO va embebido en la cadena de `script -qec`: esa cadena
-        // usa comillas dobles, así que un `"$target"` o un `read -r` de dentro
-        // del script rompen el quoting y `script` aborta con "unexpected number
-        // of arguments". Se pasa por variable de entorno y se referencia como
-        // `$CR_SCRIPT`, que no se expande donde no toca.
-        return Some(format!(
-            r#"socket="$(ss -xlH 2>/dev/null | tr ' ' '\n' | grep -m1 '^{prefix}-[0-9]*$' || true)"
-export CR_SCRIPT=$(cat <<'CR_EOF'
-{script}
-CR_EOF
-)
-if [ -n "$socket" ]; then
-    exec script -qec "kitty @ --to unix:$socket launch --type=tab --title {qt} sh -lc \"$CR_SCRIPT\"" /dev/null
-fi
-# Sin instancia de kitty con la que hablar, se abre una ventana nueva.
-exec kitty --title {qt} -e sh -lc "$CR_SCRIPT""#,
-            prefix = KITTY_SOCKET_PREFIX,
-            qt = quoted_title,
-            script = script,
-        ));
-    }
-
-    let argv = terminal_prefix(title, script)?;
-    let cmd_line = argv
-        .iter()
-        .map(|a| sh_quote(a))
-        .collect::<Vec<_>>()
-        .join(" ");
-    Some(format!("exec {cmd_line}"))
-}
-
-/// En Windows no hay emulador externo que lanzar: ver [`spawn_in_terminal`].
-#[cfg(windows)]
-pub fn terminal_launch_shell(_title: &str, _script: &str) -> Option<String> {
-    None
-}
-
-/// Prefijo de argv para abrir `script` en una ventana de terminal nueva.
-///
-/// Devuelve `None` si no hay ningún emulador instalado. Es la mitad "cómo
-/// invocar un terminal" de [`spawn_in_terminal`], expuesta por separado porque
-/// `context_menu_cosmic` la necesita para incrustarla en los wrappers `vibe-*`
-/// (que corren sin tty y deben abrir su propia ventana).
-///
-/// En Windows devuelve `None`: allí las ventanas se abren con
-/// `CREATE_NEW_CONSOLE`, no con un emulador.
-#[cfg(not(windows))]
-pub fn terminal_prefix(title: &str, script: &str) -> Option<Vec<String>> {
-    let spec = detect_terminal()?;
-    let mut argv: Vec<String> = Vec::with_capacity(8);
-    argv.push(spec.bin.to_string());
-    argv.extend(spec.lead.iter().map(|s| s.to_string()));
-    if let Some(flag) = spec.title_flag {
-        argv.push(flag.to_string());
-        argv.push(title.to_string());
-    }
-    if !spec.exec_flag.is_empty() {
-        argv.push(spec.exec_flag.to_string());
-    }
-    argv.push("sh".to_string());
-    argv.push("-lc".to_string());
-    argv.push(script.to_string());
-    Some(argv)
-}
-
-/// Escapa una cadena para incrustarla entre comillas simples en POSIX `sh`.
-#[cfg(not(windows))]
-fn sh_quote(s: &str) -> String {
-    format!("'{}'", s.replace('\'', r"'\''"))
-}
-
-/// Envuelve `script` en un emulador de terminal nuevo y lo lanza.
-#[cfg(not(windows))]
-fn spawn_in_terminal(title: &str, script: &str) -> Result<()> {
-    // Si hay una ventana de kitty abierta y el terminal elegido es kitty, se
-    // prefiere abrir una PESTAÑA en ella en vez de otra ventana. Si no hay
-    // instancia kitty (típico al arrancar desde el launcher), se cae a la
-    // ventana nueva de siempre.
-    if detect_terminal().map(|s| s.bin) == Some("kitty") && spawn_kitty_tab(title, script) {
-        return Ok(());
-    }
-
-    let argv = terminal_prefix(title, script).with_context(|| {
-        "[ERROR] No se encontró ningún emulador de terminal.\n\
-         Instala uno de: cosmic-term, gnome-terminal, konsole, xfce4-terminal, alacritty, kitty, wezterm, xterm"
-    })?;
-
-    let bin = argv[0].clone();
-    let mut cmd = Command::new(&bin);
-    cmd.args(&argv[1..]);
-
-    // La ventana nueva debe sobrevivir a la que la lanzó. Sin esto el emulador
-    // nace en el mismo grupo de procesos y con los mismos stdio que el pty del
-    // padre, así que cuando esa ventana se cierra (variante `autoexit`, que
-    // muere nada más después de lanzar esta) el hijo se va con ella: la ventana
-    // se abre y se cierra al instante.
-    //
-    // `process_group(0)` lo saca del grupo, y los stdio a /dev/null lo desligan
-    // del pty del padre. Es el equivalente a `setsid … </dev/null >/dev/null`.
-    use std::os::unix::process::CommandExt;
-    cmd.process_group(0);
-    cmd.stdin(std::process::Stdio::null());
-    cmd.stdout(std::process::Stdio::null());
-    cmd.stderr(std::process::Stdio::null());
-
-    cmd.spawn()
-        .with_context(|| format!("No se pudo abrir una ventana de {bin}"))?;
-    Ok(())
-}
-
-/// En Windows no hay emulador externo que lanzar: ver `spawn_in_terminal`.
-///
-/// Se mantiene por simetría con la variante POSIX, aunque hoy nada la llama en
-/// Windows: los wrappers de COSMIC van por [`terminal_launch_shell`], que aquí
-/// devuelve `None` y hace que el script caiga al aviso de "sin tty".
-#[cfg(windows)]
-#[allow(dead_code)]
-pub fn terminal_prefix(_title: &str, _script: &str) -> Option<Vec<String>> {
-    None
 }
 
 /// Ejecuta `command` en la **ventana actual** (heredando stdin/stdout/stderr) y
@@ -594,23 +297,15 @@ pub fn run_in_current_window(command: &str, dir: &std::path::Path) -> Result<()>
     Ok(())
 }
 
-/// Lanza `command` en un shell (`cmd /c` en Windows, `sh -lc` en Linux)
-/// heredando stdio, con `dir` como directorio de trabajo.
+/// Lanza `command` en `cmd /c` heredando stdio, con `dir` como directorio de trabajo.
 fn shell_status(
     command: &str,
     dir: &std::path::Path,
     envs: &[(String, String)],
 ) -> Result<std::process::ExitStatus> {
-    #[cfg(windows)]
     let mut c = {
         let mut c = Command::new("cmd");
         c.arg("/c").arg(command);
-        c
-    };
-    #[cfg(not(windows))]
-    let mut c = {
-        let mut c = Command::new("sh");
-        c.arg("-lc").arg(command);
         c
     };
     c.current_dir(dir);
@@ -642,30 +337,15 @@ pub fn run_shell_status(
 /// milisegundos y el comando es una simple invocación de `compass.exe`, así que
 /// no se necesita nada de PowerShell.
 pub fn spawn_new_window_autoexit(title: &str, dir: &std::path::Path, command: &str) -> Result<()> {
-    #[cfg(windows)]
-    {
-        // `raw_arg` y no `.args`: `.args` reescapa las comillas dobles del
-        // comando (`"C:\...\compass.exe"` → `\"C:\...\compass.exe\"`), y cmd no
-        // entiende `\"`, así que interpretaría el `\` como parte de la ruta.
-        let cmd_line = format!("/c title {} & {}", title, command);
-        Command::new("cmd")
-            .creation_flags(CREATE_NEW_CONSOLE)
-            .current_dir(dir)
-            .raw_arg(&cmd_line)
-            .spawn()
-            .context("No se pudo abrir nueva ventana de CMD")?;
-        Ok(())
-    }
-    #[cfg(not(windows))]
-    {
-        // El emulador de terminal cierra la ventana solo cuando el hijo termina.
-        let script = format!(
-            "cd {} && {}",
-            sh_quote(&dir.display().to_string()),
-            command
-        );
-        spawn_in_terminal(title, &script)
-    }
+    // `raw_arg` conserva las comillas del comando, que cmd no acepta escapadas como `\"`.
+    let cmd_line = format!("/c title {} & {}", title, command);
+    Command::new("cmd")
+        .creation_flags(CREATE_NEW_CONSOLE)
+        .current_dir(dir)
+        .raw_arg(&cmd_line)
+        .spawn()
+        .context("No se pudo abrir nueva ventana de CMD")?;
+    Ok(())
 }
 
 /// Abre una nueva terminal con stdin funcional para comandos interactivos
@@ -673,29 +353,15 @@ pub fn spawn_new_window_autoexit(title: &str, dir: &std::path::Path, command: &s
 /// powershell -Command porque este último no reenvía correctamente el
 /// teclado a procesos hijo en ciertas configuraciones de Windows.
 pub fn spawn_new_window_interactive(title: &str, dir: &std::path::Path, command: &str) -> Result<()> {
-    #[cfg(windows)]
-    {
-        // `raw_arg` por el mismo motivo que en `spawn_new_window_autoexit`: si el
-        // comando lleva comillas dobles (rutas con espacios), `.args` las
-        // reescaparía a `\"` y cmd no las entendería.
-        let cmd_line = format!("/c title {} & {} & pause", title, command);
-        Command::new("cmd")
-            .creation_flags(CREATE_NEW_CONSOLE)
-            .current_dir(dir)
-            .raw_arg(&cmd_line)
-            .spawn()
-            .context("No se pudo abrir nueva ventana de CMD")?;
-        Ok(())
-    }
-    #[cfg(not(windows))]
-    {
-        let script = format!(
-            "cd {} && {} ; echo; echo 'Presiona Enter para cerrar...'; read -r",
-            sh_quote(&dir.display().to_string()),
-            command
-        );
-        spawn_in_terminal(title, &script)
-    }
+    // `raw_arg` evita que las comillas de rutas con espacios se reescapen como `\"`.
+    let cmd_line = format!("/c title {} & {} & pause", title, command);
+    Command::new("cmd")
+        .creation_flags(CREATE_NEW_CONSOLE)
+        .current_dir(dir)
+        .raw_arg(&cmd_line)
+        .spawn()
+        .context("No se pudo abrir nueva ventana de CMD")?;
+    Ok(())
 }
 
 /// Busca el archivo más reciente dentro de `folder` (recursivo) cuya extensión
@@ -822,50 +488,27 @@ fn reveal_artifact_filtered(
 /// Convierte un path a su forma **Windows** para el Explorer: separadores
 /// backslash puros.
 ///
-/// Los literales de ruta del crate usan `/` (portabilidad Linux/Windows) y los
-/// `join("a/b/c")` los conservan, así que un path construido por aquí puede
+/// Los `join("a/b/c")` conservan `/`, así que un path construido por aquí puede
 /// llevar separadores mezclados (`D:\P\src-tauri/gen/android/...`). `explorer
 /// /select` no parsea ese caso: ignora el argumento y abre el Escritorio (o
 /// Documentos). Con backslashes puros sí funciona.
-#[cfg(windows)]
 fn windows_path_for_explorer(path: &Path) -> String {
     path.display().to_string().replace('/', "\\")
 }
 
 /// Abre el explorador resaltando `path`.
 fn open_in_explorer(path: &Path) {
-    #[cfg(windows)]
-    {
-        let p = windows_path_for_explorer(path);
-        // `raw_arg`: el parser de Explorer necesita `/select,"<ruta>"`, con las
-        // comillas dobles alrededor de la ruta. Con `.args` Rust citaría el
-        // argumento entero y Explorer recibiría `/select,"ruta"` mal formado, lo
-        // que abre Documentos en vez de la carpeta.
-        let _ = Command::new("explorer")
-            .raw_arg(format!("/select,\"{p}\""))
-            .spawn();
-    }
-    #[cfg(not(windows))]
-    {
-        // Abrir el archivo lanzaría la app o un visor inesperado; la carpeta
-        // contenedora es lo que "revelar" significa de verdad.
-        let target = path.parent().unwrap_or(path);
-        let _ = Command::new("xdg-open").arg(target).spawn();
-    }
+    let p = windows_path_for_explorer(path);
+    // Explorer necesita `/select,"<ruta>"` con comillas embebidas.
+    let _ = Command::new("explorer")
+        .raw_arg(format!("/select,\"{p}\""))
+        .spawn();
 }
 
 /// Abre una carpeta en el explorador.
 fn open_folder(folder: &Path) {
-    #[cfg(windows)]
-    {
-        // Mismo motivo que en `open_in_explorer`: `/` mezcladas → Escritorio.
-        let p = windows_path_for_explorer(folder);
-        let _ = Command::new("explorer").arg(&p).spawn();
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = Command::new("xdg-open").arg(folder).spawn();
-    }
+    let p = windows_path_for_explorer(folder);
+    let _ = Command::new("explorer").arg(&p).spawn();
 }
 
 /// Pone el título de la consola con el **nombre del directorio del proyecto**.
@@ -887,41 +530,26 @@ pub fn remove_dir(path: &std::path::Path) -> Result<()> {
     if !path.exists() {
         return Ok(());
     }
-    #[cfg(windows)]
-    {
-        if std::fs::remove_dir_all(path).is_ok() {
-            return Ok(());
-        }
-        let ps = format!(
-            "Remove-Item -LiteralPath '{}' -Recurse -Force",
-            path.display().to_string().replace('\'', "''")
-        );
-        let output = Command::new("powershell")
-            .args(["-NoProfile", "-Command", &ps])
-            .output()
-            .with_context(|| format!("Falló Remove-Item en: {}", path.display()))?;
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            anyhow::bail!("Error al eliminar {}:\n{}", path.display(), stderr);
-        }
-        Ok(())
+    if std::fs::remove_dir_all(path).is_ok() {
+        return Ok(());
     }
-    #[cfg(not(windows))]
-    {
-        std::fs::remove_dir_all(path)
-            .with_context(|| format!("Error al eliminar {}", path.display()))
+    let ps = format!(
+        "Remove-Item -LiteralPath '{}' -Recurse -Force",
+        path.display().to_string().replace('\'', "''")
+    );
+    let output = Command::new("powershell")
+        .args(["-NoProfile", "-Command", &ps])
+        .output()
+        .with_context(|| format!("Falló Remove-Item en: {}", path.display()))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("Error al eliminar {}:\n{}", path.display(), stderr);
     }
+    Ok(())
 }
 
 pub fn clear_screen() {
-    #[cfg(windows)]
-    {
-        let _ = Command::new("cmd").args(["/c", "cls"]).status();
-    }
-    #[cfg(not(windows))]
-    {
-        print!("\x1B[2J\x1B[1;1H");
-    }
+    let _ = Command::new("cmd").args(["/c", "cls"]).status();
 }
 
 #[cfg(test)]
