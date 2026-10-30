@@ -77,6 +77,16 @@ pub fn ps_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "''"))
 }
 
+/// `true` cuando este proceso corre dentro de una pestaña del contenedor de
+/// Compass (ver `container.rs`), no en una ventana propia.
+///
+/// La marca la pone el contenedor al abrir la sesión ConPTY. Con ella, los
+/// lanzadores de abajo ejecutan el comando en la consola actual en vez de
+/// abrir otra ventana: la pestaña **es** la consola del comando.
+pub fn embedded() -> bool {
+    std::env::var_os("COMPASS_EMBEDDED").is_some()
+}
+
 /// Argumentos con los que se lanza un script de PowerShell.
 fn window_args(script: &str) -> Vec<&str> {
     vec!["-NoLogo", "-NoProfile", "-Command", script]
@@ -461,6 +471,10 @@ pub fn run_shell_status(command: &str, dir: &Path, envs: &[(String, String)]) ->
 /// arranque sea determinista y para que PSReadLine no interfiera con el teclado
 /// de los procesos hijos.
 pub fn spawn_new_window_autoexit(title: &str, dir: &std::path::Path, command: &str) -> Result<()> {
+    if embedded() {
+        let _ = shell_status(command, dir, &[]);
+        return Ok(());
+    }
     let script = window_script(title, command, false);
     Command::new(shell())
         .args(window_args(&script))
@@ -481,6 +495,13 @@ pub fn spawn_new_window_interactive(
     dir: &std::path::Path,
     command: &str,
 ) -> Result<()> {
+    // En una pestaña del contenedor no hay que abrir nada: la consola actual
+    // es la que el usuario está viendo. Se hereda stdio para que el comando
+    // interactivo (flutter run, gradle run…) reciba el teclado de la pestaña.
+    if embedded() {
+        let _ = shell_status(command, dir, &[]);
+        return Ok(());
+    }
     let script = window_script(title, command, true);
     Command::new(shell())
         .args(window_args(&script))

@@ -1,6 +1,7 @@
 #[cfg(not(windows))]
 compile_error!("Compass solo tiene soporte para Windows.");
 
+mod container;
 mod menu;
 mod tasks;
 mod theme;

@@ -23,6 +23,7 @@ use ratatui::{
     Frame, Terminal,
 };
 
+use crate::container::Container;
 use crate::theme::{self, Theme};
 use crate::utils::cmd;
 use crate::utils::context::{ProjectContext, ProjectType};
@@ -776,8 +777,15 @@ fn show_android_warning(ctx: &ProjectContext) -> bool {
     ctx.android_home.is_none() && ctx.project_type != ProjectType::Python
 }
 
+/// Dibuja el menú a pantalla completa (sólo tests).
+#[cfg(test)]
 fn draw_menu(frame: &mut Frame, state: &mut MenuState, ctx: &ProjectContext) {
-    let area = frame.area();
+    draw_menu_in(frame, frame.area(), state, ctx);
+}
+
+/// Dibuja el menú dentro de `area` (la zona bajo la barra de pestañas del
+/// contenedor).
+fn draw_menu_in(frame: &mut Frame, area: Rect, state: &mut MenuState, ctx: &ProjectContext) {
     let theme = state.theme;
 
     // Fondo de toda la pantalla, a lo OpenCode: cada tema lleva su propio
@@ -825,6 +833,33 @@ fn draw_menu(frame: &mut Frame, state: &mut MenuState, ctx: &ProjectContext) {
     }
 
     state.ui = Some(ui);
+}
+
+/// Frame completo: barra de pestañas del contenedor y, debajo, el menú o la
+/// sesión de terminal activa.
+fn draw_ui(
+    frame: &mut Frame,
+    state: &mut MenuState,
+    ctx: &ProjectContext,
+    panes: &mut Container,
+) {
+    let area = frame.area();
+    frame.render_widget(
+        Block::default().style(Style::default().bg(state.theme.background)),
+        area,
+    );
+
+    let [bar, body] = Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).areas(area);
+
+    if panes.active().is_some() {
+        // El terminal no tiene cards: el hit-testing del menú queda apagado
+        // para que un clic no ejecute nada de la pantalla oculta.
+        state.ui = None;
+        panes.draw_body(frame, body, state.theme);
+    } else {
+        draw_menu_in(frame, body, state, ctx);
+    }
+    panes.draw_bar(frame, bar, state.theme);
 }
 
 /// Etiquetas de la barra de pestañas, con su cuenta de cards.
@@ -1356,11 +1391,13 @@ fn card_at(col: u16, row: u16, state: &MenuState) -> Option<usize> {
 
 enum MenuAction {
     Run(MenuItem),
+    /// F12 desde el menú: volver a la última pestaña de terminal.
+    Back,
     Quit,
     Continue,
 }
 
-fn handle_event(state: &mut MenuState) -> anyhow::Result<MenuAction> {
+fn handle_event(state: &mut MenuState, panes: &mut Container) -> anyhow::Result<MenuAction> {
     // Con una animación de hover en curso se repinta a ~30 fps; sin ella el
     // bucle espera un segundo (teclado y ratón lo despiertan igual, y así no
     // se redibuja de más cuando la ventana está inactiva).
@@ -1433,6 +1470,7 @@ fn handle_event(state: &mut MenuState) -> anyhow::Result<MenuAction> {
 
             match key.code {
                 KeyCode::Esc => return Ok(MenuAction::Quit),
+                KeyCode::F(12) => return Ok(MenuAction::Back),
                 KeyCode::Enter => return Ok(MenuAction::Run(state.items[state.selected])),
                 KeyCode::Up => state.move_selection(-1),
                 KeyCode::Down => state.move_selection(1),
@@ -1458,6 +1496,12 @@ fn handle_event(state: &mut MenuState) -> anyhow::Result<MenuAction> {
             // el primer Down puede ser consumido al recuperar el foco de la terminal
             // después de que una ventana secundaria se cierra.
             if let MouseEventKind::Up(MouseButton::Left) = mouse.kind {
+                // La barra del contenedor va por encima del menú: un clic ahí
+                // cambia (o abre) la pestaña de terminal y no ejecuta cards.
+                if panes.click(mouse.column, mouse.row) {
+                    state.set_hover(None);
+                    return Ok(MenuAction::Continue);
+                }
                 // Las pestañas también responden al ratón: un clic en su
                 // etiqueta cambia de pestaña (sin ejecutar nada).
                 if let Some(tab) = tab_at(mouse.column, mouse.row, state) {
@@ -1542,6 +1586,26 @@ fn menu_item_to_task(item: MenuItem, ptype: ProjectType) -> &'static str {
     }
 }
 
+/// Abre la tarea en una ventana externa de PowerShell (plan B y escape
+/// `COMPASS_EXTERNAL_WINDOWS=1`).
+fn spawn_in_window(
+    exe: &std::path::Path,
+    task: &str,
+    project: &std::path::Path,
+) -> anyhow::Result<()> {
+    let command = format!(
+        "\"{}\" --task {} --path \"{}\"",
+        exe.display(),
+        task,
+        project.display(),
+    );
+    cmd::spawn_new_window_autoexit(
+        &format!("Compass - {}", platform::dir_display_name(project)),
+        project,
+        &command,
+    )
+}
+
 pub fn run(ctx: &ProjectContext) -> anyhow::Result<()> {
     if TRACE.load(Ordering::Relaxed) {
         let _ = std::fs::File::create(std::env::temp_dir().join("compass-tui.log"));
@@ -1563,29 +1627,57 @@ pub fn run(ctx: &ProjectContext) -> anyhow::Result<()> {
     let exe_path =
         std::env::current_exe().context("No se pudo determinar la ruta del ejecutable")?;
     let project_path = &ctx.script_dir;
+    let mut panes = Container::new();
 
     loop {
-        terminal.draw(|f| draw_menu(f, &mut state, ctx))?;
+        terminal.draw(|f| draw_ui(f, &mut state, ctx, &mut panes))?;
 
-        match handle_event(&mut state)? {
+        // Con una pestaña de terminal activa, el teclado y el ratón son suyos.
+        if panes.active().is_some() {
+            panes.poll_input()?;
+            continue;
+        }
+
+        match handle_event(&mut state, &mut panes)? {
             MenuAction::Quit => {
+                // `process::exit` no ejecuta destructores: sin cerrar aquí
+                // las pestañas, sus procesos sobreviven a Compass.
+                panes.close_all();
                 let _ = restore_terminal(&mut terminal);
                 std::process::exit(0);
             }
             MenuAction::Run(item) => {
                 let task = menu_item_to_task(item, ctx.project_type);
-                let command = format!(
-                    "\"{}\" --task {} --path \"{}\"",
-                    exe_path.display(),
-                    task,
-                    project_path.display(),
-                );
 
-                cmd::spawn_new_window_autoexit(
-                    &format!("Compass - {}", platform::dir_display_name(project_path)),
-                    project_path,
-                    &command,
-                )?;
+                // `COMPASS_EXTERNAL_WINDOWS=1` recupera el comportamiento
+                // antiguo (una ventana por tarjeta) sin recompilar.
+                if std::env::var_os("COMPASS_EXTERNAL_WINDOWS").is_some() {
+                    spawn_in_window(&exe_path, task, project_path)?;
+                    continue;
+                }
+
+                // La pestaña corre exactamente el mismo CLI que abría la
+                // ventana externa, pero con su consola dentro de Compass.
+                let script = format!(
+                    "& {} --task {} --path {}",
+                    cmd::ps_quote(&exe_path.to_string_lossy()),
+                    task,
+                    cmd::ps_quote(&project_path.to_string_lossy()),
+                );
+                let size = terminal.size()?;
+                let rows = size.height.saturating_sub(2);
+                let cols = size.width;
+                let title = item.label(ctx.project_type).to_string();
+
+                if let Err(e) = panes.open(title, &script, project_path, rows, cols) {
+                    // Sin ConPTY la tarjeta no puede quedarse sin hacer nada:
+                    // se cae a la ventana externa de siempre.
+                    trace_event(&format!("SESSION ERROR: {e:#}"));
+                    spawn_in_window(&exe_path, task, project_path)?;
+                }
+            }
+            MenuAction::Back => {
+                panes.show_last();
             }
             MenuAction::Continue => {}
         }
