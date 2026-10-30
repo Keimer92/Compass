@@ -470,7 +470,7 @@ fn layout(area: Rect, warn: bool) -> UiLayout {
     ])
     .areas(area);
 
-    // La columna de cards se adapta al ancho de la ventana: ocupa todo el
+    // La rejilla de cards se adapta al ancho de la ventana: ocupa todo el
     // espacio disponible salvo un margen a la izquierda y, si cabe, el hueco
     // más la barra de scroll a la derecha.
     let margin = if list.width > 4 { 1 } else { 0 };
@@ -481,6 +481,7 @@ fn layout(area: Rect, warn: bool) -> UiLayout {
         width: list_w,
         ..list
     };
+    let cols = grid_cols(list_w);
     // La barra va una columna a la derecha de las cards para no pisar su
     // borde; si no cabe, se omite (dibujado y `card_at` la ignoran).
     let scrollbar = if bar_room == 2 {
@@ -503,6 +504,7 @@ fn layout(area: Rect, warn: bool) -> UiLayout {
         header,
         tabs,
         list: list_rect,
+        cols,
         scrollbar,
         footer,
     }
@@ -522,10 +524,12 @@ struct MenuState {
     /// Instante en que el puntero entró en la card hovereada. Arranca el
     /// barrido de brillo y se limpia al salir de la card.
     hover_started: Option<Instant>,
-    /// Desplazamiento vertical en líneas, siempre múltiplo de [`CARD_H`].
+    /// Primera fila visible de la rejilla. Se desplaza de fila completa.
     scroll: u16,
     /// Alto del viewport. La fija `draw_menu` en cada frame.
     vh: u16,
+    /// Cards por fila. La fija `draw_menu` en cada frame.
+    cols: usize,
     /// Última geometría dibujada; `None` si la terminal no admite ni una card.
     ui: Option<UiLayout>,
     /// Tema activo. `&'static` porque los temas viven en `theme::THEMES`.
@@ -664,6 +668,7 @@ impl MenuState {
             hover_started: None,
             scroll: 0,
             vh: 0,
+            cols: 1,
             ui: None,
             theme,
             picker: None,
@@ -720,25 +725,27 @@ impl MenuState {
         self.hover.is_some() && self.hover_started.is_some()
     }
 
-    /// Ajusta `scroll` para que la card seleccionada quede entera dentro del
-    /// viewport. El desplazamiento se mantiene múltiplo de [`CARD_H`] para que
-    /// ninguna card se dibuje a medias.
+    /// Ajusta `scroll` (en filas) para que la card seleccionada quede entera
+    /// dentro del viewport. Las filas se desplazan completas, así que ninguna
+    /// card se dibuja a medias.
     fn ensure_visible(&mut self) {
         let n = self.tab_len();
         if n == 0 || self.vh < CARD_H {
             self.scroll = 0;
             return;
         }
-        let visible = (self.vh / CARD_H) as usize;
+        let cols = self.cols.max(1);
+        let rows = visible_rows(self.vh).max(1);
         let i = self.local_selected().min(n - 1);
-        let top = i * CARD_H as usize;
-        let max = n.saturating_sub(visible) * CARD_H as usize;
+        let row = i / cols;
+        let total_rows = (n + cols - 1) / cols;
+        let max = total_rows.saturating_sub(rows);
 
         let mut s = self.scroll as usize;
-        if top < s {
-            s = top;
-        } else if top + CARD_H as usize > s + visible * CARD_H as usize {
-            s = i.saturating_add(1).saturating_sub(visible) * CARD_H as usize;
+        if row < s {
+            s = row;
+        } else if row >= s + rows {
+            s = row + 1 - rows;
         }
         self.scroll = s.min(max) as u16;
     }
@@ -775,7 +782,8 @@ impl MenuState {
     }
 
     /// Mueve la selección `delta` posiciones sobre la lista global: al llegar
-    /// al borde de una pestaña salta a la adyacente.
+    /// al borde de una pestaña salta a la adyacente. Es el paso horizontal de
+    /// la rejilla (y el de la rueda del ratón).
     fn move_selection(&mut self, delta: isize) {
         if self.items.is_empty() {
             return;
@@ -783,6 +791,19 @@ impl MenuState {
         let max = self.items.len() as isize - 1;
         let next = (self.selected as isize + delta).clamp(0, max) as usize;
         self.jump_to(next);
+    }
+
+    /// Flechas verticales: mueven una fila de la rejilla sin salir de la
+    /// pestaña actual (cambiar de pestaña es cosa de `←`/`→` y de `Tab`).
+    fn move_row(&mut self, delta: isize) {
+        let n = self.tab_len();
+        if n == 0 {
+            return;
+        }
+        let step = self.cols.max(1) as isize;
+        let local = self.local_selected().min(n - 1) as isize;
+        let next = (local + delta * step).clamp(0, n as isize - 1) as usize;
+        self.jump_to(self.tab_range().start + next);
     }
 }
 
@@ -831,6 +852,7 @@ fn draw_menu_in(frame: &mut Frame, area: Rect, state: &mut MenuState, ctx: &Proj
     let warn = show_android_warning(ctx);
     let ui = layout(area, warn);
     state.vh = ui.list.height;
+    state.cols = ui.cols;
 
     if ui.list.height < CARD_H {
         // Ni una card cabe: única situación en la que no hay nada que dibujar.
@@ -869,12 +891,7 @@ fn draw_menu_in(frame: &mut Frame, area: Rect, state: &mut MenuState, ctx: &Proj
 
 /// Frame completo: barra de pestañas del contenedor y, debajo, el menú o la
 /// sesión de terminal activa.
-fn draw_ui(
-    frame: &mut Frame,
-    state: &mut MenuState,
-    ctx: &ProjectContext,
-    panes: &mut Container,
-) {
+fn draw_ui(frame: &mut Frame, state: &mut MenuState, ctx: &ProjectContext, panes: &mut Container) {
     let area = frame.area();
     frame.render_widget(
         Block::default().style(Style::default().bg(state.theme.background)),
@@ -958,46 +975,55 @@ fn render_cards(
 ) {
     let n = state.tab_len();
     let start = state.tab_range().start;
+    let cols = ui.cols;
+    let cell_w = grid_cell_w(ui.list.width, cols);
+    let card_w = grid_card_w(ui.list.width, cols);
     let list_y = ui.list.y as i32;
     let list_bottom = ui.list.bottom() as i32;
+    let total_rows = (n + cols - 1) / cols;
 
-    for local in 0..n {
-        let y = list_y + (local * CARD_H as usize) as i32 - state.scroll as i32;
-        // Cards enteras o nada: con `scroll` múltiplo de `CARD_H` sólo la
-        // última del viewport puede sobrar, y se omite en vez de dibujarla
-        // recortada.
-        if y < list_y || y + CARD_H as i32 > list_bottom {
-            continue;
+    for row in state.scroll as usize..total_rows {
+        let y = list_y + ((row - state.scroll as usize) * ROW_H as usize) as i32;
+        // Filas enteras o nada: el scroll avanza de fila en fila, así que sólo
+        // la última podría sobrar; se omite en vez de dibujarla recortada.
+        if y + CARD_H as i32 > list_bottom {
+            break;
         }
-        let idx = start + local;
-        let rect = Rect {
-            x: ui.list.x,
-            y: y as u16,
-            width: ui.list.width,
-            height: CARD_H,
-        };
-        let card = create_card(
-            &state.items[idx],
-            state.selected == idx,
-            state.hover == Some(idx),
-            project_type,
-            theme,
-            ui.list.width,
-        );
-        frame.render_widget(card, rect);
+        for col in 0..cols {
+            let local = row * cols + col;
+            if local >= n {
+                break;
+            }
+            let idx = start + local;
+            let rect = Rect {
+                x: ui.list.x + col as u16 * cell_w,
+                y: y as u16,
+                width: card_w,
+                height: CARD_H,
+            };
+            let card = create_card(
+                &state.items[idx],
+                state.selected == idx,
+                state.hover == Some(idx),
+                project_type,
+                theme,
+                card_w,
+            );
+            frame.render_widget(card, rect);
 
-        // Halo luminoso circular sobre la card hovereada.
-        if state.hover == Some(idx) {
-            if let Some(phase) = state.hover_phase() {
-                let key = state.items[idx].color_key();
-                render_hover_glow(
-                    frame,
-                    rect,
-                    phase,
-                    theme.card_accent(key),
-                    theme.card_bg(key),
-                    theme.text,
-                );
+            // Halo luminoso circular sobre la card hovereada.
+            if state.hover == Some(idx) {
+                if let Some(phase) = state.hover_phase() {
+                    let key = state.items[idx].color_key();
+                    render_hover_glow(
+                        frame,
+                        rect,
+                        phase,
+                        theme.card_accent(key),
+                        theme.card_bg(key),
+                        theme.text,
+                    );
+                }
             }
         }
     }
@@ -1127,12 +1153,13 @@ fn shimmer_glow(accent: Color, text: Color) -> Color {
 }
 
 fn render_scrollbar(frame: &mut Frame, ui: UiLayout, state: &MenuState, theme: &Theme) {
-    let content = state.tab_len().saturating_mul(CARD_H as usize);
-    if ui.scrollbar.width == 0 || content as u16 <= ui.list.height {
+    let rows = (state.tab_len() + ui.cols - 1) / ui.cols;
+    let content = rows.saturating_mul(ROW_H as usize);
+    if ui.scrollbar.width == 0 || content <= ui.list.height as usize {
         return;
     }
     let mut sb_state = ScrollbarState::new(content)
-        .position(state.scroll as usize)
+        .position(state.scroll as usize * ROW_H as usize)
         .viewport_content_length(ui.list.height as usize);
     let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
         .thumb_style(Style::default().fg(theme.brand))
@@ -1283,7 +1310,10 @@ fn render_footer(frame: &mut Frame, area: Rect, theme: &Theme, ctx: &ProjectCont
     let left = Line::from(vec![
         Span::styled("  Tab", Style::default().fg(theme.text)),
         Span::styled(" pestañas   ", Style::default().fg(theme.muted)),
-        Span::styled("\u{2191}\u{2193}", Style::default().fg(theme.text)),
+        Span::styled(
+            "\u{2190}\u{2192}\u{2191}\u{2193}",
+            Style::default().fg(theme.text),
+        ),
         Span::styled(" navegar   ", Style::default().fg(theme.muted)),
         Span::styled("Enter", Style::default().fg(theme.text)),
         Span::styled(" ejecutar   ", Style::default().fg(theme.muted)),
@@ -1391,15 +1421,29 @@ fn create_card(
 
     let mut spans = vec![Span::styled(format!(" {icon}  {label}"), label_style)];
     if !desc.is_empty() {
-        // Prefijo fijo + relleno hasta el ancho real de la card: el centrado
-        // con emojis de ancho ambiguo descuadra el texto, y el truncado lo
-        // hace el propio `Rect`.
+        // Etiqueta a la izquierda y descripción pegada al borde derecho. Los
+        // anchos se miden en celdas (`Span::width`), no en `chars`: los emojis
+        // ocupan más de una y descuadraban el relleno. En la rejilla de cuatro
+        // columnas la descripción no siempre cabe: se recorta con "…" y, si ni
+        // eso deja hueco, se omite para no pisar la etiqueta.
         let inner_w = width.saturating_sub(2) as usize;
-        let used = spans[0].content.chars().count() + desc.chars().count() + 1;
-        let pad = inner_w.saturating_sub(used).max(1);
-        spans.push(Span::raw(" ".repeat(pad)));
-        spans.push(Span::styled(desc.to_string(), desc_style));
-        spans.push(Span::raw(" "));
+        let label_w = spans[0].width();
+        let available = inner_w.saturating_sub(label_w);
+        // Un hueco delante + el de cierre del borde derecho.
+        let room = available.saturating_sub(2);
+        if room >= 3 {
+            let shown: String = if desc.chars().count() > room {
+                let mut s: String = desc.chars().take(room - 1).collect();
+                s.push('\u{2026}');
+                s
+            } else {
+                desc.to_string()
+            };
+            let pad = available.saturating_sub(shown.chars().count() + 1).max(1);
+            spans.push(Span::raw(" ".repeat(pad)));
+            spans.push(Span::styled(shown, desc_style));
+            spans.push(Span::raw(" "));
+        }
     }
 
     Paragraph::new(Line::from(spans))
@@ -1408,14 +1452,28 @@ fn create_card(
 }
 
 /// Índice global (en `state.items`) de la card bajo las coordenadas del mouse,
-/// o `None` si está fuera de la columna visible.
+/// o `None` si está fuera de la rejilla visible o en un hueco entre cards.
 fn card_at(col: u16, row: u16, state: &MenuState) -> Option<usize> {
     let ui = state.ui?;
     if !ui.list.contains(Position::new(col, row)) {
         return None;
     }
-    let offset = (row - ui.list.y) as usize + state.scroll as usize;
-    let local = offset / CARD_H as usize;
+    let cell_w = grid_cell_w(ui.list.width, ui.cols);
+    let card_w = grid_card_w(ui.list.width, ui.cols);
+
+    let x_off = (col - ui.list.x) as usize;
+    let grid_col = x_off / cell_w as usize;
+    // El ancho de una columna puede no dividir el de la lista (resto < cols):
+    // más allá de la última card no hay nada.
+    if grid_col >= ui.cols || x_off % cell_w as usize >= card_w as usize {
+        return None;
+    }
+
+    let y_off = (row - ui.list.y) as usize + state.scroll as usize * ROW_H as usize;
+    if y_off % ROW_H as usize >= CARD_H as usize {
+        return None;
+    }
+    let local = (y_off / ROW_H as usize) * ui.cols + grid_col;
     if local >= state.tab_len() {
         return None;
     }
@@ -1505,10 +1563,15 @@ fn handle_event(state: &mut MenuState, panes: &mut Container) -> anyhow::Result<
                 KeyCode::Esc => return Ok(MenuAction::Quit),
                 KeyCode::F(12) => return Ok(MenuAction::Back),
                 KeyCode::Enter => return Ok(MenuAction::Run(state.items[state.selected])),
-                KeyCode::Up => state.move_selection(-1),
-                KeyCode::Down => state.move_selection(1),
-                KeyCode::Tab | KeyCode::Right => state.set_tab(state.tab.next()),
-                KeyCode::BackTab | KeyCode::Left => state.set_tab(state.tab.prev()),
+                // En la rejilla las flechas siguen la geometría: horizontales
+                // dentro de la fila (saltando de pestaña en el borde) y
+                // verticales de fila en fila. Las pestañas se cambian con Tab.
+                KeyCode::Up => state.move_row(-1),
+                KeyCode::Down => state.move_row(1),
+                KeyCode::Left => state.move_selection(-1),
+                KeyCode::Right => state.move_selection(1),
+                KeyCode::Tab => state.set_tab(state.tab.next()),
+                KeyCode::BackTab => state.set_tab(state.tab.prev()),
                 _ => {}
             }
         }
@@ -1517,11 +1580,11 @@ fn handle_event(state: &mut MenuState, panes: &mut Container) -> anyhow::Result<
                 "MOUSE: {:?} col={} row={}",
                 mouse.kind, mouse.column, mouse.row
             ));
-            // La rueda mueve la selección, no el scroll suelto: así la card
-            // resaltada y la posición de la lista nunca se contradicen.
+            // La rueda mueve la selección una fila, no el scroll suelto: así la
+            // card resaltada y la posición de la lista nunca se contradicen.
             match mouse.kind {
-                MouseEventKind::ScrollUp => state.move_selection(-1),
-                MouseEventKind::ScrollDown => state.move_selection(1),
+                MouseEventKind::ScrollUp => state.move_row(-1),
+                MouseEventKind::ScrollDown => state.move_row(1),
                 _ => {}
             }
 
@@ -1967,14 +2030,15 @@ mod tests {
     #[test]
     fn ensure_visible_keeps_the_selection_in_view() {
         let mut s = MenuState::new(ProjectType::GoWails, crate::theme::DEFAULT);
-        s.vh = 3 * CARD_H; // 3 cards visibles
+        s.cols = 4;
+        s.vh = 2 * ROW_H; // dos filas de cards visibles
         s.jump_to(s.tabs[Tab::DevMnt.index()].start + 10);
         s.ensure_visible();
 
-        let top = s.local_selected() as u16 * CARD_H;
-        assert!(top >= s.scroll, "la card quedaría por encima del viewport");
+        let row = (s.local_selected() / s.cols) as u16;
+        assert!(row >= s.scroll, "la card quedaría por encima del viewport");
         assert!(
-            top + CARD_H <= s.scroll + s.vh,
+            row < s.scroll + visible_rows(s.vh) as u16,
             "la card quedaría por debajo del viewport"
         );
     }
@@ -1982,28 +2046,53 @@ mod tests {
     #[test]
     fn ensure_visible_clamps_at_the_end() {
         let mut s = MenuState::new(ProjectType::GoWails, crate::theme::DEFAULT);
-        s.vh = 3 * CARD_H;
+        s.cols = 4;
+        s.vh = 2 * ROW_H;
         s.jump_to(s.tabs[Tab::DevMnt.index()].end - 1);
 
-        let n = s.tab_len() as u16;
-        assert_eq!(s.scroll, (n - 3) * CARD_H);
+        let rows = (s.tab_len() + s.cols - 1) / s.cols;
+        assert_eq!(s.scroll as usize, rows - visible_rows(s.vh));
     }
 
     /// Regresión del "Terminal demasiado pequena": con un viewport de una sola
-    /// card el menú sigue siendo navegable y hace scroll.
+    /// fila el menú sigue siendo navegable y hace scroll.
     #[test]
     fn short_viewport_still_scrolls() {
         let mut s = MenuState::new(ProjectType::GoWails, crate::theme::DEFAULT);
+        s.cols = 4;
         s.vh = CARD_H;
         for target in 0..s.items.len() {
             s.jump_to(target);
-            let top = s.local_selected() as u16 * CARD_H;
+            let row = (s.local_selected() / s.cols) as u16;
             assert!(
-                top >= s.scroll && top + CARD_H <= s.scroll + s.vh,
+                row >= s.scroll && row < s.scroll + 1,
                 "card {target} fuera del viewport (scroll={})",
                 s.scroll
             );
         }
+    }
+
+    /// La navegación sigue la rejilla: `↑`/`↓` saltan una fila entera y
+    /// `←`/`→` se mueven de card en card. Las filas no cambian de pestaña.
+    #[test]
+    fn arrows_follow_the_grid() {
+        let mut s = MenuState::new(ProjectType::GoWails, crate::theme::DEFAULT);
+        s.cols = 4;
+        let start = s.tabs[Tab::DevMnt.index()].start;
+
+        s.jump_to(start + 1);
+        s.move_row(1);
+        assert_eq!(s.selected, start + 5, "bajar una fila suma las columnas");
+        assert_eq!(s.tab, Tab::DevMnt);
+
+        s.move_selection(1);
+        assert_eq!(s.selected, start + 6, "la horizontal avanza una card");
+
+        // En la última fila, bajar no sale de la pestaña.
+        s.jump_to(s.tabs[Tab::DevMnt.index()].end - 1);
+        s.move_row(1);
+        assert_eq!(s.tab, Tab::DevMnt);
+        assert_eq!(s.selected, s.tabs[Tab::DevMnt.index()].end - 1);
     }
 
     #[test]
@@ -2037,14 +2126,24 @@ mod tests {
     #[test]
     fn card_at_hits_the_right_card_after_scroll() {
         let mut s = MenuState::new(ProjectType::GoWails, crate::theme::DEFAULT);
-        let ui = layout(Rect::new(0, 0, 80, 20), false);
+        let ui = layout(Rect::new(0, 0, 120, 20), false);
         s.ui = Some(ui);
         s.vh = ui.list.height;
-        s.scroll = CARD_H;
+        s.cols = ui.cols;
+        s.scroll = 1;
 
-        // La primera fila visible es la card local 1 tras desplazar una card.
+        // La primera fila visible es la 1: su primera card está `cols` más allá.
         let hit = card_at(ui.list.x + 2, ui.list.y, &s);
-        assert_eq!(hit, Some(s.tabs[Tab::DevMnt.index()].start + 1));
+        assert_eq!(hit, Some(s.tabs[Tab::DevMnt.index()].start + ui.cols));
+
+        // Los huecos entre cards y entre filas no pertenecen a ninguna.
+        let card_w = grid_card_w(ui.list.width, ui.cols);
+        assert_eq!(card_at(ui.list.x + card_w, ui.list.y, &s), None);
+        assert_eq!(
+            card_at(ui.list.x + 2, ui.list.y + CARD_H, &s),
+            None,
+            "el hueco entre filas no es clicable"
+        );
     }
 
     #[test]
@@ -2091,23 +2190,59 @@ mod tests {
         assert_eq!(s.tab, Tab::Cfg);
     }
 
-    /// Las cards se adaptan al ancho de la ventana: no hay un ancho fijo de 64
-    /// columnas, sólo el margen y la barra de scroll fuera de la card.
+    /// La rejilla se adapta al ancho: hasta 4 cards por fila, y menos (más
+    /// anchas) cuando la ventana no da para separarlas con holgura.
     #[test]
-    fn cards_adapt_to_the_window_width() {
+    fn cards_fill_the_window_in_a_four_column_grid() {
         let narrow = layout(Rect::new(0, 0, 60, 20), false);
-        let wide = layout(Rect::new(0, 0, 160, 20), false);
+        let wide = layout(Rect::new(0, 0, 200, 20), false);
 
+        assert_eq!(narrow.cols, 2, "60 columnas dan dos cards por fila");
+        assert_eq!(
+            wide.cols, GRID_MAX_COLS,
+            "la ventana ancha llega al máximo de 4"
+        );
         assert!(
-            wide.list.width > narrow.list.width + 80,
-            "la columna debe crecer con la terminal"
+            grid_card_w(wide.list.width, wide.cols) > grid_card_w(narrow.list.width, narrow.cols),
+            "la card debe crecer con la terminal"
         );
         assert_eq!(narrow.list.x, 1, "margen izquierdo de una columna");
         assert_eq!(wide.list.x, 1);
-        // Sólo quedan fuera de la card el margen izquierdo y el hueco + barra.
-        assert_eq!(wide.list.right() + 2, 160);
+        // Sólo quedan fuera de la rejilla el margen izquierdo y el hueco + barra.
+        assert_eq!(wide.list.right() + 2, 200);
         assert_eq!(wide.scrollbar.x, wide.list.right() + 1);
         assert_eq!(wide.scrollbar.width, 1);
+    }
+
+    /// La primera fila se pinta como una rejilla: una esquina `╭` por card y
+    /// una columna de hueco entre ellas (4 en ventanas anchas, menos si no
+    /// caben con holgura).
+    #[test]
+    fn first_row_shows_separated_cards() {
+        use ratatui::backend::TestBackend;
+
+        for (w, expected) in [(120u16, 4usize), (60, 2)] {
+            let mut term = Terminal::new(TestBackend::new(w, 30)).unwrap();
+            let ctx = test_ctx(ProjectType::GoWails);
+            let mut state = MenuState::new(ProjectType::GoWails, crate::theme::DEFAULT);
+            term.draw(|f| draw_menu(f, &mut state, &ctx)).unwrap();
+
+            let ui = state.ui.expect("layout dibujado");
+            let buf = term.backend().buffer();
+            let corners: Vec<u16> = (ui.list.x..ui.list.right())
+                .filter(|&x| buf[(x, ui.list.y)].symbol() == "\u{256d}")
+                .collect();
+            assert_eq!(corners.len(), expected, "{w} columnas: {corners:?}");
+
+            let card_w = grid_card_w(ui.list.width, ui.cols);
+            for pair in corners.windows(2) {
+                assert_eq!(
+                    pair[1] - pair[0],
+                    card_w + CARD_GAP,
+                    "las cards deben quedar separadas por el hueco"
+                );
+            }
+        }
     }
 
     /// La card seleccionada usa **su** tinte (`card_bg`), no el de la sección.
@@ -2226,9 +2361,9 @@ mod tests {
 
         let ui = state.ui.expect("layout dibujado");
         let rect = Rect {
-            x: ui.list.x,
-            y: ui.list.y + local as u16 * CARD_H,
-            width: ui.list.width,
+            x: ui.list.x + local as u16 * grid_cell_w(ui.list.width, ui.cols),
+            y: ui.list.y,
+            width: grid_card_w(ui.list.width, ui.cols),
             height: CARD_H,
         };
 
@@ -2353,10 +2488,10 @@ mod tests {
             if h >= 6 {
                 let ui = state.ui.expect("debería haber layout utilizable");
                 if h == 30 {
+                    let cards = visible_rows(ui.list.height) * ui.cols;
                     assert!(
-                        ui.list.height / CARD_H >= 8,
-                        "con 30 filas deben caber 8 cards, caben {}",
-                        ui.list.height / CARD_H
+                        cards >= 8,
+                        "con 30 filas deben caber 8 cards, caben {cards}"
                     );
                 }
             } else {
@@ -2365,13 +2500,14 @@ mod tests {
         }
     }
 
-    /// En una terminal de 80x24 el scroll sigue siendo necesario para ver las
-    /// últimas cards de la pestaña DEV·MNT de Go+Wails (11 cards).
+    /// En una terminal de 60x20 el scroll sigue siendo necesario para ver las
+    /// últimas cards de la pestaña DEV·MNT de Go+Wails (11 cards en 2
+    /// columnas = 6 filas; sólo caben 4).
     #[test]
     fn scroll_is_required_on_a_short_terminal() {
         use ratatui::backend::TestBackend;
 
-        let mut term = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        let mut term = Terminal::new(TestBackend::new(60, 20)).unwrap();
         let ctx = test_ctx(ProjectType::GoWails);
         let mut state = MenuState::new(ProjectType::GoWails, crate::theme::DEFAULT);
 
@@ -2379,7 +2515,7 @@ mod tests {
         term.draw(|f| draw_menu(f, &mut state, &ctx)).unwrap();
 
         assert!(state.scroll > 0, "la última card exige desplazar la lista");
-        let top = state.local_selected() as u16 * CARD_H;
-        assert!(top + CARD_H <= state.scroll + state.vh);
+        let row = (state.local_selected() / state.cols) as u16;
+        assert!(row >= state.scroll && row < state.scroll + visible_rows(state.vh) as u16);
     }
 }

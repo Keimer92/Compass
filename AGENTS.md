@@ -39,10 +39,11 @@ Compass ejecuta como aplicación de escritorio únicamente en **Windows**. Andro
 | Menú contextual Compass + Vibe Coding + `.gitignore` | ✅ Registro de Windows |
 | Configurar Terminal (PSReadLine) | ✅ |
 
-### Layout: pestañas + columna vertical con scroll
+### Layout: pestañas + rejilla horizontal adaptativa con scroll
 
-El menú ya no pinta las 17 tarjetas en una sola rejilla. Ahora hay **dos
-pestañas** y las cards van **en una columna vertical** que se desplaza:
+El menú ya no pinta las 17 tarjetas en una sola rejilla ni en una columna. Hay
+**dos pestañas** y las cards van en una **rejilla que se adapta al ancho**: hasta
+**4 por fila**, separadas por una celda vacía, y la fila se desplaza:
 
 | Pestaña | Contenido |
 |---------|-----------|
@@ -56,27 +57,41 @@ pestaña, `tabs: [TabRange; 2]` son rangos sobre él y `selected` sigue siendo u
 índice **global**.
 
 Cards de **3 líneas** (`CARD_H = 3`: borde + contenido + borde) que **se adaptan
-al ancho de la ventana**: la columna ocupa todo el ancho disponible salvo un
-margen de una columna a la izquierda y el hueco + la barra de scroll a la
-derecha (el ancho real se pasa a `create_card` para calcular el relleno entre
-etiqueta y descripción). El contenido es una sola línea con el icono y la
-etiqueta en el acento de la card y la descripción en `muted` (`text` si está
-hovereada). Se alinean a la izquierda: centrar texto con emoji de ancho ambiguo
-(⚙) descuadra la card.
+al tamaño de la ventana**:
 
-**Scroll** propio, en pasos de card completa (`MenuState.scroll: u16`): se
-pinta cada card recortando su `Rect` contra el viewport, y `ensure_visible()`
-mantiene la selección dentro de éste (`(i + 1 - visible) * CARD_H`, con
-`max = (n - visible) * CARD_H`). Las cards parcialmente visibles no se dibujan
-cortadas. El indicador es un `Scrollbar` de una columna junto al viewport; si no
-cabe, la columna se estrecha y el indicador desaparece.
+- `GRID_MAX_COLS = 4` cards por fila como máximo.
+- `CARD_MIN_W = 24` columnas mínimas por card; `grid_cols(width)` cuenta cuántas
+  caben (`(width + CARD_GAP) / (CARD_MIN_W + CARD_GAP)`, acotado a `1..=4`), así
+  la rejilla pasa a 1/2/3/4 columnas al redimensionar sin perder legibilidad.
+- `grid_cell_w` / `grid_card_w` reparten el ancho disponible a partes iguales y
+  reservan `CARD_GAP = 1` columna de separación; el ancho real se pasa a
+  `create_card`, que calcula el relleno entre etiqueta y descripción con
+  `Span::width()` (celdas de pantalla, no `chars()`: los emojis ocupan dos) y
+  **trunca** la descripción con `…` si no cabe, en vez de invadir el borde.
+- Entre filas también hay `CARD_GAP` filas vacías (`ROW_H = CARD_H + CARD_GAP`),
+  así las cards quedan separadas tanto horizontal como verticalmente.
 
-⚠️ Ya **no** existe el aviso "Terminal demasiado pequena" salvo que ni una card
+El contenido de cada card es una sola línea con el icono y la etiqueta en el
+acento de la card y la descripción en `muted` (`text` si está hovereada). Se
+alinean a la izquierda: centrar texto con emoji de ancho ambiguo (⚙) descuadra
+la card.
+
+**Scroll** propio, en pasos de **fila completa** (`MenuState.scroll: u16` = primera
+fila visible): se pinta cada fila recortando sus `Rect` contra el viewport, y
+`ensure_visible()` mantiene en pantalla la fila de la selección
+(`row = i / cols`, `visible_rows(height) = (height + CARD_GAP) / ROW_H`, con
+`max = total_rows - rows`). Las filas parcialmente visibles no se dibujan
+cortadas. El indicador es un `Scrollbar` de una columna junto al viewport; su
+contenido es `total_rows * ROW_H` y su posición `scroll * ROW_H`. Si no cabe, la
+rejilla se estrecha y el indicador desaparece.
+
+⚠️ Ya **no** existe el aviso "Terminal demasiado pequena" salvo que ni una fila
 quepa (`list.height < CARD_H`). Antes el menú se negaba a dibujarse.
 
 `layout(area, warn)` es una **función pura** (header, tabs, list, scrollbar,
 footer) que comparten `draw_menu` y `card_at`: el hit-testing del ratón no se
-desincroniza al redimensionar.
+desincroniza al redimensionar. `UiLayout.cols` viaja con ella para que el dibujo
+y el clic usen la misma rejilla.
 
 ### Estados visuales de una card (`menu.rs::create_card`)
 
@@ -131,14 +146,14 @@ y desaparece al salir.
 
 | Entrada | Acción |
 |---------|--------|
-| `↑` `↓` | mueven la selección; al llegar al borde **saltan de pestaña** |
-| `Tab` / `→` | pestaña siguiente |
-| `Shift+Tab` / `←` | pestaña anterior |
+| `←` `→` | mueven la selección card a card (`∓1`); en el borde **saltan de pestaña** |
+| `↑` `↓` | mueven una **fila** de la rejilla (`±cols`) sin salir de la pestaña |
+| `Tab` / `Shift+Tab` | pestaña siguiente / anterior |
 | `Enter` | ejecuta la card seleccionada |
 | `Esc` | sale |
 | `Ctrl+T` | abre el modal de temas |
-| rueda del ratón | mueve la selección (`∓1`), así nunca contradice lo que se ve |
-| clic izquierdo | ejecuta la card bajo el cursor (`hover` se actualiza con la actividad del ratón) |
+| rueda del ratón | mueve una fila (`∓1`), así nunca contradice lo que se ve |
+| clic izquierdo | ejecuta la card bajo el cursor (`hover` se actualiza con la actividad del ratón); los huecos entre cards no responden |
 | clic en una pestaña | cambia a esa pestaña sin ejecutar nada |
 
 Esta tabla es del **menú** (pestaña `Inicio` de la barra superior). Cuando hay
@@ -182,10 +197,10 @@ izquierda (`Ctrl+T temas: <nombre>`, en color `brand`); a la derecha va la
   PowerShell fijan además el título del script (`[Console]::Title = …`) para
   que se vea bien durante el arranque, pero el valor definitivo lo pone el
   proceso hijo.
-- **Pie del TUI**: a la izquierda, los atajos (`Tab pestañas`, `↑↓ navegar`,
-  `Enter ejecutar`, `Esc salir`) y el tema activo (`Ctrl+T temas: <nombre>`, en
-  color `brand`). A la derecha, la **ruta completa** del proyecto en color
-  `muted`; si no cabe, se recorta por la izquierda con `…`.
+- **Pie del TUI**: a la izquierda, los atajos (`Tab pestañas`,
+  `←→↑↓ navegar`, `Enter ejecutar`, `Esc salir`) y el tema activo (`Ctrl+T
+  temas: <nombre>`, en color `brand`). A la derecha, la **ruta completa** del
+  proyecto en color `muted`; si no cabe, se recorta por la izquierda con `…`.
 
 Estado: `MenuState.picker: Option<ThemePicker>` (`index` en `theme::THEMES` +
 `original`, para el cancelar). `MenuState::preview_theme()` mueve el resaltado y
@@ -296,15 +311,18 @@ menu.rs
   │     contextual al arrancar, la tarjeta era redundante (las tareas `context-menu*`
   │     por CLI siguen disponibles)
   ├─ ratatui TUI en **dos pestañas** (`DESARROLLO · MNT` | `CONFIGURACIÓN`) con las
-  │   cards en **columna vertical** de 3 líneas que se adapta al ancho de la
-  │   ventana, **scroll** y un color por card; pestañas clicables con el ratón
+  │   cards en **rejilla de hasta 4 columnas** (3 líneas por card, separadas por
+  │   una celda) que se adapta al ancho, **scroll por filas** y un color por card;
+  │   pestañas clicables con el ratón
   ├─ Filtro por tipo de proyecto (Rust oculta Android/Signing)
+  ├─ grid_cols()/grid_card_w()/visible_rows() — geometría pura de la rejilla,
+  │   compartida por el dibujo, el scroll y el hit-testing
   ├─ layout(area, warn) — función pura (header/tabs/list/scrollbar/footer) que
-  │   comparten el dibujo y el hit-testing del ratón
-  ├─ handle_event(): devuelve MenuAction (Run | Quit); teclado (Tab/←→, ↑↓ con
-  │   salto de pestaña) + mouse (rueda mueve la selección, clic en pestaña
-  │   cambia de pestaña, clic en card ejecuta); poll temporizado (33 ms con
-  │   animación de hover, 1 s en reposo)
+  │   comparten el dibujo y el hit-testing del ratón (incluye `cols`)
+  ├─ handle_event(): devuelve MenuAction (Run | Quit); teclado (←→ card a card,
+  │   ↑↓ por filas dentro de la pestaña, Tab/Shift+Tab pestañas) + mouse (rueda
+  │   mueve una fila, clic en pestaña cambia de pestaña, clic en card ejecuta);
+  │   poll temporizado (33 ms con animación de hover, 1 s en reposo)
   ├─ render_hover_glow() — halo luminoso circular en bucle sobre la card
   │   hovereada (borde + resplandor interior); perimeter_point() ubica la cabeza
   ├─ draw_ui() — frame completo: barra de pestañas del `Container` (1 línea) +
@@ -1269,8 +1287,12 @@ siempre. Cubierto por `probe_forces_migration_of_cmd_based_entries`.
 
 `cargo test` cubre el TUI: renderizado y estados de las cards (ver "Estados
 visuales de una card"), filtrado por tipo de proyecto, orden y rangos de las
-pestañas, `ensure_visible`/scroll en terminales cortas, hit-testing de cards y
-pestañas (`card_at`/`tab_at`), navegación con salto de pestaña, adaptación al
+pestañas, la rejilla (`cards_fill_the_window_in_a_four_column_grid` comprueba
+que 60 columnas dan 2 y 200 dan 4, `first_row_shows_separated_cards` que hay una
+celda entre cards), `ensure_visible`/scroll por filas en terminales cortas,
+hit-testing de cards y pestañas (`card_at`/`tab_at`, incluido que los huecos no
+responden y que el clic acierta tras hacer scroll), navegación (`arrows_follow_the_grid`:
+`↑↓` por filas y `←→` card a card con salto de pestaña en el borde), adaptación al
 ancho (`layout`), el halo de hover (arranque, bucle de fase, brillo real del
 borde e interior, y recorrido del perímetro) y la paleta/mezcla de colores de
 `theme.rs`. De `context_menu.rs` se verifican las partes puras: orden y
