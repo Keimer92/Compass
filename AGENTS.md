@@ -163,14 +163,13 @@ izquierda (`Ctrl+T temas: <nombre>`, en color `brand`); a la derecha va la
 
 ### Título de ventana y rutas
 
-- **Barra de título**: *no* se fija con `title` de cmd para las tareas — cmd
-  escribe en el título el *command line* del hijo mientras corre, y por eso la
-  ventana mostraba `C:\Users\Admin\.cargo\bin\compass.exe --task …`. Lo fija el
-  **propio proceso** al arrancar, vía `cmd::set_console_title()` (crossterm
-  `SetTitle` → `SetConsoleTitleW` en Windows), con
-  `platform::dir_display_name()`: el **nombre del directorio** (`School Tracker`),
-  no la ruta. Se aplica en la TUI (`menu::run`) y en todas las tareas
-  (`run_task_direct`).
+- **Barra de título**: la fija el **propio proceso** al arrancar, vía
+  `cmd::set_console_title()` (crossterm `SetTitle` → `SetConsoleTitleW` en
+  Windows), con `platform::dir_display_name()`: el **nombre del directorio**
+  (`School Tracker`), no la ruta. Se aplica en la TUI (`menu::run`) y en todas
+  las tareas (`run_task_direct`). Las ventanas de PowerShell fijan además el
+  título del script (`[Console]::Title = …`) para que se vea bien durante el
+  arranque, pero el valor definitivo lo pone el proceso hijo.
 - **Pie del TUI**: a la izquierda, los atajos (`Tab pestañas`, `↑↓ navegar`,
   `Enter ejecutar`, `Esc salir`) y el tema activo (`Ctrl+T temas: <nombre>`, en
   color `brand`). A la derecha, la **ruta completa** del proyecto en color
@@ -289,7 +288,7 @@ menu.rs
 utils/
   ├─ context.rs — detect(), ProjectType, ProjectContext, whatsapp_path()
   ├─ platform.rs — helpers de portabilidad: IS_WINDOWS, exe_name(), gradlew_name(), home_dir(), data_dir(), find_gradlew(), NDK_VERSION, tauri_native_pkg()
-  ├─ cmd.rs — run*, set_console_title, spawn_new_window_autoexit, spawn_new_window_interactive, run_build_and_reveal, run_in_current_window, run_shell_status, run_npm_install, clear_screen, remove_dir
+  ├─ cmd.rs — shell()/shell_path()/ps_quote, run*, run_ps*, set_console_title, spawn_new_window_autoexit, spawn_new_window_interactive, run_build_and_reveal, run_in_current_window, run_shell_status, run_npm_install, clear_screen, remove_dir
   ├─ tauri.rs — command(), ensure(), cli_entry() [CLI sin shim de .bin + reinstalación si falta el binding nativo]
   ├─ ui.rs — ask_text(), ask_password(), success_banner(), info_banner(), pause()
   └─ android.rs — select_device(), wait_for_device_boot(), list_physical_devices() [sólo dispositivos físicos]
@@ -423,14 +422,28 @@ HKCU\Software\Classes\Directory\ContextMenus\VibeCoding\shell
 
 | # | Sub-entrada | Comando | Descripción |
 |---|-------------|---------|-------------|
-| 01 | **OpenCode** | `cmd.exe /c start "OpenCode" /D "%V" cmd.exe /c "opencode --auto"` | Abre OpenCode en modo auto (sin prompts) |
-| 02 | **Kilo Code** | `cmd.exe /c start "Kilo Code" /D "%V" cmd.exe /c "kilo --auto"` | Abre Kilo Code en YOLO mode (aprueba todo automáticamente) |
-| 03 | **Cline** | `cmd.exe /c start "Cline" /D "%V" cmd.exe /c "cline --auto-approve true"` | Abre Cline con aprobación global de herramientas sin prompts |
-| 04 | **Antigravity** | `cmd.exe /c start "Antigravity" /D "%V" cmd.exe /c "agy --dangerously-skip-permissions"` | Abre Antigravity omitiendo todos los prompts de permisos |
-| 05 | **Copilot CLI** | `cmd.exe /c start "Copilot CLI" /D "%V" cmd.exe /c "copilot --yolo"` | Abre GitHub Copilot CLI con todos los permisos (`--yolo` = `--allow-all-tools --allow-all-paths --allow-all-urls`) |
-| 06 | **Kiro CLI** | `cmd.exe /c start "Kiro CLI" /D "%V" cmd.exe /c "kiro-cli chat --trust-all-tools"` | Abre Kiro CLI con confianza total de sesión (YOLO mode). El binario es **`kiro-cli`**, no `kiro` |
-| 07 | **Qoder CLI** | `cmd.exe /c start "Qoder CLI" /D "%V" cmd.exe /c "qodercli --yolo"` | Abre Qoder CLI en YOLO mode (`--yolo` = `--permission-mode bypass_permissions`). El binario real es **`qodercli`**; `qoder` es el dispatcher que instala el script |
-| 08 | **Hermes** | `cmd.exe /c start "Hermes" /D "%V" cmd.exe /c "hermes"` | Abre Hermes (Nous Research), sin flags: su TUI arranca a pelo |
+| 01 | **OpenCode** | `"<pwsh>" -NoLogo -NoProfile -Command "Set-Location -LiteralPath '%V'; [Console]::Title = 'OpenCode'; & opencode --auto"` | Abre OpenCode en modo auto (sin prompts) |
+| 02 | **Kilo Code** | `… & kilo --auto` | Abre Kilo Code en YOLO mode (aprueba todo automáticamente) |
+| 03 | **Cline** | `… & cline --auto-approve true` | Abre Cline con aprobación global de herramientas sin prompts |
+| 04 | **Antigravity** | `… & agy --dangerously-skip-permissions` | Abre Antigravity omitiendo todos los prompts de permisos |
+| 05 | **Copilot CLI** | `… & copilot --yolo` | Abre GitHub Copilot CLI con todos los permisos (`--yolo` = `--allow-all-tools --allow-all-paths --allow-all-urls`) |
+| 06 | **Kiro CLI** | `… & kiro-cli chat --trust-all-tools` | Abre Kiro CLI con confianza total de sesión (YOLO mode). El binario es **`kiro-cli`**, no `kiro` |
+| 07 | **Qoder CLI** | `… & qodercli --yolo` | Abre Qoder CLI en YOLO mode (`--yolo` = `--permission-mode bypass_permissions`). El binario real es **`qodercli`**; `qoder` es el dispatcher que instala el script |
+| 08 | **Hermes** | `… & hermes` | Abre Hermes (Nous Research), sin flags: su TUI arranca a pelo |
+
+`<pwsh>` es `cmd::shell_path()` (ruta completa, porque Explorer no hereda el
+PATH de la terminal). El valor se construye en `vibe_context_command()`:
+`&` ejecuta el comando —obligatorio cuando empieza por una ruta entre
+comillas— y `Set-Location -LiteralPath '%V'` cambia al directorio seleccionado.
+`%V` va entre comillas **simples** a propósito: Explorer lo sustituye antes de
+que PowerShell parsee, así un `$` en la ruta no se interpola. Limitación
+aceptada: una ruta con apóstrofo rompe `Set-Location`.
+
+La acción `.gitignore` usa la misma forma, con `-NoExit` en vez de `cmd /k`:
+
+```
+"<pwsh>" -NoLogo -NoProfile -NoExit -Command "& '<exe>' --task context-gitignore --path '%1'"
+```
 
 ⚠️ **Kiro CLI no tiene comando de instalación**: se instala con su `.exe` (o `winget install Kiro-CLI`), no desde la terminal. Por eso `install` va **vacío** en su entrada de `VIBE_TOOLS`, y eso significa explícitamente **"detectar e instalar el submenú, pero no preguntar por instalarlo"**. `ensure_tools_installed()` salta el bucle de preguntas cuando `install` está vacío y sólo avisa. Preguntar algo a lo que no se puede responder con un Enter sería un bucle sin salida. Cubierto por `a_empty_install_means_detect_only_never_ask`.
 
@@ -438,7 +451,7 @@ HKCU\Software\Classes\Directory\ContextMenus\VibeCoding\shell
 
 ⚠️ Qoder también rompe el patrón, y por partida doble: el instalador (`irm https://qoder.com/install.ps1 | iex`) **delega en `qodercli install`**, que coloca el ejecutable bajo `%USERPROFILE%\.qoder` (`…\.qoder\bin\qodercli\qodercli.exe`), no bajo `%LOCALAPPDATA%`. Por eso sus fallbacks usan el prefijo `HOME/` (que `fallback_candidates()` expande con `USERPROFILE`), y la sonda de `install.bat` lo comprueba como caso especial. El comando documentado es `qoder`, pero es un dispatcher `.cmd` que arranca PowerShell para delegar en `qodercli`: el menú invoca el binario directo.
 
-⚠️ **Hermes, Antigravity, Copilot CLI y Qoder CLI no se detectan sólo por el PATH.** Los instaladores nativos de Hermes y Antigravity dejan el binario en su propia carpeta (`%LOCALAPPDATA%\hermes\bin`, `%LOCALAPPDATA%\agy\bin`) y no siempre lo agregan al PATH del usuario; winget lo deja en `%LOCALAPPDATA%\Microsoft\WinGet\Links`, y el de Qoder en `%USERPROFILE%\.qoder`. Por eso `VibeTool::fallback` declara rutas alternativas con prefijo `LOCALAPPDATA/` o `HOME/`, que `fallback_candidates()` expande. **Los npm globales no necesitan nada de esto** (npm sí modifica el PATH), y hay un test que lo comprueba (`native_installers_declare_a_fallback_outside_the_path`). Al resolver por fallback, `resolve_tool_command()` **conserva los argumentos** y entrecomilla la ruta (`"<ruta>" --yolo`), así el modo autónomo no se pierde.
+⚠️ **Hermes, Antigravity, Copilot CLI y Qoder CLI no se detectan sólo por el PATH.** Los instaladores nativos de Hermes y Antigravity dejan el binario en su propia carpeta (`%LOCALAPPDATA%\hermes\bin`, `%LOCALAPPDATA%\agy\bin`) y no siempre lo agregan al PATH del usuario; winget lo deja en `%LOCALAPPDATA%\Microsoft\WinGet\Links`, y el de Qoder en `%USERPROFILE%\.qoder`. Por eso `VibeTool::fallback` declara rutas alternativas con prefijo `LOCALAPPDATA/` o `HOME/`, que `fallback_candidates()` expande. **Los npm globales no necesitan nada de esto** (npm sí modifica el PATH), y hay un test que lo comprueba (`native_installers_declare_a_fallback_outside_the_path`). Al resolver por fallback, `resolve_tool_command()` **conserva los argumentos** y entrecomilla la ruta con comillas simples (`'<ruta>' --yolo`), así el modo autónomo no se pierde y el valor no lleva comillas dobles internas que rompan el script de PowerShell.
 
 ### Instalación de las herramientas (`vibe-setup`)
 
@@ -455,7 +468,13 @@ HKCU\Software\Classes\Directory\ContextMenus\VibeCoding\shell
 | Hermes | `iex (irm https://hermes-agent.nousresearch.com/install.ps1)` | `PowerShell` |
 | Copilot CLI | `winget install --id GitHub.Copilot --exact --accept-source-agreements --accept-package-agreements` | `Cmd` |
 
-⚠️ **`install_via` no es cosmético**: en Windows `npm` es `npm.cmd` y su shim `npm.ps1` lo bloquea la ExecutionPolicy por defecto, así que los npm van por `cmd /c`. Y `irm | iex` es sintaxis de PowerShell, que en `cmd` no existe. `winget` también va por `cmd /c`: es un `.exe`, y los `--accept-*` evitan sus prompts interactivos (en esta ejecución no hay a quién preguntar).
+⚠️ **`install_via` distingue familias de instalador, no shells**: todo se
+ejecuta ya por PowerShell (`cmd::run_ps_in_dir_status`). Los npm se reescriben
+`npm ` → `npm.cmd ` antes de lanzarlos, porque el shim `npm.ps1` lo bloquea la
+ExecutionPolicy por defecto. `winget` es un `.exe` y funciona tal cual; sus
+`--accept-*` evitan los prompts interactivos (en esta ejecución no hay a quién
+preguntar). Los `irm | iex` ya eran sintaxis de PowerShell. `InstallVia::Cmd`
+**no** usa `cmd.exe`.
 
 ⚠️ El default de la pregunta es **no**. `ask_text` imprime el default entre corchetes, así que el prompt no debe llevar su propio `[s/N]`. Con `None` no habría default y Enter devolvería "" (igual de no, pero la pregunta no se responde con la barra espaciadora). `es_si` acepta `s`/`si`/`sí`/`y`/`yes`.
 
@@ -491,24 +510,37 @@ Dos lanzadores de ventana, ambos con `CREATE_NEW_CONSOLE`:
 
 | Variante | Interno | Uso |
 |----------|---------|-----|
-| `spawn_new_window_autoexit()` | `cmd /c "title & command"` | Menú TUI: abre una ventana para `compass --task …` que se cierra al terminar |
-| `spawn_new_window_interactive()` | `cmd /c "title & command & pause"` | Dev servers interactivos (`flutter run`, `gradlew :composeApp:run`, `npx tauri android dev`) |
+| `spawn_new_window_autoexit()` | `[Console]::Title = '<título>'; & <command>` | Menú TUI: abre una ventana para `compass --task …` que se cierra al terminar |
+| `spawn_new_window_interactive()` | lo anterior + `; Read-Host 'Presiona Enter para cerrar' \| Out-Null` | Dev servers interactivos (`flutter run`, `gradlew :composeApp:run`, `npm.cmd run dev:android`) |
 
-Ambos usan `cmd`, **no** PowerShell. PowerShell 5.1 tarda ~2-3 s en arrancar
-(y más con el perfil de PSReadLine predictivo que instala la propia tarjeta
-"Terminal"), y ese era el retardo de apertura de las tarjetas. `cmd` arranca en
-milisegundos.
+Ambos usan **PowerShell** (`cmd::shell()`): `pwsh` si está instalado, con
+fallback a `powershell` 5.1. El icono de una consola lo aporta el ejecutable que
+la crea, así que alojar la ventana en `pwsh.exe` es lo que cambia el icono
+clásico de cmd por el de PowerShell 7 (en conhost; con Windows Terminal como
+terminal por defecto se ve el de WT).
 
-⚠️ Hay que pasar el comando con `raw_arg`, no con `.args`: `.args` reescapa las
-comillas dobles a `\"`, que `cmd` no entiende (interpretaría el `\` como parte de
-la ruta).
+Detalles que importan:
+
+- **`-NoLogo -NoProfile -Command`** (`window_args`): arranque determinista y
+  rápido, y el perfil de PSReadLine del usuario no interfiere con el teclado de
+  los procesos hijos (`flutter run` responde a `r`/`q`, gradle run también).
+- **El `&` (operador de llamada) es obligatorio**: los comandos que empiezan por
+  una ruta entre comillas (`"C:\…\compass.exe" --task …`) se parsean como una
+  cadena y no se ejecutan sin él. Lo añade `window_script()`, así que los
+  llamadores siguen pasando `flutter run -d windows`, `.\gradlew.bat …`, etc.
+- **Sin `raw_arg` ni sintaxis de cmd**: el script va como **un solo argumento**
+  (Rust lo entrecomilla) y PowerShell lo recibe íntegro. Desaparecen `title`,
+  `&` de cmd y `& pause`; el `pause` se sustituye por `Read-Host`.
+- `[Console]::Title` funciona igual en conhost y Windows Terminal, al contrario
+  que `$Host.UI.RawUI.WindowTitle`.
 
 ### Builds: corren en la ventana actual (`cmd::run_build_and_reveal`)
 Los builds **no abren una segunda ventana**. Llaman a
 `cmd::run_build_and_reveal(command, dir, folder, exts, rename)`:
 
-1. Ejecuta `command` con `cmd /c` heredando
-   stdio, **en la ventana que el TUI ya abrió** (la de `spawn_new_window_autoexit`).
+1. Ejecuta `command` con el **shell activo** (`shell_status` antepone `& ` y
+   lanza `pwsh -NoProfile -Command`), heredando stdio, **en la ventana que el
+   TUI ya abrió** (la de `spawn_new_window_autoexit`).
 2. Si termina bien, busca el artefacto más reciente de `folder` en Rust
    (`newest_artifact`, recursivo y filtrando por extensión), lo renombra a
    `<rename><ext>` si `rename` viene, y lo abre en el explorador.
@@ -560,31 +592,52 @@ El sanitizado reemplaza espacios y caracteres especiales por `_`. Los builds de 
 falla el parser de Explorer cuando la ruta tiene espacios y abre **Documentos** en su lugar.
 
 ### npm en Windows
-`cmd::run_npm_install()` usa `cmd /c npm.cmd install` — necesario porque `npm` en Windows es realmente `npm.cmd`.
+`cmd::run_npm_install()` usa `cmd::run_ps_status("npm.cmd install", …)`. El
+`.cmd` es obligatorio: en PowerShell `npm` resolvería al shim `npm.ps1`, que la
+ExecutionPolicy bloquea por defecto.
 
 ### Gradle en Windows (KMP)
-Los comandos de Gradle se ejecutan como `cmd /c gradlew.bat <args>` porque PowerShell no puede ejecutar `.bat` directamente.
+Los comandos de Gradle se ejecutan como `.\gradlew.bat <args>` dentro del script
+de PowerShell. PowerShell **no busca en el cwd**, así que `gradlew.bat` a secas
+no resuelve: hace falta el prefijo `.\` (y `& .\gradlew.bat …` cuando el
+comando va tras un encadenamiento).
 
 ### CLI de Tauri (`utils/tauri.rs`)
 Un `node_modules` compartido entre máquinas puede romper el CLI de Tauri por partida doble, y las dos cosas se evitan así:
 
 | Síntoma | Causa |
 |---------|-------|
-| `'tauri' is not recognized…` | `node_modules/.bin/tauri` depende del shim que generó npm. `cmd` sólo resuelve por `PATHEXT`. |
+| `'tauri' is not recognized…` | `node_modules/.bin/tauri` depende del shim que generó npm; PowerShell no lo resuelve desde el cwd. |
 | `Cannot find native binding` | `@tauri-apps/cli` delega en una *optional dependency* por plataforma; el binding de Windows puede faltar ([npm/cli#4828]). |
 
-- `tauri::command(ctx, args)` emite `node node_modules/@tauri-apps/cli/tauri.js <args>`, nunca `tauri` a secas. Cae a `npx tauri` si el paquete no está.
+- `tauri::command(ctx, args)` emite `node node_modules/@tauri-apps/cli/tauri.js <args>`, nunca `tauri` a secas. Cae a `npx.cmd tauri` si el paquete no está (el `.cmd` explícito evita el shim `npx.ps1`, bloqueado por ExecutionPolicy).
 - `tauri::ensure(ctx)` llama a `npm install` si falta `node_modules`, el paquete, o el binding de `platform::tauri_native_pkg()`. Se llama **antes** de `command()`.
 - **`npm install` reemplaza** el binding del otro sistema, no lo añade: un `node_modules` en ping-pong entre sistemas pide un install por uso. Inherente al modelo de optional deps.
 
-⚠️ **La ruta va relativa y sin comillas**, y no es estética. Los comandos se lanzan como `cmd /c "title X & <cmd> & pause"`; `cmd` no quita sus comillas cuando el contenido tiene caracteres especiales (`&`), así que unas comillas internas rompen el parseo y `node` recibe la ruta con un `"` pegado (`Cannot find module`). Todos los lanzadores ponen el cwd en la raíz del proyecto, así que la ruta relativa resuelve.
+⚠️ **La ruta va relativa y sin comillas**: el comando se incrusta en el script
+de PowerShell como `& node node_modules/…` y todos los lanzadores ponen el cwd
+en la raíz del proyecto, así que resuelve. Una ruta absoluta sólo añadiría
+comillas y espacios que escapar.
 
-Cubierto por `utils::tauri::tests` (los tres casos: fallback a `npx`, invocación por `node`, y detección del binding de otra plataforma).
+Cubierto por `utils::tauri::tests` (los tres casos: fallback a `npx.cmd`, invocación por `node`, y detección del binding de otra plataforma).
 
 ### Configurar Terminal (perfil PSReadLine)
-`terminal::configure()` **actualiza PSReadLine si hace falta y después** escribe `Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1`. El perfil depende de la versión instalada, no es un texto fijo:
+`terminal::configure()` configura el **shell activo** (`cmd::shell()`): `pwsh`
+7 si está instalado, Windows PowerShell 5.1 si no. La tarjeta muestra cuál es y
+su ruta completa. El perfil se escribe donde el propio shell diga
+(`<shell> -NoProfile -Command '$PROFILE'`):
 
-Orden del flujo: detectar versión → si no hay predictivas, `Install-Module` → volver a detectar → escribir el perfil que corresponda.
+| Shell | Perfil |
+|-------|--------|
+| `pwsh` | `Documents\PowerShell\Microsoft.PowerShell_profile.ps1` |
+| `powershell` | `Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1` |
+
+Si la sonda de `$PROFILE` falla, cae a la carpeta estándar de esa versión
+(`profile_subdir`), que es lo único que distingue a las dos.
+
+Orden del flujo: detectar versión **con el shell activo** → si es 5.1 y no hay
+predictivas, `Install-Module` → volver a detectar → escribir el perfil que
+corresponda.
 
 | Versión tras el paso anterior | Perfil | Qué da |
 |---------|--------|--------|
@@ -592,18 +645,30 @@ Orden del flujo: detectar versión → si no hay predictivas, `Install-Module` �
 | < 2.2.0 | `PROFILE_LEGACY` | Tab = `MenuComplete`, flechas = búsqueda en historial, sin campana, ToolTips |
 | no instalado | `PROFILE_SIN_MODULO` | Sólo explica cómo instalarlo, sin emitir comandos |
 
-⚠️ **2.2.0 es el corte**: es la primera versión con *predictive intellisense*. Windows PowerShell 5.1 trae la **2.0.0** de serie, que no conoce ni `-PredictionSource` ni las Functions `AcceptSuggestion` / `AcceptNextSuggestionWord`. Emitir el perfil moderno ahí llenaba cada terminal nueva de `NamedParameterNotFound` y `ParameterArgumentValidationError`. La versión se lee con `Get-Module -ListAvailable` en un `powershell -NoProfile`, y se compara como `major*100 + minor`: `2.11.4` (211) es **más nueva** que `2.2.0` (202), cosa que un `>=` sobre el texto daría al revés.
+⚠️ **En pwsh no se llama a `Install-Module`**. PSReadLine viene incluido
+(≥ 2.3) y una copia de PSGallery puede sombrear o romper la bundled, sobre todo
+cuando el perfil se carga en cada arranque. Con 5.1 se mantiene el flujo (la
+2.0.0 de serie no sirve) y por eso el que decide es el shell, no la versión.
 
-⚠️ **`Get-Module -ListAvailable` se ejecuta SIEMPRE con `powershell` (5.1), nunca con el `pwsh` de pwsh 7**: el `PSModulePath` de los dos no coincide, y una instalación en `CurrentUser` (`Documents\PowerShell\Modules`) puede existir para 5.1 y no aparecer desde pwsh. Diagnosticar con el shell equivocado hace creer que el módulo falta.
+⚠️ **2.2.0 es el corte**: es la primera versión con *predictive intellisense*. Windows PowerShell 5.1 trae la **2.0.0** de serie, que no conoce ni `-PredictionSource` ni las Functions `AcceptSuggestion` / `AcceptNextSuggestionWord`. Emitir el perfil moderno ahí llenaba cada terminal nueva de `NamedParameterNotFound` y `ParameterArgumentValidationError`. La versión se lee con `Get-Module -ListAvailable` en `<shell> -NoProfile`, y se compara como `major*100 + minor`: `2.11.4` (211) es **más nueva** que `2.2.0` (202), cosa que un `>=` sobre el texto daría al revés.
+
+⚠️ **La sonda se ejecuta con el MISMO shell que usa Compass**, nunca con el
+otro: el `PSModulePath` de PowerShell 7 y 5.1 no coincide, y una instalación en
+`CurrentUser` (`Documents\PowerShell\Modules`) puede existir para uno y no
+aparecer desde el otro. Diagnosticar con el shell equivocado hace creer que el
+módulo falta.
 
 ### La actualización (`upgrade_psreadline`)
-`Install-Module PSReadLine -Scope CurrentUser -Force -AllowClobber -Confirm:$false`, con tres detalles que hacen falta en 5.1:
+Sólo se usa con Windows PowerShell 5.1. `Install-Module PSReadLine -Scope
+CurrentUser -Force -AllowClobber -Confirm:$false`, con tres detalles que hacen
+falta en esa versión:
 
 - **TLS 1.2** en el mismo `-Command`: PSGallery responde *"Could not create SSL/TLS secure channel"* porque 5.1 negocia TLS 1.0. `SecurityProtocol` es de proceso, así que tiene que ir en la misma invocación.
 - **`-Force -AllowClobber -Confirm:$false`**: sin ellos pregunta por consola al reemplazar la versión instalada.
 - **`cmd::run_timeout`** (stdin a `/dev/null` + techo de 300 s): la primera vez descarga el proveedor NuGet. Con el stdin cerrado, cualquier prompt lee EOF y aborta en vez de colgar la TUI.
 
-Sólo se llama cuando `is_predictive()` es falso, así que en una máquina al día no se toca la red.
+Sólo se llama cuando el shell es 5.1 y `is_predictive()` es falso, así que en una
+máquina con pwsh —o al día— no se toca la red.
 
 ⚠️ **`-PredictionSource` va dentro de un `try`/`catch`**. PSReadLine lanza `ArgumentException` si se activa sin consola interactiva con soporte de terminal virtual — o sea, con la salida redirigida (`powershell -Command`, scripts, o cualquier herramienta que lance PowerShell capturando stdout). Como el perfil se carga también en esos casos, sin el `catch` el error reaparece, sólo que cambiado. Verificado: con el `catch`, `powershell -Command 'exit 0'` deja **0 bytes en stderr**.
 
@@ -611,7 +676,7 @@ Sólo se llama cuando `is_predictive()` es falso, así que en una máquina al d�
 
 Antes de sobrescribir se copia el perfil previo a `Microsoft.PowerShell_profile.ps1.compass-bak` . Si el contenido ya coincide, no se toca el archivo.
 
-Cubierto por `tasks::terminal::tests` (8 tests): parseo de versión, decisión de actualizar, elección de perfil, **los nombres del perfil legacy existen todos en la 2.0.0** (lista real sacada con `Get-Command`), ausencia de nombres predictivos, `-PredictionSource` protegido por `try`/`catch`, y BOM (incluido que su presencia forma parte de la comparación).
+Cubierto por `tasks::terminal::tests` (9 tests): parseo de versión, decisión de actualizar, elección de perfil, **los nombres del perfil legacy existen todos en la 2.0.0** (lista real sacada con `Get-Command`), ausencia de nombres predictivos, `-PredictionSource` protegido por `try`/`catch`, BOM (incluido que su presencia forma parte de la comparación) y la carpeta de perfil de cada shell.
 
 ### KMP Desktop (Hot Reload)
 `kotlin::run_windows()` ejecuta `:composeApp:run` con Hot Reload incorporado.
@@ -753,17 +818,19 @@ Detalles:
 
 CLI: `--task git` (y los alias `git-init`/`gitignore`) abren el mismo submenú.
 
-### PowerShell registry (PS v5.1)
-- Usar `-Type` en lugar de `-PropertyType` (este último solo funciona en PowerShell Core).
+### PowerShell registry
+- Todo el registro se toca con `cmd::run_ps()` (pwsh si está, si no 5.1).
+- Usar `-Type` en lugar de `-PropertyType`: el segundo solo existe en PowerShell Core, y el script tiene que funcionar también en 5.1.
 - `Test-Path -PathType Leaf` no funciona en claves de registro; se omite.
+- **Todo valor interpolado va con `ps_quote()`** (comillas simples duplicadas): un `'` en el título o en la ruta rompería el literal del script instalador, que se compone como texto.
 
 ### Directory removal (Windows)
-`cmd::remove_dir()` usa `powershell Remove-Item -Recurse -Force` para rutas largas que `std::fs::remove_dir_all` no puede manejar.
+`cmd::remove_dir()` usa `Remove-Item -Recurse -Force` (con `-LiteralPath` entrecomillado) en el shell activo, para rutas largas que `std::fs::remove_dir_all` no puede manejar.
 
 ### TUI Menu — Ventana separada
 
 Todas las tareas del menú TUI se lanzan en una **nueva ventana de consola**
-(`cmd`, vía `cmd::spawn_new_window_autoexit`) ejecutando
+(PowerShell, vía `cmd::spawn_new_window_autoexit`) ejecutando
 `compass --task <task> --path "<proyecto>"`. El menú principal permanece abierto.
 La ventana secundaria se cierra sola al terminar con éxito (`ui::pause_for`) o
 tras un Enter en las tareas que muestran salida.
@@ -771,12 +838,12 @@ tras un Enter en las tareas que muestran salida.
 ### Android dev (Tauri)
 `android::dev()` **no** invoca el CLI de Tauri: lanza el script `dev:android` de `package.json`. Antes ejecuta:
 1. `ensure_node_modules()` — npm install si falta `node_modules/`
-2. `ensure_android_project()` — `npx tauri android init` si falta `src-tauri/gen/android/`
+2. `ensure_android_project()` — `node node_modules/@tauri-apps/cli/tauri.js android init` si falta `src-tauri/gen/android/`
 3. `ensure_package_consistent()` — verifica que el directorio del paquete Android (`app/src/main/java/<identifier>`) coincida con el `identifier` de `tauri.conf.json`. Si falta, ofrece eliminar `src-tauri/gen/android` y recrear con `tauri android init`.
 4. `select_device()` — elige dispositivo (ver sección Device Selection)
 5. NDK / Rust targets según sea necesario
 
-⚠️ **`DevLaunch`**: si el proyecto declara `dev:android` en sus `scripts`, se usa `npm run dev:android`; si no, cae a `tauri::command(ctx, "android dev")` (`npx tauri …` si no hay CLI local). El script manda porque es el comando que el autor del proyecto usa a mano, con sus flags (`--host`) y sus overrides (`tauri.android.conf.json`) que dejan el puerto correcto; reconstruirlo aquí los pierde y el WebView acaba pidiendo `localhost` sin túnel detrás. En Windows se emite `npm.cmd` y no `npm` (shim `npm.ps1` bloqueado por ExecutionPolicy), pero **sin** `call`: el gotcha de "un batch sin `call` aborta la cadena" es de batch→batch, y `spawn_new_window_interactive` usa una command line de `cmd /c`, donde el `& pause` final sí se ejecuta igual.
+⚠️ **`DevLaunch`**: si el proyecto declara `dev:android` en sus `scripts`, se usa `npm run dev:android`; si no, cae a `tauri::command(ctx, "android dev")` (`npx.cmd tauri …` si no hay CLI local). El script manda porque es el comando que el autor del proyecto usa a mano, con sus flags (`--host`) y sus overrides (`tauri.android.conf.json`) que dejan el puerto correcto; reconstruirlo aquí los pierde y el WebView acaba pidiendo `localhost` sin túnel detrás. En Windows se emite `npm.cmd` y no `npm` (shim `npm.ps1` bloqueado por ExecutionPolicy). El `Read-Host` final de la ventana interactiva lo añade el spawner, así que el comando no se preocupa por dejar la consola abierta.
 
 `android::debug()` comparte `prepare_android_dev()` y **también** lanza la app por `DevLaunch`, antes de abrir `edge://inspect` (son pasos 4/5 y 5/5). ⚠️ El orden es load-bearing: `adb kill-server` es el paso **1** y el lanzamiento el **4**, nunca al revés — es el `beforeDevCommand` del script quien levanta el `adb reverse` del puerto del dev server, así que matar el servidor después borraría los túneles y devolvería el "connection refused" con la página en blanco. Por eso `prepare_android_dev()` (que puede acabar en `npm install`) va **antes** del bloque de adb.
 
@@ -899,8 +966,9 @@ el binario final, y ahí sí se pasan como argumentos sueltos a `go build`.
 Detalles que importan:
 
 - ⚠️ **La ventana del menú se cierra al terminar el proceso.** La tarea se
-  lanza con `spawn_new_window_autoexit` (`cmd /c title X & compass --task …`),
-  que **no** hace `pause`: si la tarea muere con un error, el mensaje
+  lanza con `spawn_new_window_autoexit` (`pwsh -NoProfile -Command
+  "[Console]::Title = …; & compass --task …"`), que **no** espera un Enter: si
+  la tarea muere con un error, el mensaje
   desaparece en un segundo y el usuario ve "la terminal se cierra". Por eso
   las tareas de Android terminan con `ui::pause()`, y **la instalación no
   aborta el build** si no hay dispositivo (la APK ya está compilada: se avisa
@@ -915,10 +983,10 @@ Detalles que importan:
   Aplica igual al **debug** y al **release**, y en Kotlin y en Go+Wails
   (`kotlin::build_apk` y `gowails::build_apk`).
 - ⚠️ **Nada de shell para el pipeline de Android.** `cmd::run_program()`
-  (nuevo) invoca el programa **sin shell**, con los argumentos uno a uno. Con
-  `cmd /c` las rutas con espacios se parten (`D:\Mis Proyectos\Go + Wails
-  v3\...` → `D:\Mis` + `Proyectos/Go` + …) y `cmd.exe` además borra la primera
-  y la última comilla de la línea, lo que rompe `-ldflags="-w -s"`. Con
+  invoca el programa **sin shell**, con los argumentos uno a uno. Un shell de
+  por medio (era `cmd /c`) parte las rutas con espacios (`D:\Mis Proyectos\Go +
+  Wails v3\...` → `D:\Mis` + `Proyectos/Go` + …) y `cmd.exe` además borra la
+  primera y la última comilla de la línea, lo que rompe `-ldflags="-w -s"`. Con
   `Command::new(program).args(args)` cada argumento llega intacto.
 - **Compilador de la NDK**: en Windows el NDK trae un wrapper `.cmd` (y un
   script bash sin extensión, que no es ejecutable ahí), así que se llama a
@@ -1050,7 +1118,7 @@ Reinstalar costaba ~30 s en cada ejecución, casi todo en cosas innecesarias. Lo
 | Antes | Ahora | Motivo |
 |---|---|---|
 | `cargo install --path . --force` siempre | sólo si algún archivo de `src/`, `Cargo.toml` o `Cargo.lock` es más nuevo que el `.exe` | el `--force` de cargo no es opcional: sin él se niega a reinstalar la misma versión |
-| 2 sondas de registro en PowerShell | 1 sola, con las cuatro comprobaciones | PowerShell 5.1 tarda ~2,5 s en arrancar; 3 llamadas son ~7,5 s |
+| 2 sondas de registro en PowerShell | 1 sola, con las cuatro comprobaciones | cada arranque de PowerShell cuesta (5.1 ~2,5 s, pwsh ~0,5 s); 3 llamadas son ~7,5 s |
 | Menú de Vibe Coding **siempre** reinstallado | sólo si falta **o** si lo escribió otro binario | la sonda miraba `zz_VibeCoding\shell\OpenCode\command`, una clave que **no existe**: el padre sólo lleva `ExtendedSubCommandsKey` y las subentradas viven en `Directory\ContextMenus\VibeCoding\shell\` con prefijo numérico (`01OpenCode`). Además, `install_vibe_coding()` guarda `CompassStamp` (mtime del exe en segundos) y la sonda lo compara con el `compass.exe` instalado: recompilar y añadir una herramienta obliga a reescribir el árbol. Sin la marca (instalación anterior) se reinstala una vez |
 | Sin detección de herramientas ausentes | cuarto campo de la sonda | va en la **misma** invocación de PowerShell, así que no cuesta los ~2,5 s de arranque; avisa en minúscula si falta alguna |
 | `timeout /t 3` al final | eliminado | 3 s de espera muerta |
@@ -1059,7 +1127,19 @@ Medido: **~30 s → ~7 s** sin nada que cambiar, ~19 s cuando hay que recompilar
 
 ⚠️ La sonda vive en un `.ps1` y no en un one-liner dentro de `for /f` porque las tuberías (`|`) son caracteres especiales de `cmd` y rompen el bucle. Y ⚠️ `1` significa **actuar**: leerlo al revés hace reinstallar siempre (que es lo que pasó en la primera versión de este cambio).
 
+`install.bat` ejecuta la sonda con **pwsh si está instalado** y cae a
+`powershell` si no. La detección es **ejecutándolo** (`pwsh -NoLogo -NoProfile
+-Command "exit 0"` + `if not errorlevel 1`), no con `where`: el alias de la
+Microsoft Store es un stub de 0 bytes que `where` encuentra y que no arranca.
+
 La sonda también considera incompleto el menú de Compass si falta la acción `.gitignore` en el clic derecho sobre una carpeta o sobre el fondo. Así `install.bat` migra instalaciones anteriores que ya tenían Compass, pero no esa acción.
+
+⚠️ **Migración de cmd a PowerShell**: la sonda fuerza la reinstalación si el
+comando de `zz_VibeGitignore` o el de `01OpenCode` todavía contiene `cmd.exe`.
+La marca `CompassStamp` sola no basta: instalar pwsh *después* de Compass no
+cambia el mtime de `compass.exe`, así que la marca coincidiría y el menú viejo
+(con el icono de cmd) se quedaría para siempre. Cubierto por
+`probe_forces_migration_of_cmd_based_entries`.
 
 ⚠️ `install.bat` usa `setlocal EnableDelayedExpansion` y `!errorlevel!` dentro de los bloques: con `%errorlevel%` se evalúa al parsear el `if`, antes de que `cargo` corra, y siempre da 0.
 
@@ -1074,7 +1154,12 @@ borde e interior, y recorrido del perímetro) y la paleta/mezcla de colores de
 `theme.rs`. De `context_menu.rs` se verifican las partes puras: orden y
 prefijos del submenú, comandos de instalación de cada herramienta, nombre del
 binario, shell de instalación, fallbacks fuera del PATH (incluido `HOME/` de
-Qoder) y la marca `CompassStamp` que comparte con la sonda del instalador. El resto
-—detección de proyectos, `newest_artifact` y escritura real en el registro— se
+Qoder), la marca `CompassStamp` y el detector de `cmd.exe` que comparte con la
+sonda del instalador. De `cmd.rs` se cubren `ps_quote`, el script y los
+argumentos de las ventanas (`&`, `Read-Host`, `-NoProfile`, sin sintaxis de
+cmd), la resolución del shell y `newest_artifact`. De `terminal.rs`, la carpeta
+de perfil de cada shell además de la versión y el BOM. De `tauri.rs`, el
+fallback a `npx.cmd`. El resto
+—detección de proyectos, escritura real en el registro— se
 verifica con compilación (`cargo build`) y pruebas manuales en la máquina de
 destino.

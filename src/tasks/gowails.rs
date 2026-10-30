@@ -184,7 +184,7 @@ fn main_activity(ctx: &ProjectContext) -> String {
 /// ¿Está `name` disponible como comando?
 fn command_exists(name: &str) -> bool {
     let ps = format!("$null -ne (Get-Command -Name '{name}' -ErrorAction SilentlyContinue)");
-    cmd::run("powershell", &["-NoProfile", "-Command", &ps])
+    cmd::run_ps(&ps)
         .map(|o| String::from_utf8_lossy(&o.stdout).trim() == "True")
         .unwrap_or(false)
 }
@@ -265,10 +265,10 @@ fn ndk_compilers(bin: &Path) -> Option<(String, String)> {
 
 /// `npm run <script>` en el frontend.
 ///
-/// En Windows `npm` es `npm.cmd`, que necesita `cmd.exe` para ejecutarse.
-/// Se invoca **sin shell** para que los argumentos lleguen intactos.
+/// Se llama a `npm.cmd`: en PowerShell `npm` resuelve primero al shim
+/// `npm.ps1`, que la ExecutionPolicy bloquea.
 fn npm_run(dir: &Path, script: &str) -> Result<()> {
-    let ok = cmd::run_program("cmd", &["/c", "npm.cmd", "run", script], dir, &[])?;
+    let ok = cmd::run_ps_status(&format!("npm.cmd run {script}"), dir, &[])?;
     if !ok {
         anyhow::bail!("`npm run {script}` falló en: {}", dir.display());
     }
@@ -640,8 +640,8 @@ fn signing_env(ctx: &ProjectContext) -> Option<Vec<(String, String)>> {
 
 /// Ejecuta una tarea de Gradle en `build/android`.
 ///
-/// Se invoca **sin shell** para conservar el directorio del proyecto cuando
-/// contiene espacios.
+/// Gradle se invoca con `.\`, que PowerShell exige para ejecutar un script del
+/// directorio actual; el shell respeta el `dir` del proceso.
 fn gradle(android: &Path, task: &str, envs: &[(String, String)]) -> Result<bool> {
     platform::find_gradlew(android).ok_or_else(|| {
         anyhow::anyhow!(
@@ -650,12 +650,7 @@ fn gradle(android: &Path, task: &str, envs: &[(String, String)]) -> Result<bool>
             android.display()
         )
     })?;
-    Ok(cmd::run_program(
-        "cmd",
-        &["/c", "gradlew.bat", task],
-        android,
-        envs,
-    )?)
+    cmd::run_ps_status(&format!(".\\gradlew.bat {task}"), android, envs)
 }
 
 /// Escribe `build/android/local.properties` con `sdk.dir`.

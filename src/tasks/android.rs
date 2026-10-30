@@ -693,9 +693,13 @@ pub fn debug(ctx: &ProjectContext) -> Result<()> {
     let url = "edge://inspect/#devices";
     println!();
     println!("[INFO] Abriendo edge://inspect/#devices ...");
-    // `clip` evita arrancar PowerShell solo para copiar el enlace.
-    let _ = cmd::run("cmd", &["/c", &format!("echo {url} | clip")]);
-    let _ = cmd::run("cmd", &["/c", "start", "msedge", url]);
+    // `Set-Clipboard` y `Start-Process` existen en PowerShell 5.1 y 7, así que
+    // no hace falta el `clip`/`start` de cmd.
+    let _ = cmd::run_ps(&format!("Set-Clipboard -Value {}", cmd::ps_quote(url)));
+    let _ = cmd::run_ps(&format!(
+        "Start-Process -FilePath msedge -ArgumentList {}",
+        cmd::ps_quote(url)
+    ));
 
     if has_device {
         println!("[INFO] Si no ves el dispositivo en Edge, verifica:");
@@ -764,7 +768,7 @@ mod tests {
         );
 
         assert_eq!(DevLaunch::detect(&ctx), DevLaunch::Cli);
-        assert_eq!(DevLaunch::Cli.command(&ctx), "npx tauri android dev");
+        assert_eq!(DevLaunch::Cli.command(&ctx), "npx.cmd tauri android dev");
 
         let _ = std::fs::remove_dir_all(&root);
     }

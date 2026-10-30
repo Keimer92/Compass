@@ -61,9 +61,18 @@ REM ---------------------------------------------------------------
 REM  Estado del sistema, en una sola invocacion de PowerShell.
 REM  Antes eran tres (dos sondas del registro) y ademas la de Vibe Coding
 REM  miraba una clave que no existe, asi que se reinstalaba siempre.
+REM
+REM  Se prefiere pwsh (PowerShell 7): arranca mas rapido y es el shell que
+REM  usan las ventanas de Compass. Se comprueba ejecutandolo, no con `where`:
+REM  el alias de la Microsoft Store es un stub de 0 bytes que `where`
+REM  encuentra pero no arranca.
 REM ---------------------------------------------------------------
+set "PSSHELL=powershell"
+pwsh -NoLogo -NoProfile -Command "exit 0" >nul 2>nul
+if not errorlevel 1 set "PSSHELL=pwsh"
+
 set "STATE="
-for /f "tokens=1,2,3,4 delims=;" %%a in ('powershell -NoProfile -ExecutionPolicy Bypass -File "assets\install-probe.ps1"') do set "STATE=%%a;%%b;%%c;%%d"
+for /f "tokens=1,2,3,4 delims=;" %%a in ('%PSSHELL% -NoLogo -NoProfile -ExecutionPolicy Bypass -File "assets\install-probe.ps1"') do set "STATE=%%a;%%b;%%c;%%d"
 
 if not defined STATE (
     echo [WARN] No se pudo leer el estado del sistema.

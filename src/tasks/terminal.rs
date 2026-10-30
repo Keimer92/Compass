@@ -1,6 +1,7 @@
 use crate::utils::{cmd, context::ProjectContext};
 use anyhow::Result;
 use std::io::{self, Write};
+use std::path::{Path, PathBuf};
 
 /// Perfil completo: sugerencias predictivas del historial.
 ///
@@ -67,31 +68,35 @@ Set-PSReadLineOption -BellStyle None -ShowToolTips
 /// terminals que no cargan el módulo (ISE, `powershell -File`, hosts que no lo
 /// auto-cargan) y el usuario ve errores que no ha provocado.
 const PROFILE_SIN_MODULO: &str = r#"# --- compass: autocompletado (no configurado) ---
-# No se encontró PSReadLine instalado para Windows PowerShell, así que no hay
-# nada que configurar. Para instalarlo:
+# No se encontró PSReadLine instalado para el shell configurado, así que no hay
+# nada que configurar. Para instalarlo (Windows PowerShell 5.1):
 #
 #   Install-Module PSReadLine -Scope CurrentUser -Force
 "#;
 
-/// Sonda: versión de PSReadLine más reciente disponible.
+/// Sonda: versión de PSReadLine más reciente disponible en el shell de Compass.
 ///
 /// Usa `Get-Module -ListAvailable`, que no necesita importar el módulo, y
 /// `-NoProfile`, que evita que el perfil roto del usuario contamine la salida.
-/// La orden va en un único argumento de `Command` (sin shell de por medio), así
-/// que las comillas internas no dan problemas.
+/// Se consulta **el mismo shell que usan las ventanas**: `PSModulePath` difiere
+/// entre PowerShell 7 y 5.1, y diagnosticar con el otro hace creer que el
+/// módulo falta (o al revés).
 fn psreadline_version() -> Option<String> {
     let script = "(Get-Module -ListAvailable PSReadLine \
                   | Sort-Object Version -Descending \
                   | Select-Object -First 1).Version.ToString()";
-    let out = cmd::run("powershell", &["-NoProfile", "-Command", script]).ok()?;
+    let out = cmd::run(cmd::shell(), &["-NoProfile", "-Command", script]).ok()?;
     let version = String::from_utf8_lossy(&out.stdout).trim().to_string();
     (!version.is_empty()).then_some(version)
 }
 
 /// Instala la última PSReadLine en el ámbito del usuario actual.
 ///
-/// Tres detalles que hacen falta en Windows PowerShell 5.1 y que sin ellos la
-/// instalación falla o se queda colgada:
+/// Sólo se usa con Windows PowerShell 5.1: `pwsh` trae PSReadLine incluido
+/// (≥ 2.3) e `Install-Module` puede sombrear o romper esa copia.
+///
+/// Tres detalles que hacen falta en 5.1 y que sin ellos la instalación falla o
+/// se queda colgada:
 ///
 /// - **TLS 1.2.** PSGallery rechaza la conexión con *"Could not create SSL/TLS
 ///   secure channel"* en 5.1, que negocia TLS 1.0 por defecto. Se fija el
@@ -117,7 +122,7 @@ fn upgrade_psreadline() -> Option<String> {
 
     println!("  Instalando (descarga desde PSGallery, la primera vez tarda)...\n");
     match cmd::run_timeout(
-        "powershell",
+        cmd::shell(),
         &["-NoProfile", "-Command", script],
         TIMEOUT_SEGS,
     ) {
@@ -178,7 +183,40 @@ fn profile_for(version: Option<&str>) -> &'static str {
     }
 }
 
+/// Subcarpeta de Documentos donde el shell guarda su perfil.
+///
+/// `pwsh` usa `Documents\PowerShell` y 5.1 `Documents\WindowsPowerShell`. Sólo
+/// es el fallback: lo normal es que `$PROFILE` responda.
+fn profile_subdir(shell: &str) -> &'static str {
+    if shell == "pwsh" {
+        "PowerShell"
+    } else {
+        "WindowsPowerShell"
+    }
+}
+
+/// Ruta del perfil que corresponde al shell activo.
+///
+/// Se pregunta al propio shell (`$PROFILE`) en vez de componerla a mano: respeta
+/// los Documentos redirigidos y las diferencias entre 7 y 5.1. Si la sonda falla,
+/// cae a la ruta estándar de esa versión.
+fn profile_path() -> PathBuf {
+    if let Ok(out) = cmd::run(cmd::shell(), &["-NoProfile", "-Command", "$PROFILE"]) {
+        let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if !path.is_empty() {
+            return PathBuf::from(path);
+        }
+    }
+    let docs = dirs::document_dir()
+        .unwrap_or_else(|| crate::utils::platform::home_dir().unwrap_or_else(|| ".".into()));
+    docs.join(profile_subdir(cmd::shell()))
+        .join("Microsoft.PowerShell_profile.ps1")
+}
+
 pub fn configure(_ctx: &ProjectContext) -> Result<()> {
+    let shell = cmd::shell();
+    let es_pwsh = shell == "pwsh";
+
     // El perfil depende de la versión instalada, así que lo primero es asegurarla:
     // sin predictivas (o sin PSReadLine) se actualiza antes de escribir nada.
     // Es el orden que pide el flujo: instalar, y *después* configurar.
@@ -191,15 +229,26 @@ pub fn configure(_ctx: &ProjectContext) -> Result<()> {
     println!("║     CONFIGURAR TERMINAL - AUTOCOMPLETADO         ║");
     println!("╚══════════════════════════════════════════════════╝");
     println!();
+    println!("Shell: {shell}");
+    println!("  {}", cmd::shell_path());
+    println!();
 
     match &version {
         Some(v) if is_predictive(Some(v)) => {
             println!("[OK] PSReadLine {v} ya soporta autocompletado predictivo.");
         }
+        _ if es_pwsh => {
+            // PSReadLine viene incluido en PowerShell 7. Instalar otra copia
+            // desde PSGallery puede sombrear la bundled y romper el arranque del
+            // shell, así que aquí no se toca nada.
+            println!("[WARN] {shell} no expone una PSReadLine con predictivas.");
+            println!("       PSReadLine viene incluido en PowerShell 7; no se instala");
+            println!("       otra copia para no sombrear la bundled. Actualiza PowerShell.");
+        }
         _ => {
             println!("[INFO] El completado predictivo necesita PSReadLine 2.2.0+.");
             let actual = match &version {
-                Some(v) => format!(" ahora está la {v} que trae Windows PowerShell 5.1."),
+                Some(v) => format!(" ahora está la {v} que trae {shell}."),
                 None => " no hay ninguna instalada.".to_string(),
             };
             print!("[INFO] Se va a actualizar a la última versión disponible{actual}");
@@ -237,32 +286,36 @@ pub fn configure(_ctx: &ProjectContext) -> Result<()> {
             println!();
             println!("[WARN] Esta versión no tiene sugerencias predictivas.");
             println!("       Son una añadido de PSReadLine 2.2.0, y esta máquina tiene la");
-            println!("       {v} que trae Windows PowerShell 5.1 de serie.");
+            println!("       {v} que trae {shell} de serie.");
             println!();
             println!("Se configurará el autocompletado disponible en ella:");
             println!("  1. TAB abre el menú de completados");
             println!("  2. Flechas arriba/abajo buscan en el historial");
             println!("  3. Historial grande, sin campana, con ToolTips");
-            println!();
-            println!("Para tener el completado predictivo, actualiza PSReadLine:");
-            println!("  Install-Module PSReadLine -Scope CurrentUser -Force");
-            println!("  (luego reinstala esta opcion y se detectará la version nueva)");
+            if !es_pwsh {
+                println!();
+                println!("Para tener el completado predictivo, actualiza PSReadLine:");
+                println!("  Install-Module PSReadLine -Scope CurrentUser -Force");
+                println!("  (luego reinstala esta opcion y se detectará la version nueva)");
+            }
         }
         None => {
             println!("[WARN] No se encontró PSReadLine instalado.");
             println!("       Se escribirá un perfil que sólo explica cómo instalarlo,");
             println!("       en vez de uno que falle al abrir cada terminal.");
-            println!();
-            println!("  Install-Module PSReadLine -Scope CurrentUser -Force");
+            if !es_pwsh {
+                println!();
+                println!("  Install-Module PSReadLine -Scope CurrentUser -Force");
+            }
         }
     }
     println!();
 
-    let profile_dir = dirs::document_dir()
-        .unwrap_or_else(|| crate::utils::platform::home_dir().unwrap_or_else(|| ".".into()))
-        .join("WindowsPowerShell");
-
-    let profile_file = profile_dir.join("Microsoft.PowerShell_profile.ps1");
+    let profile_file = profile_path();
+    let profile_dir = profile_file
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."));
 
     if !profile_dir.exists() {
         std::fs::create_dir_all(&profile_dir)?;
@@ -370,6 +423,14 @@ mod tests {
         assert_eq!(profile_for(Some("2.1.0")), PROFILE_LEGACY);
         // Sin módulo, un perfil que no falla.
         assert_eq!(profile_for(None), PROFILE_SIN_MODULO);
+    }
+
+    /// El perfil no vive en la misma carpeta en 7 y en 5.1; escribir en la del
+    /// otro shell configura una terminal que no es la que Compass abre.
+    #[test]
+    fn profile_folder_follows_the_active_shell() {
+        assert_eq!(profile_subdir("pwsh"), "PowerShell");
+        assert_eq!(profile_subdir("powershell"), "WindowsPowerShell");
     }
 
     /// El bug que motivó esto de raíz: la 2.0.0 de serie de Windows PowerShell

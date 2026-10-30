@@ -45,23 +45,22 @@ pub fn cli_entry(ctx: &ProjectContext) -> Option<PathBuf> {
 
 /// Invocación del CLI con `args`, lista para incrustar en un comando de shell.
 ///
-/// Cae a `npx tauri` si el paquete no está, para que sea el propio npm el que
-/// diga qué falta en vez de un `node: no such file` sin contexto.
+/// Cae a `npx.cmd` si el paquete no está, para que sea el propio npm el que
+/// diga qué falta en vez de un `node: no such file` sin contexto. Se nombra el
+/// `.cmd` explícitamente porque el spawner usa PowerShell y `npx` resolvería al
+/// shim `npx.ps1`, que la ExecutionPolicy bloquea.
 ///
 /// El path va **relativo y sin citar** a propósito. Todos los llamadores abren la
 /// ventana con el cwd en la raíz del proyecto (`current_dir` en
-/// `spawn_new_window*`, `Set-Location` en las ramas PowerShell), así que
-/// `node_modules/@tauri-apps/cli/tauri.js` resuelve sin problema. La alternativa
-/// —ruta absoluta entrecomillada— no funciona: los comandos se lanzan como
-/// `cmd /c "title X & <cmd> & pause"`, y las comillas internas desbaratan el
-/// parseo de `cmd`, que no quita las suyas porque el contenido tiene caracteres
-/// especiales (`&`). El resultado es que `node` recibe la ruta con un `"` pegado
-/// y falla con `Cannot find module`. Con ruta relativa no hay nada que citar, y
-/// por eso el separador es `/`: lo acepta `cmd` sin necesidad de escapes.
+/// `spawn_new_window*`, `Set-Location` en las ramas del menú contextual), así
+/// que `node_modules/@tauri-apps/cli/tauri.js` resuelve sin problema. La
+/// alternativa —ruta absoluta— no aporta nada aquí y añade comillas y espacios
+/// que hay que escapar en el script de PowerShell. El separador es `/` porque
+/// `node` lo acepta igual en Windows.
 pub fn command(ctx: &ProjectContext, args: &str) -> String {
     match cli_entry(ctx) {
         Some(_) => format!("node {CLI_REL_PATH} {args}"),
-        None => format!("npx tauri {args}"),
+        None => format!("npx.cmd tauri {args}"),
     }
 }
 
@@ -88,7 +87,7 @@ fn missing_native_binding(ctx: &ProjectContext) -> bool {
 /// falta.
 ///
 /// Hay que llamarla **antes** de construir el comando con [`command`]: si el
-/// entry point no existe, `command` cae a `npx tauri` y esa caída se pierde en
+/// entry point no existe, `command` cae a `npx.cmd` y esa caída se pierde en
 /// la ventana nueva, donde no se ve el error hasta que ya no hay vuelta atrás.
 pub fn ensure(ctx: &ProjectContext) -> Result<()> {
     if !ctx.has_node_modules || cli_entry(ctx).is_none() {
@@ -157,7 +156,8 @@ mod tests {
     #[test]
     fn falls_back_to_npx_when_the_cli_is_not_installed() {
         let (root, ctx) = fake_ctx("no-cli");
-        assert_eq!(command(&ctx, "dev"), "npx tauri dev");
+        // `npx.cmd` y no `npx`: el shim `.ps1` lo bloquea la ExecutionPolicy.
+        assert_eq!(command(&ctx, "dev"), "npx.cmd tauri dev");
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -165,8 +165,8 @@ mod tests {
     fn invokes_node_on_the_entry_point_instead_of_the_shim() {
         let (root, ctx) = fake_ctx("with-cli");
         touch_cli_entry(&root);
-        // Sin comillas: el comando acaba dentro de `cmd /c "title X & …"`, donde
-        // unas comillas internas rompen el parseo (ver doc de `command`).
+        // Sin comillas: el comando va como script de PowerShell (`& node …`), y
+        // una ruta relativa evita tener que escapar nada (ver doc de `command`).
         assert_eq!(
             command(&ctx, "dev"),
             "node node_modules/@tauri-apps/cli/tauri.js dev"

@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::sync::OnceLock;
 use std::time::SystemTime;
 
 #[cfg(windows)]
@@ -8,6 +9,129 @@ use std::os::windows::process::CommandExt;
 
 #[cfg(windows)]
 const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
+
+// ── Shell: PowerShell 7 con fallback a Windows PowerShell 5.1 ─────────────
+
+/// Shell con el que se ejecuta todo lo que necesita un intérprete.
+///
+/// Se prefiere `pwsh`: es el que aporta el icono nuevo a las ventanas que abre
+/// Compass. Se comprueba **ejecutándolo**, no buscándolo con `where`: el alias
+/// de Microsoft Store es un stub de 0 bytes que `where` encuentra y que no
+/// arranca. Sin pwsh se usa Windows PowerShell 5.1, que siempre existe.
+pub fn shell() -> &'static str {
+    static SHELL: OnceLock<&'static str> = OnceLock::new();
+    SHELL.get_or_init(|| {
+        let disponible = Command::new("pwsh")
+            .args(["-NoLogo", "-NoProfile", "-Command", "exit 0"])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if disponible {
+            "pwsh"
+        } else {
+            "powershell"
+        }
+    })
+}
+
+/// Ruta completa del shell activo, para las entradas del registro.
+///
+/// Explorer no hereda el PATH de la terminal desde la que se instaló Compass,
+/// así que el valor debe apuntar al ejecutable, no al nombre.
+pub fn shell_path() -> &'static str {
+    static PATH: OnceLock<String> = OnceLock::new();
+    PATH.get_or_init(|| {
+        if shell() == "pwsh" {
+            if let Ok(program_files) = std::env::var("ProgramFiles") {
+                let candidate = Path::new(&program_files)
+                    .join("PowerShell")
+                    .join("7")
+                    .join("pwsh.exe");
+                if candidate.is_file() {
+                    return candidate.to_string_lossy().into_owned();
+                }
+            }
+            if let Ok(out) = Command::new("where.exe").arg("pwsh").output() {
+                if let Some(line) = String::from_utf8_lossy(&out.stdout)
+                    .lines()
+                    .map(str::trim)
+                    .find(|l| !l.is_empty())
+                {
+                    return line.to_string();
+                }
+            }
+            "pwsh.exe".to_string()
+        } else {
+            std::env::var("SystemRoot")
+                .map(|root| format!("{root}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"))
+                .unwrap_or_else(|_| "powershell.exe".to_string())
+        }
+    })
+}
+
+/// Literal de cadena de PowerShell, con las comillas simples duplicadas.
+pub fn ps_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "''"))
+}
+
+/// Argumentos con los que se lanza un script de PowerShell.
+fn window_args(script: &str) -> Vec<&str> {
+    vec!["-NoLogo", "-NoProfile", "-Command", script]
+}
+
+/// Script de una ventana nueva: título y comando.
+///
+/// El `&` (operador de llamada) es obligatorio: los comandos que empiezan por
+/// una ruta entre comillas (`"C:\…\compass.exe" --task …`) se parsean como una
+/// expresión de cadena y no se ejecutan sin él. El `Read-Host` sustituye al
+/// `pause` de cmd para que la ventana no se cierre antes de leer el error.
+fn window_script(title: &str, command: &str, interactive: bool) -> String {
+    let mut script = format!("[Console]::Title = {}; & {}", ps_quote(title), command);
+    if interactive {
+        script.push_str("; Read-Host 'Presiona Enter para cerrar' | Out-Null");
+    }
+    script
+}
+
+/// Ejecuta un script de PowerShell con el shell activo y captura la salida.
+pub fn run_ps(script: &str) -> Result<Output> {
+    Command::new(shell())
+        .args(window_args(script))
+        .output()
+        .with_context(|| format!("Falló al ejecutar PowerShell: {script}"))
+}
+
+/// Ejecuta un script de PowerShell en `dir`; error si termina con fallo.
+pub fn run_ps_in_dir_status(script: &str, dir: &Path) -> Result<()> {
+    if !dir.exists() {
+        anyhow::bail!("El directorio no existe: {}", dir.display());
+    }
+    let status = Command::new(shell())
+        .args(window_args(script))
+        .current_dir(dir)
+        .status()
+        .with_context(|| format!("No se pudo ejecutar PowerShell: {script}"))?;
+    if !status.success() {
+        anyhow::bail!("El comando falló con código: {status}");
+    }
+    Ok(())
+}
+
+/// Igual que [`run_ps_in_dir_status`] pero devuelve si tuvo éxito.
+pub fn run_ps_status(script: &str, dir: &Path, envs: &[(String, String)]) -> Result<bool> {
+    let mut c = Command::new(shell());
+    c.args(window_args(script));
+    c.current_dir(dir);
+    for (k, v) in envs {
+        c.env(k, v);
+    }
+    Ok(c.status()
+        .with_context(|| format!("No se pudo ejecutar PowerShell: {script}"))?
+        .success())
+}
 
 pub fn run(cmd: &str, args: &[&str]) -> Result<Output> {
     Command::new(cmd)
@@ -98,8 +222,9 @@ pub fn run_timeout(cmd: &str, args: &[&str], timeout_secs: u64) -> Result<bool> 
 }
 
 /// Ejecuta npm install en un directorio.
-/// En Windows, npm es npm.cmd y requiere cmd.exe para ejecutarse.
-/// Esta función lo resuelve automáticamente.
+///
+/// Se llama a `npm.cmd` explícitamente: en PowerShell `npm` resuelve primero al
+/// shim `npm.ps1`, que la ExecutionPolicy por defecto bloquea.
 pub fn run_npm_install(dir: &std::path::Path) -> Result<()> {
     if !dir.exists() {
         anyhow::bail!("El directorio no existe: {}", dir.display());
@@ -108,22 +233,14 @@ pub fn run_npm_install(dir: &std::path::Path) -> Result<()> {
         anyhow::bail!("No se encontró package.json en: {}", dir.display());
     }
 
-    let program = "cmd";
-    let args: &[&str] = &["/c", "npm.cmd", "install"];
-
-    let status = Command::new(program)
-        .args(args)
-        .current_dir(dir)
-        .status()
-        .with_context(|| {
-            format!(
-                "No se pudo ejecutar npm. Verifica que Node.js esté instalado.\n\
-                 Ruta esperada del proyecto: {}",
-                dir.display()
-            )
-        })?;
-
-    if !status.success() {
+    let ok = run_ps_status("npm.cmd install", dir, &[]).with_context(|| {
+        format!(
+            "No se pudo ejecutar npm. Verifica que Node.js esté instalado.\n\
+             Ruta esperada del proyecto: {}",
+            dir.display()
+        )
+    })?;
+    if !ok {
         anyhow::bail!("npm install falló en: {}", dir.display());
     }
     Ok(())
@@ -133,9 +250,9 @@ pub fn run_npm_install(dir: &std::path::Path) -> Result<()> {
 /// espera a que termine.
 ///
 /// Los builds y procesos largos corren aquí en vez de abrir una segunda ventana:
-/// esa segunda ventana se abría con PowerShell 5.1 (~2-3 s de arranque, más con
-/// el perfil de PSReadLine predictivo) y era el último freno a la apertura de las
-/// tarjetas. La ventana actual la abre el TUI con `cmd`, que es instantánea.
+/// la ventana actual la abre el TUI con [`spawn_new_window_autoexit`], y una
+/// segunda ventana sólo añadiría ruido. El comando se interpreta con el shell
+/// activo (PowerShell), así que aquí no se codea sintaxis de cmd.
 ///
 /// `envs` inyecta variables de entorno (p. ej. `RELEASE_*` para firmar).
 pub fn run_build_and_reveal(
@@ -307,17 +424,19 @@ pub fn run_in_current_window(command: &str, dir: &std::path::Path) -> Result<()>
     Ok(())
 }
 
-/// Lanza `command` en `cmd /c` heredando stdio, con `dir` como directorio de trabajo.
+/// Lanza `command` con el shell activo, heredando stdio y con `dir` como
+/// directorio de trabajo.
+///
+/// El `&` inicial permite que también funcionen los comandos que empiezan por
+/// una ruta entrecomillada (adb con ruta absoluta, por ejemplo).
 fn shell_status(
     command: &str,
     dir: &std::path::Path,
     envs: &[(String, String)],
 ) -> Result<std::process::ExitStatus> {
-    let mut c = {
-        let mut c = Command::new("cmd");
-        c.arg("/c").arg(command);
-        c
-    };
+    let script = format!("& {command}");
+    let mut c = Command::new(shell());
+    c.args(window_args(&script));
     c.current_dir(dir);
     for (k, v) in envs {
         c.env(k, v);
@@ -336,41 +455,39 @@ pub fn run_shell_status(command: &str, dir: &Path, envs: &[(String, String)]) ->
 
 /// Abre una ventana de terminal que **se cierra** al terminar el comando.
 ///
-/// En Windows usa `cmd /c`, **no** PowerShell: PowerShell 5.1 tarda ~2-3 s en
-/// arrancar (y más con un perfil de PSReadLine predictivo, que instala la propia
-/// tarjeta "Terminal"), lo que se veía como una consola en blanco durante unos
-/// segundos en las tarjetas interactivas (Git, Signing, Clean). `cmd` arranca en
-/// milisegundos y el comando es una simple invocación de `compass.exe`, así que
-/// no se necesita nada de PowerShell.
+/// La aloja el shell activo (PowerShell 7 si está instalado): el icono de una
+/// consola lo aporta el ejecutable que la crea, así que esto es lo que cambia
+/// el icono de cmd por el de PowerShell. Se usa `-NoProfile` para que el
+/// arranque sea determinista y para que PSReadLine no interfiera con el teclado
+/// de los procesos hijos.
 pub fn spawn_new_window_autoexit(title: &str, dir: &std::path::Path, command: &str) -> Result<()> {
-    // `raw_arg` conserva las comillas del comando, que cmd no acepta escapadas como `\"`.
-    let cmd_line = format!("/c title {} & {}", title, command);
-    Command::new("cmd")
+    let script = window_script(title, command, false);
+    Command::new(shell())
+        .args(window_args(&script))
         .creation_flags(CREATE_NEW_CONSOLE)
         .current_dir(dir)
-        .raw_arg(&cmd_line)
         .spawn()
-        .context("No se pudo abrir nueva ventana de CMD")?;
+        .context("No se pudo abrir una ventana de PowerShell")?;
     Ok(())
 }
 
 /// Abre una nueva terminal con stdin funcional para comandos interactivos
-/// (flutter run, gradle run, etc.). Internamente usa cmd /c en vez de
-/// powershell -Command porque este último no reenvía correctamente el
-/// teclado a procesos hijo en ciertas configuraciones de Windows.
+/// (flutter run, gradle run, etc.).
+///
+/// La ventana queda abierta tras el comando (`Read-Host`) para poder leer el
+/// error si el proceso muere al arrancar.
 pub fn spawn_new_window_interactive(
     title: &str,
     dir: &std::path::Path,
     command: &str,
 ) -> Result<()> {
-    // `raw_arg` evita que las comillas de rutas con espacios se reescapen como `\"`.
-    let cmd_line = format!("/c title {} & {} & pause", title, command);
-    Command::new("cmd")
+    let script = window_script(title, command, true);
+    Command::new(shell())
+        .args(window_args(&script))
         .creation_flags(CREATE_NEW_CONSOLE)
         .current_dir(dir)
-        .raw_arg(&cmd_line)
         .spawn()
-        .context("No se pudo abrir nueva ventana de CMD")?;
+        .context("No se pudo abrir una ventana de PowerShell")?;
     Ok(())
 }
 
@@ -533,9 +650,9 @@ pub fn set_console_title(title: &str) {
 /// Elimina un directorio recursivamente manejando rutas largas en Windows.
 ///
 /// `std::fs::remove_dir_all` es instantáneo y cubre la inmensa mayoría de los
-/// casos; PowerShell se reserva para lo único que no puede: rutas de más de 260
-/// caracteres. Llamar a PowerShell **siempre** costaba ~2-3 s por directorio, y
-/// una limpieza completa lanza una decena de ellos.
+/// casos; el shell se reserva para lo único que no puede: rutas de más de 260
+/// caracteres. Lanzarlo **siempre** costaba el arranque de un proceso por
+/// directorio, y una limpieza completa borra una decena.
 pub fn remove_dir(path: &std::path::Path) -> Result<()> {
     if !path.exists() {
         return Ok(());
@@ -544,11 +661,11 @@ pub fn remove_dir(path: &std::path::Path) -> Result<()> {
         return Ok(());
     }
     let ps = format!(
-        "Remove-Item -LiteralPath '{}' -Recurse -Force",
-        path.display().to_string().replace('\'', "''")
+        "Remove-Item -LiteralPath {} -Recurse -Force",
+        ps_quote(&path.display().to_string())
     );
-    let output = Command::new("powershell")
-        .args(["-NoProfile", "-Command", &ps])
+    let output = Command::new(shell())
+        .args(["-NoLogo", "-NoProfile", "-Command", &ps])
         .output()
         .with_context(|| format!("Falló Remove-Item en: {}", path.display()))?;
     if !output.status.success() {
@@ -559,7 +676,11 @@ pub fn remove_dir(path: &std::path::Path) -> Result<()> {
 }
 
 pub fn clear_screen() {
-    let _ = Command::new("cmd").args(["/c", "cls"]).status();
+    let _ = crossterm::execute!(
+        std::io::stdout(),
+        crossterm::terminal::Clear(crossterm::terminal::ClearType::All),
+        crossterm::cursor::MoveTo(0, 0)
+    );
 }
 
 #[cfg(test)]
@@ -670,6 +791,52 @@ mod tests {
             p,
             r"D:\P\src-tauri\gen\android\app\build\outputs\apk\universal\release\app-release.apk"
         );
-        assert!(!p.contains('/'));
+    }
+
+    #[test]
+    fn ps_quote_doubles_single_quotes() {
+        assert_eq!(
+            ps_quote("C:\\Proyectos\\Compass"),
+            "'C:\\Proyectos\\Compass'"
+        );
+        assert_eq!(ps_quote("O'Brien"), "'O''Brien'");
+    }
+
+    /// El `&` es lo que permite ejecutar comandos que empiezan por una ruta
+    /// entre comillas: sin él PowerShell lo parsea como una cadena y falla.
+    #[test]
+    fn window_script_uses_the_call_operator_and_no_cmd_syntax() {
+        let script = window_script(
+            "Compass - Proyecto",
+            r#""C:\bin\compass.exe" --task run"#,
+            false,
+        );
+        assert!(script.starts_with("[Console]::Title = 'Compass - Proyecto'; & "));
+        assert!(script.contains(r#"& "C:\bin\compass.exe" --task run"#));
+        assert!(!script.contains("title Compass"));
+        assert!(!script.contains("/c "));
+        assert!(!script.contains("& pause"));
+    }
+
+    #[test]
+    fn interactive_windows_wait_for_enter_with_read_host() {
+        let script = window_script("Dev", "flutter run -d windows", true);
+        assert!(script.contains("& flutter run -d windows"));
+        assert!(script.ends_with("Read-Host 'Presiona Enter para cerrar' | Out-Null"));
+    }
+
+    #[test]
+    fn window_args_pin_the_non_interactive_profile() {
+        let args = window_args("& cargo run");
+        assert_eq!(
+            args,
+            vec!["-NoLogo", "-NoProfile", "-Command", "& cargo run"]
+        );
+    }
+
+    #[test]
+    fn shell_resolution_returns_a_runnable_name_and_path() {
+        assert!(["pwsh", "powershell"].contains(&shell()));
+        assert!(!shell_path().is_empty());
     }
 }

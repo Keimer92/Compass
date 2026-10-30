@@ -11,8 +11,8 @@
 
     Va en un fichero y no en un one-liner dentro de `for /f` porque las tuberías
     (`|`) son caracteres especiales de `cmd`: rompen el comando del bucle. Y
-    además PowerShell 5.1 tarda ~2,5 s en arrancar, así que conviene una sola
-    invocación para todas las comprobaciones en vez de varias.
+    además cada arranque de PowerShell cuesta (5.1 ~2,5 s, pwsh ~0,5 s), así que
+    conviene una sola invocación para todas las comprobaciones en vez de varias.
 
     Ante cualquier error devuelve "1;1;1;4": es decir, "reinstálalo todo", que
     es lo seguro. Saltarse una instalación que sí hacía falta deja el sistema
@@ -60,8 +60,11 @@ $gitignoreFolderCommand = (Get-ItemProperty `
     -Path 'HKCU:\Software\Classes\Directory\shell\zz_VibeGitignore\command').'(default)'
 $gitignoreBackgroundCommand = (Get-ItemProperty `
     -Path 'HKCU:\Software\Classes\Directory\Background\shell\zz_VibeGitignore\command').'(default)'
-if ($gitignoreFolderCommand -like '*start "" /D*' -or
-    $gitignoreBackgroundCommand -like '*start "" /D*') {
+# `cmd.exe` es el marcador de una instalación anterior a la migración a
+# PowerShell. Comparar el valor entero contra el nuevo sería frágil (cambia de
+# ruta con cada versión de pwsh); el shell sí es estable.
+if ($gitignoreFolderCommand -like '*cmd.exe*' -or
+    $gitignoreBackgroundCommand -like '*cmd.exe*') {
     $menuCompass = 1
 }
 
@@ -79,6 +82,16 @@ if ($gitignoreFolderCommand -like '*start "" /D*' -or
 $menuVibeCoding = 1
 if (Test-Path 'HKCU:\Software\Classes\Directory\ContextMenus\VibeCoding\shell\01OpenCode\command') {
     $menuVibeCoding = 0
+
+    # Migración: las instalaciones anteriores abrían las herramientas con
+    # `cmd.exe` (y arrastraban el icono clásico). Instalar pwsh *después* de
+    # Compass no cambia el mtime del exe, así que la marca de abajo coincidiría
+    # y el menú viejo se quedaría para siempre. Basta mirar la primera
+    # sub-entrada: todas las escribe `install_vibe_coding()` en el mismo paso.
+    $vibeCommand = (Get-ItemProperty `
+        -Path 'HKCU:\Software\Classes\Directory\ContextMenus\VibeCoding\shell\01OpenCode\command').'(default)'
+    if ($vibeCommand -like '*cmd.exe*') { $menuVibeCoding = 1 }
+
     $stampVibe = [string](Get-ItemProperty `
         -Path 'HKCU:\Software\Classes\Directory\ContextMenus\VibeCoding' `
         -Name 'CompassStamp' -ErrorAction SilentlyContinue).CompassStamp

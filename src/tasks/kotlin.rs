@@ -115,9 +115,10 @@ fn release_signing_env(ctx: &ProjectContext) -> Option<Vec<(String, String)>> {
 
 /// Comando para invocar el wrapper de Gradle en la raíz del proyecto.
 ///
-/// Ejecuta Gradle mediante `cmd`, que es necesario para invocar `.bat` en Windows.
+/// El `.\` es obligatorio en PowerShell: a diferencia de cmd, no busca en el
+/// directorio actual lo que no está en el PATH.
 fn gradlew_cmd(_ctx: &ProjectContext, args: &str) -> String {
-    format!("cmd /c gradlew.bat {}", args)
+    format!(".\\gradlew.bat {}", args)
 }
 
 /// Detecta si el modulo Gradle de un proyecto Kotlin es `:app` o `:composeApp`
@@ -465,7 +466,7 @@ pub fn clean(ctx: &ProjectContext) -> Result<()> {
 
     // 1. gradle clean
     pb.set_message("Ejecutando gradle clean");
-    let _ = cmd::run_in_dir("cmd", &["/c", "gradlew.bat", "clean"], &ctx.script_dir);
+    let _ = cmd::run_ps_status(".\\gradlew.bat clean", &ctx.script_dir, &[]);
     pb.inc(1);
 
     // 2. root build/

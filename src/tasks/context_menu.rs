@@ -75,18 +75,21 @@ pub fn install() -> Result<()> {
     let ps = format!(
         "New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_Compass' -Force | Out-Null; \
          Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_Compass' -Name '(default)' -Value 'Compass'; \
-         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_Compass' -Name 'Icon' -Type String -Value '{icon}'; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_Compass' -Name 'Icon' -Type String -Value {icon} -Force; \
          New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_Compass\\command' -Force | Out-Null; \
-         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_Compass\\command' -Name '(default)' -Value '\"{exe}\" -p \"%1\"'; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_Compass\\command' -Name '(default)' -Value {folder} -Force; \
          \
          New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_Compass' -Force | Out-Null; \
          Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_Compass' -Name '(default)' -Value 'Compass'; \
-         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_Compass' -Name 'Icon' -Type String -Value '{icon}'; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_Compass' -Name 'Icon' -Type String -Value {icon} -Force; \
          New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_Compass\\command' -Force | Out-Null; \
-         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_Compass\\command' -Name '(default)' -Value '\"{exe}\" -p \"%W\"'"
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_Compass\\command' -Name '(default)' -Value {background} -Force",
+        icon = cmd::ps_quote(&icon),
+        folder = cmd::ps_quote(&format!("\"{exe}\" -p \"%1\"")),
+        background = cmd::ps_quote(&format!("\"{exe}\" -p \"%W\"")),
     );
 
-    let output = cmd::run("powershell", &["-NoProfile", "-Command", &ps])?;
+    let output = cmd::run_ps(&ps)?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         anyhow::bail!("Error al instalar menú contextual:\n{}", stderr);
@@ -113,7 +116,7 @@ fn remove_old_code_runner_entry() {
     let ps = "\
 Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_CodeRunner' -Recurse -Force -ErrorAction SilentlyContinue; \
 Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_CodeRunner' -Recurse -Force -ErrorAction SilentlyContinue";
-    let _ = cmd::run("powershell", &["-NoProfile", "-Command", ps]);
+    let _ = cmd::run_ps(ps);
 }
 
 const GITIGNORE_KEY: &str = "zz_VibeGitignore";
@@ -125,22 +128,27 @@ const GITIGNORE_LABEL: &str = "Compass: Add .gitignore";
 fn install_gitignore_action_windows() -> Result<()> {
     let exe = exe_path();
     let icon = icon_path();
-    let folder_command = gitignore_context_command(&exe, "%1");
-    let background_command = gitignore_context_command(&exe, "%V");
+    let shell = cmd::shell_path();
+    let folder_command = gitignore_context_command(shell, &exe, "%1");
+    let background_command = gitignore_context_command(shell, &exe, "%V");
     let ps = format!(
         "New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{GITIGNORE_KEY}' -Force | Out-Null; \
-         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{GITIGNORE_KEY}' -Name '(default)' -Value '{GITIGNORE_LABEL}' -Force; \
-         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{GITIGNORE_KEY}' -Name 'Icon' -Type String -Value '{icon}' -Force; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{GITIGNORE_KEY}' -Name '(default)' -Value {label} -Force; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{GITIGNORE_KEY}' -Name 'Icon' -Type String -Value {icon} -Force; \
          New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{GITIGNORE_KEY}\\command' -Force | Out-Null; \
-         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{GITIGNORE_KEY}\\command' -Name '(default)' -Value '{folder_command}' -Force; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{GITIGNORE_KEY}\\command' -Name '(default)' -Value {folder} -Force; \
          \
          New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\{GITIGNORE_KEY}' -Force | Out-Null; \
-         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\{GITIGNORE_KEY}' -Name '(default)' -Value '{GITIGNORE_LABEL}' -Force; \
-         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\{GITIGNORE_KEY}' -Name 'Icon' -Type String -Value '{icon}' -Force; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\{GITIGNORE_KEY}' -Name '(default)' -Value {label} -Force; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\{GITIGNORE_KEY}' -Name 'Icon' -Type String -Value {icon} -Force; \
          New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\{GITIGNORE_KEY}\\command' -Force | Out-Null; \
-         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\{GITIGNORE_KEY}\\command' -Name '(default)' -Value '{background_command}' -Force"
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\{GITIGNORE_KEY}\\command' -Name '(default)' -Value {background} -Force",
+        label = cmd::ps_quote(GITIGNORE_LABEL),
+        icon = cmd::ps_quote(&icon),
+        folder = cmd::ps_quote(&folder_command),
+        background = cmd::ps_quote(&background_command),
     );
-    let output = cmd::run("powershell", &["-NoProfile", "-Command", &ps])?;
+    let output = cmd::run_ps(&ps)?;
     if !output.status.success() {
         anyhow::bail!(
             "Error al instalar la acción contextual .gitignore:\n{}",
@@ -150,8 +158,18 @@ fn install_gitignore_action_windows() -> Result<()> {
     Ok(())
 }
 
-fn gitignore_context_command(exe: &str, placeholder: &str) -> String {
-    format!("cmd.exe /k \"\"{exe}\" --task context-gitignore --path \"{placeholder}\"\"")
+/// Valor del registro que abre Compass en PowerShell y ejecuta la tarea.
+///
+/// `-NoExit` sustituye al `cmd /k` anterior: la ventana se queda abierta para
+/// leer el resultado. `%1`/`%V` van entre comillas simples dentro del script;
+/// Explorer los sustituye textualmente antes de que PowerShell parsee, así que
+/// un `$` en la ruta no se interpola.
+fn gitignore_context_command(shell: &str, exe: &str, placeholder: &str) -> String {
+    format!(
+        "\"{shell}\" -NoLogo -NoProfile -NoExit -Command \"& {} --task context-gitignore --path '{}'\"",
+        cmd::ps_quote(exe),
+        placeholder
+    )
 }
 
 pub fn uninstall() -> Result<()> {
@@ -163,7 +181,7 @@ Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_Co
 Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_VibeGitignore' -Recurse -Force -ErrorAction SilentlyContinue; \
 Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_VibeGitignore' -Recurse -Force -ErrorAction SilentlyContinue";
 
-    let _ = cmd::run("powershell", &["-NoProfile", "-Command", ps]);
+    let _ = cmd::run_ps(ps);
 
     println!("[OK] Menú contextual Compass eliminado.");
     Ok(())
@@ -191,10 +209,10 @@ struct VibeTool {
     cli: &'static str,
     /// Comando oficial de instalación por terminal.
     ///
-    /// Los tres primeros son paquetes npm globales; Antigravity es un
-    /// instalador nativo. De ahí [`InstallVia`]: en Windows `npm` es `npm.cmd`
-    /// y necesita `cmd`, mientras que `irm | iex` es sintaxis de PowerShell y
-    /// en `cmd` no existe.
+    /// Se ejecuta siempre con PowerShell. Los npm globales necesitan una
+    /// sustitución a `npm.cmd` (su shim `npm.ps1` lo bloquea la ExecutionPolicy);
+    /// los instaladores nativos usan `irm … | iex`, sintaxis que sólo entiende
+    /// PowerShell. [`InstallVia`] distingue ambas familias.
     install: &'static str,
     /// Rutas donde el instalador deja el ejecutable cuando **no** lo agrega al
     /// PATH. Los npm globales sí lo hacen, así que para ellos va vacía.
@@ -206,14 +224,18 @@ struct VibeTool {
     install_via: InstallVia,
 }
 
-/// Shell con el que hay que ejecutar [`VibeTool::install`].
+/// Shell con el que se ejecutan los comandos de instalación.
+///
+/// Todos corren por PowerShell; la variante describe la **familia** del
+/// instalador, que decide una sustitución obligatoria: en PowerShell `npm`
+/// resuelve primero al shim `npm.ps1`, que la ExecutionPolicy por defecto
+/// bloquea, así que hay que llamar a `npm.cmd`. `winget` es un `.exe` y va tal
+/// cual. `irm | iex` es sintaxis de PowerShell nativa.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum InstallVia {
-    /// `cmd /c …`. Lo que necesitan los `npm install -g`, porque en Windows
-    /// `npm` es `npm.cmd` y PowerShell ejecuta el shim `npm.ps1`, que bloquea
-    /// la ExecutionPolicy por defecto.
+    /// Instaladores npm globales o winget.
     Cmd,
-    /// `powershell -Command …`. `irm | iex` no existe en `cmd`.
+    /// Scripts de PowerShell (`irm … | iex`).
     PowerShell,
 }
 
@@ -348,7 +370,7 @@ const VIBE_TOOLS: &[VibeTool] = &[
 /// Primero busca en el PATH. Si el binario no está ahí (instalador nativo que
 /// aún no ha refrescado el PATH), prueba las rutas conocidas de
 /// [`VibeTool::fallback`] y devuelve el comando con sus argumentos intactos:
-/// `"<ruta>" --yolo` sigue siendo el modo YOLO, no sólo el ejecutable.
+/// `'<ruta>' --yolo` sigue siendo el modo YOLO, no sólo el ejecutable.
 fn resolve_tool_command(tool: &VibeTool) -> Option<(String, String)> {
     let (bin, args) = match tool.cli.split_once(' ') {
         Some((bin, args)) => (bin, Some(args)),
@@ -362,11 +384,13 @@ fn resolve_tool_command(tool: &VibeTool) -> Option<(String, String)> {
     for candidate in fallback_candidates(tool) {
         if candidate.exists() {
             if let Some(p) = candidate.to_str() {
-                // Comillas porque la ruta puede tener espacios (p. ej. el
-                // perfil de Windows).
+                // Comillas simples de PowerShell: la ruta puede tener espacios
+                // y el comando se embebe en `& <cmdline>` dentro de un
+                // `-Command "..."`. Unas comillas dobles internas romperían el
+                // parseo de la línea de comandos de Windows.
                 let cmd = match args {
-                    Some(args) => format!("\"{p}\" {args}"),
-                    None => format!("\"{p}\""),
+                    Some(args) => format!("{} {args}", cmd::ps_quote(p)),
+                    None => cmd::ps_quote(p),
                 };
                 return Some((cmd, p.to_string()));
             }
@@ -424,6 +448,21 @@ fn menu_stamp() -> Option<String> {
     Some(secs.to_string())
 }
 
+/// Valor del registro de una sub-entrada de Vibe Coding.
+///
+/// La ventana la aloja el shell activo, así que hereda su icono. El script
+/// cambia al directorio seleccionado (`%V`), titula la ventana y ejecuta la CLI
+/// con el operador de llamada. No hay comillas dobles internas: `%V` y las
+/// rutas del fallback van entre comillas simples, y Explorer sustituye `%V`
+/// antes de que PowerShell parsee el script.
+fn vibe_context_command(shell: &str, title: &str, cmdline: &str) -> String {
+    format!(
+        "\"{shell}\" -NoLogo -NoProfile -Command \"Set-Location -LiteralPath '%V'; [Console]::Title = {}; & {}\"",
+        cmd::ps_quote(title),
+        cmdline
+    )
+}
+
 /// Instala el menú cascada "Vibe Coding" con las sub-entradas que estén disponibles.
 pub fn install_vibe_coding() -> Result<()> {
     let icon = opencode_icon();
@@ -469,32 +508,35 @@ pub fn install_vibe_coding() -> Result<()> {
     }
 
     let mut ps = String::new();
+    let icon_quoted = cmd::ps_quote(&icon);
 
     // ── Padre en Directory\shell (usa MUIVerb + ExtendedSubCommandsKey) ──
     ps.push_str(&format!(
         "New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{VIBE_KEY}' -Force | Out-Null; \
          Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{VIBE_KEY}' -Name 'MUIVerb' -Value 'Vibe Coding' -Force; \
-         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{VIBE_KEY}' -Name 'Icon' -Type String -Value '{icon}' -Force; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{VIBE_KEY}' -Name 'Icon' -Type String -Value {icon_quoted} -Force; \
          Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{VIBE_KEY}' -Name 'ExtendedSubCommandsKey' -Value '{CTX_PATH}' -Force; \
          \
          New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\{VIBE_KEY}' -Force | Out-Null; \
          Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\{VIBE_KEY}' -Name 'MUIVerb' -Value 'Vibe Coding' -Force; \
-         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\{VIBE_KEY}' -Name 'Icon' -Type String -Value '{icon}' -Force; \
+         Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\{VIBE_KEY}' -Name 'Icon' -Type String -Value {icon_quoted} -Force; \
          Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\{VIBE_KEY}' -Name 'ExtendedSubCommandsKey' -Value '{CTX_PATH}' -Force; "
     ));
 
     // ── Sub-entradas en ContextMenus (ruta compartida para Directory y Background) ──
+    let shell = cmd::shell_path();
     for (tool, cmdline, _) in &resolved {
+        let command = vibe_context_command(shell, tool.title, cmdline);
         ps.push_str(&format!(
             "New-Item -Path 'HKCU:\\Software\\Classes\\{CTX_PATH}\\shell\\{key}' -Force | Out-Null; \
-             Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\{CTX_PATH}\\shell\\{key}' -Name 'MUIVerb' -Value '{title}' -Force; \
-             Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\{CTX_PATH}\\shell\\{key}' -Name 'Icon' -Type String -Value '{icon}' -Force; \
+             Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\{CTX_PATH}\\shell\\{key}' -Name 'MUIVerb' -Value {title} -Force; \
+             Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\{CTX_PATH}\\shell\\{key}' -Name 'Icon' -Type String -Value {icon} -Force; \
              New-Item -Path 'HKCU:\\Software\\Classes\\{CTX_PATH}\\shell\\{key}\\command' -Force | Out-Null; \
-             Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\{CTX_PATH}\\shell\\{key}\\command' -Name '(default)' -Value 'cmd.exe /c start \"{title}\" /D \"%V\" cmd.exe /c \"{cmdline}\"'; ",
+             Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\{CTX_PATH}\\shell\\{key}\\command' -Name '(default)' -Value {value} -Force; ",
             key = tool.key,
-            title = tool.title,
-            icon = icon,
-            cmdline = cmdline
+            title = cmd::ps_quote(tool.title),
+            icon = icon_quoted,
+            value = cmd::ps_quote(&command),
         ));
     }
 
@@ -508,7 +550,7 @@ pub fn install_vibe_coding() -> Result<()> {
         ));
     }
 
-    let output = cmd::run("powershell", &["-NoProfile", "-Command", &ps])?;
+    let output = cmd::run_ps(&ps)?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         anyhow::bail!("Error al instalar menú Vibe Coding:\n{}", stderr);
@@ -539,7 +581,7 @@ pub fn uninstall_vibe_coding() -> Result<()> {
          Remove-Item -Path 'HKCU:\\Software\\Classes\\{CTX_PATH}' -Recurse -Force -ErrorAction SilentlyContinue"
     );
 
-    let _ = cmd::run("powershell", &["-NoProfile", "-Command", &ps]);
+    let _ = cmd::run_ps(&ps);
 
     println!("[OK] Menú contextual 'Vibe Coding' eliminado.");
     Ok(())
@@ -645,17 +687,18 @@ pub fn ensure_tools_installed() -> Result<()> {
     Ok(())
 }
 
-/// Instala [`VibeTool::install`] con el shell que necesita.
+/// Instala [`VibeTool::install`] con PowerShell.
+///
+/// Los npm se reescriben a `npm.cmd` por el motivo del enum `InstallVia`.
 fn instalar(tool: &VibeTool) -> Result<()> {
     match tool.install_via {
         InstallVia::Cmd => {
-            cmd::run_in_dir_status("cmd", &["/c", tool.install], &std::path::Path::new("."))
+            let script = tool.install.replacen("npm ", "npm.cmd ", 1);
+            cmd::run_ps_in_dir_status(&script, std::path::Path::new("."))
         }
-        InstallVia::PowerShell => cmd::run_in_dir_status(
-            "powershell",
-            &["-NoProfile", "-Command", tool.install],
-            &std::path::Path::new("."),
-        ),
+        InstallVia::PowerShell => {
+            cmd::run_ps_in_dir_status(tool.install, std::path::Path::new("."))
+        }
     }
 }
 
@@ -677,14 +720,38 @@ mod tests {
     #[test]
     fn gitignore_context_menu_is_ordered_after_vibe_and_quotes_both_paths() {
         assert!("zz_VibeCoding" < GITIGNORE_KEY);
+        let shell = r"C:\Program Files\PowerShell\7\pwsh.exe";
         let exe = r"C:\Program Files\Compass\compass.exe";
-        let folder = gitignore_context_command(exe, "%1");
-        let background = gitignore_context_command(exe, "%V");
-        assert!(folder.contains(r#""C:\Program Files\Compass\compass.exe""#));
-        assert!(folder.contains(r#"--path "%1""#));
-        assert!(background.contains(r#"--path "%V""#));
-        assert!(folder.contains("cmd.exe /k"));
-        assert!(!folder.contains("start "));
+        let folder = gitignore_context_command(shell, exe, "%1");
+        let background = gitignore_context_command(shell, exe, "%V");
+        assert!(folder.contains(r#""C:\Program Files\PowerShell\7\pwsh.exe""#));
+        assert!(folder.contains(r#"& 'C:\Program Files\Compass\compass.exe'"#));
+        assert!(folder.contains(r#"--path '%1'"#));
+        assert!(background.contains(r#"--path '%V'"#));
+        assert!(folder.contains("-NoExit"));
+        assert!(!folder.contains("cmd.exe"));
+    }
+
+    /// La sub-entrada de Vibe Coding tiene que abrir una ventana de PowerShell,
+    /// cambiar al directorio seleccionado y ejecutar la CLI con `&`. Sin el
+    /// operador de llamada, un comando que empieza por ruta entre comillas se
+    /// parsea como una cadena y no se ejecuta.
+    #[test]
+    fn vibe_entries_open_powershell_in_the_selected_folder() {
+        let shell = r"C:\Program Files\PowerShell\7\pwsh.exe";
+        let comando = vibe_context_command(shell, "Qoder CLI", r"'C:\Users\x\qodercli.exe' --yolo");
+        assert!(comando.starts_with(
+            r#""C:\Program Files\PowerShell\7\pwsh.exe" -NoLogo -NoProfile -Command "#
+        ));
+        assert!(comando.contains("Set-Location -LiteralPath '%V'"));
+        assert!(comando.contains("[Console]::Title = 'Qoder CLI'"));
+        assert!(comando.contains(r#"& 'C:\Users\x\qodercli.exe' --yolo"#));
+        assert!(!comando.contains("cmd.exe"));
+        assert!(!comando.contains("start "));
+        // Sin comillas dobles internas: las rompería el parser de la línea de
+        // comandos de Windows antes de que PowerShell viera el script.
+        let script = comando.split_once("-Command \"").unwrap().1;
+        assert!(!script.trim_end_matches('"').contains('"'));
     }
 
     /// Los comandos de instalación están hardcodeados, así que un cambio de
@@ -821,6 +888,23 @@ mod tests {
         );
     }
 
+    /// Instalar pwsh *después* de Compass no cambia el mtime del exe, así que
+    /// sin este detector la marca de la sonda coincidiría y el menú seguiría
+    /// abriendo `cmd.exe` (con el icono clásico) para siempre.
+    #[test]
+    fn probe_forces_migration_of_cmd_based_entries() {
+        let probe = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/assets/install-probe.ps1"
+        ))
+        .expect("assets/install-probe.ps1");
+
+        assert!(
+            probe.contains("'*cmd.exe*'"),
+            "la sonda tiene que reconocer entradas escritas para cmd"
+        );
+    }
+
     /// La marca es el mtime del exe en segundos Unix: sólo dígitos, para que
     /// PowerShell pueda compararla como texto.
     #[test]
@@ -940,9 +1024,9 @@ mod tests {
         }
     }
 
-    /// `irm | iex` es PowerShell y no existe en `cmd`; al revés, `npm` en
-    /// Windows es `npm.cmd` y su shim `npm.ps1` lo bloquea la ExecutionPolicy.
-    /// Cada familia de instalador tiene que ir por su shell.
+    /// Todos los instaladores corren por PowerShell; lo que cambia es la
+    /// familia. Los npm se reescriben a `npm.cmd` porque `npm.ps1` lo bloquea
+    /// la ExecutionPolicy, y los `irm | iex` sólo existen en PowerShell.
     #[test]
     fn every_install_command_uses_a_shell_that_understands_it() {
         for tool in VIBE_TOOLS {
@@ -951,21 +1035,27 @@ mod tests {
                 continue;
             }
 
-            let es_powershell = tool.install.contains("irm ") || tool.install.contains("iex");
             match tool.install_via {
                 InstallVia::PowerShell => assert!(
-                    es_powershell || !tool.install.contains("npm"),
+                    tool.install.contains("irm ") || tool.install.contains("iex"),
                     "{} usa PowerShell pero el comando no lo necesita: {}",
                     tool.title,
                     tool.install
                 ),
                 InstallVia::Cmd => assert!(
                     tool.install.starts_with("npm ") || tool.install.starts_with("winget "),
-                    "{} usa cmd, que sólo entiende bien npm o winget: {}",
+                    "{} usa un instalador nativo que sólo entiende npm o winget: {}",
                     tool.title,
                     tool.install
                 ),
             }
+
+            let script = tool.install.replacen("npm ", "npm.cmd ", 1);
+            assert!(
+                !script.starts_with("npm "),
+                "{} llamaría al shim npm.ps1: {script}",
+                tool.title
+            );
         }
     }
 
@@ -1194,7 +1284,7 @@ fn is_installed(name: &str) -> bool {
     } else {
         format!("Test-Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{name}\\command'")
     };
-    let output = cmd::run("powershell", &["-NoProfile", "-Command", &ps]);
+    let output = cmd::run_ps(&ps);
     output
         .map(|o| String::from_utf8_lossy(&o.stdout).trim() == "True")
         .unwrap_or(false)
@@ -1205,7 +1295,7 @@ fn command_is_current(name: &str, needle: &str) -> bool {
         "$v = (Get-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{name}\\command' -ErrorAction SilentlyContinue).'(default)'; \
          if ($null -eq $v) {{ 'false' }} else {{ $v.Contains('{needle}') }}"
     );
-    let output = cmd::run("powershell", &["-NoProfile", "-Command", &ps]);
+    let output = cmd::run_ps(&ps);
     output
         .map(|o| String::from_utf8_lossy(&o.stdout).trim() == "True")
         .unwrap_or(false)
@@ -1214,7 +1304,7 @@ fn command_is_current(name: &str, needle: &str) -> bool {
 /// ¿Está `name` disponible como comando?
 fn command_exists(name: &str) -> bool {
     let ps = format!("$null -ne (Get-Command -Name '{name}' -ErrorAction SilentlyContinue)");
-    let output = cmd::run("powershell", &["-NoProfile", "-Command", &ps]);
+    let output = cmd::run_ps(&ps);
     output
         .map(|o| String::from_utf8_lossy(&o.stdout).trim() == "True")
         .unwrap_or(false)
@@ -1228,7 +1318,7 @@ fn label_is(name: &str, expected: &str) -> bool {
         "$v = (Get-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{name}' -ErrorAction SilentlyContinue); \
          if ($null -eq $v) {{ 'false' }} else {{ if ($v.MUIVerb) {{ $v.MUIVerb }} else {{ $v.'(default)' }} }}"
     );
-    let output = cmd::run("powershell", &["-NoProfile", "-Command", &ps]);
+    let output = cmd::run_ps(&ps);
     match output {
         Ok(o) => String::from_utf8_lossy(&o.stdout).trim() == expected,
         Err(_) => false,
@@ -1246,7 +1336,7 @@ fn remove_vibe_old_keys() {
         ));
     }
     if !ps.is_empty() {
-        let _ = cmd::run("powershell", &["-NoProfile", "-Command", &ps]);
+        let _ = cmd::run_ps(&ps);
     }
 }
 
@@ -1256,7 +1346,7 @@ fn remove_vibe_ctx_tree() {
     let ps = format!(
         "Remove-Item -Path 'HKCU:\\Software\\Classes\\{CTX_PATH}' -Recurse -Force -ErrorAction SilentlyContinue"
     );
-    let _ = cmd::run("powershell", &["-NoProfile", "-Command", &ps]);
+    let _ = cmd::run_ps(&ps);
 }
 
 fn pause() {
