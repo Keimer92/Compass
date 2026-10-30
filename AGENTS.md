@@ -7,6 +7,10 @@ La aplicación de escritorio tiene soporte exclusivo para Windows; Android sigue
 
 `compass` es una herramienta CLI/TUI para Windows que automatiza tareas de desarrollo, compilación y configuración para proyectos **Tauri (Rust)**, **Flutter (Dart)**, **Kotlin Multiplatform (Compose)**, **Go + Wails v3**, **Go puro**, **Python** y **Rust puro**. Detecta automáticamente el tipo de proyecto y adapta comandos, rutas y comportamientos.
 
+El TUI es además un **contenedor de terminal propio**: cada card abre una
+pestaña ConPTY dentro de la misma ventana de Compass (PowerShell dentro,
+siempre), en lugar de lanzar consolas externas. Ver "Contenedor de terminal".
+
 ## Project Types
 
 | Tipo | Detección | Emoji | Menú |
@@ -137,6 +141,11 @@ y desaparece al salir.
 | clic izquierdo | ejecuta la card bajo el cursor (`hover` se actualiza con la actividad del ratón) |
 | clic en una pestaña | cambia a esa pestaña sin ejecutar nada |
 
+Esta tabla es del **menú** (pestaña `Inicio` de la barra superior). Cuando hay
+una pestaña de terminal activa, las teclas van al proceso hijo salvo las
+reservadas del contenedor (F12, Ctrl+Tab, Ctrl+W, Alt+1..9), descritas en
+"Contenedor de terminal".
+
 El hit-testing de las pestañas usa `tab_titles()` (las mismas etiquetas con su
 cuenta) y `tab_at()`, así que clicar una etiqueta nunca apunta a la otra.
 `set_tab()` recuerda la selección de cada pestaña (`remember: [usize; 2]`) y
@@ -250,6 +259,18 @@ main.rs
       └─ con args → run_task_direct() dispatches by task name
           └─ run_global_task() para context-menu y opencode
 
+container.rs
+  ├─ PtySession — una sesión ConPTY (`portable-pty`) que corre el shell activo
+  │   con `-Command <script>`; lector en hilo → `vt100::Parser`; writer, resize,
+  │   `is_exited()` y `close()` (taskkill /T del árbol + kill del hijo)
+  ├─ Container — pestañas: `active: Option<usize>` (None = Inicio/menú), `last`
+  │   para F12, `bar` con las zonas clicables; open/show_menu/show_last/select/
+  │   next/close/close_all, poll_input() y handle_event() (teclas reservadas:
+  │   F12, Ctrl+Tab, Ctrl+Shift+Tab, Ctrl+W, Alt+1..9, Alt+M; el resto se
+  │   codifica a xterm con `encode_key` y se escribe en la ConPTY)
+  └─ draw_bar() (Inicio + una etiqueta por pestaña, ✓ al terminar) y
+      draw_body() (PseudoTerminal de `tui-term` + pie con atajos y shell)
+
 theme.rs
   ├─ Theme — roles semánticos (text/muted/border/brand, dev/mnt/cfg + *_bg,
   │          hover_bg, success/info/accent/warning) **+ card_hexes: [u32; 17]**
@@ -282,13 +303,17 @@ menu.rs
   │   animación de hover, 1 s en reposo)
   ├─ render_hover_glow() — halo luminoso circular en bucle sobre la card
   │   hovereada (borde + resplandor interior); perimeter_point() ubica la cabeza
+  ├─ draw_ui() — frame completo: barra de pestañas del `Container` (1 línea) +
+  │   menú o sesión activa; `draw_menu_in(area)` permite pintar el menú debajo
   ├─ Sin botón Salir: `Esc` cierra el programa (`MenuAction::Quit`)
-  └─ run(): loop: draw → handle → restore → execute → re-enter
+  └─ run(): loop draw_ui → (pestaña activa → `panes.poll_input()`) o
+      handle_event → Run abre una **pestaña** con el CLI de la tarea (fallback a
+      ventana externa si la ConPTY falla o con `COMPASS_EXTERNAL_WINDOWS=1`)
 
 utils/
   ├─ context.rs — detect(), ProjectType, ProjectContext, whatsapp_path()
   ├─ platform.rs — helpers de portabilidad: IS_WINDOWS, exe_name(), gradlew_name(), home_dir(), data_dir(), find_gradlew(), NDK_VERSION, tauri_native_pkg()
-  ├─ cmd.rs — shell()/shell_path()/ps_quote, run*, run_ps*, set_console_title, spawn_new_window_autoexit, spawn_new_window_interactive, run_build_and_reveal, run_in_current_window, run_shell_status, run_npm_install, clear_screen, remove_dir
+  ├─ cmd.rs — shell()/shell_path()/ps_quote/embedded(), run*, run_ps*, set_console_title, spawn_new_window_autoexit, spawn_new_window_interactive [en modo embebido ejecutan en la consola actual], run_build_and_reveal, run_in_current_window, run_shell_status, run_npm_install, clear_screen, remove_dir
   ├─ tauri.rs — command(), ensure(), cli_entry() [CLI sin shim de .bin + reinstalación si falta el binding nativo]
   ├─ ui.rs — ask_text(), ask_password(), success_banner(), info_banner(), pause()
   └─ android.rs — select_device(), wait_for_device_boot(), list_physical_devices() [sólo dispositivos físicos]
@@ -517,13 +542,68 @@ preguntar). Los `irm | iex` ya eran sintaxis de PowerShell. `InstallVia::Cmd`
 
 ## Key Patterns
 
-### Ventanas de terminal
+### Contenedor de terminal (pestañas propias)
+
+Compass es su **propia aplicación de terminal**: el menú y las tareas viven en
+un único `compass.exe` y las cards abren **pestañas dentro de esa ventana**, no
+consolas externas. Cada pestaña es una sesión **ConPTY** (`portable-pty`) que
+corre el shell activo con `-Command`:
+
+```
+pwsh -NoLogo -NoProfile -Command "& 'C:\…\compass.exe' --task <task> --path '<proyecto>'"
+```
+
+- `container.rs::PtySession` es dueña de la sesión: un hilo lee la salida y la
+  alimenta a `vt100::Parser`; `Container` guarda las pestañas, cuál está activa
+  (`active: None` = Inicio, o sea el menú) y la última visitada (`last`).
+- El hijo hereda **`COMPASS_EMBEDDED=1`** (`cmd::embedded()`). Con esa marca,
+  `spawn_new_window_autoexit` / `spawn_new_window_interactive` ejecutan el
+  comando **en la consola actual** (`shell_status`) en vez de abrir otra
+  ventana. Es lo que hace que `flutter run`, `gradlew :composeApp:run`, etc.
+  corran dentro de la pestaña tal cual, sin cambiar ninguna llamada de tarea.
+- El dibujo usa `PseudoTerminal` de `tui-term` sobre el `vt100::Screen`; el
+  resize del frame se propaga a la ConPTY (`master.resize` + `parser.set_size`).
+- El pie muestra los atajos y el shell activo; al terminar el proceso, la
+  pestaña conserva su última pantalla y se marca con `✓` / "proceso finalizado".
+
+| Tecla | Acción |
+|-------|--------|
+| `F12` / `Alt+M` | menú ↔ última pestaña (no cierra nada) |
+| `Ctrl+Tab` / `Ctrl+Shift+Tab` | pestaña siguiente / anterior |
+| `Ctrl+W` | cierra la pestaña activa (y su árbol de procesos) |
+| `Alt+1..9` | salta a la pestaña N |
+| resto | se codifica a xterm (`encode_key`) y se escribe en la ConPTY |
+
+Detalles que importan:
+
+- **`close()` mata el árbol**: `taskkill /PID <pid> /T /F` + `child.kill()`;
+  matar sólo al `pwsh` de la pestaña dejaría vivos a `cargo`/`gradlew`/`flutter`
+  escribiendo en la ConPTY. `process::exit` no ejecuta destructores, así que
+  `run()` llama a `panes.close_all()` antes de salir.
+- **El ratón sólo sirve para la barra de pestañas**: no se reenvían secuencias
+  de ratón al hijo (limitación conocida).
+- **Plan B**: si abrir la ConPTY falla, la card cae a la ventana externa de
+  siempre (`spawn_in_window`); `COMPASS_EXTERNAL_WINDOWS=1` recupera ese
+  comportamiento para todas las cards sin recompilar.
+- El bucle de la pestaña usa `poll_input()` con `FRAME` (33 ms) y vacía la cola
+  de eventos completa por fotograma; leer uno por iteración limitaría la
+  escritura rápida a ~30 teclas/s.
+
+Cubierto por `container::tests` (codificación de teclas y `session_renders_its_output`,
+que abre una ConPTY real) y por `tests/container_e2e.rs` (ver "Testing").
+
+### Ventanas de terminal (fallback)
 Dos lanzadores de ventana, ambos con `CREATE_NEW_CONSOLE`:
 
 | Variante | Interno | Uso |
 |----------|---------|-----|
-| `spawn_new_window_autoexit()` | `[Console]::Title = '<título>'; & <command>` | Menú TUI: abre una ventana para `compass --task …` que se cierra al terminar |
-| `spawn_new_window_interactive()` | lo anterior + `; Read-Host 'Presiona Enter para cerrar' \| Out-Null` | Dev servers interactivos (`flutter run`, `gradlew :composeApp:run`, `npm.cmd run dev:android`) |
+| `spawn_new_window_autoexit()` | `[Console]::Title = '<título>'; & <command>` | Ventana externa para `compass --task …` que se cierra al terminar |
+| `spawn_new_window_interactive()` | lo anterior + `; Read-Host 'Presiona Enter para cerrar' \| Out-Null` | Dev servers interactivos cuando no hay contenedor |
+
+⚠️ **Con una pestaña del contenedor de por medio, ninguno abre ventana**: si
+`COMPASS_EMBEDDED` está definido, ambos ejecutan el comando en la consola actual
+y vuelven. Las ventanas externas quedan para el fallback y para
+`COMPASS_EXTERNAL_WINDOWS=1`.
 
 Ambos usan **PowerShell** (`cmd::shell()`): `pwsh` si está instalado, con
 fallback a `powershell` 5.1. El icono de una consola lo aporta el ejecutable que
@@ -839,13 +919,18 @@ CLI: `--task git` (y los alias `git-init`/`gitignore`) abren el mismo submenú.
 ### Directory removal (Windows)
 `cmd::remove_dir()` usa `Remove-Item -Recurse -Force` (con `-LiteralPath` entrecomillado) en el shell activo, para rutas largas que `std::fs::remove_dir_all` no puede manejar.
 
-### TUI Menu — Ventana separada
+### TUI Menu — pestaña del contenedor
 
-Todas las tareas del menú TUI se lanzan en una **nueva ventana de consola**
-(PowerShell, vía `cmd::spawn_new_window_autoexit`) ejecutando
-`compass --task <task> --path "<proyecto>"`. El menú principal permanece abierto.
-La ventana secundaria se cierra sola al terminar con éxito (`ui::pause_for`) o
-tras un Enter en las tareas que muestran salida.
+Cada tarea del menú TUI se lanza en una **pestaña del propio Compass** (ConPTY
+con el shell activo, ver "Contenedor de terminal") ejecutando
+`compass --task <task> --path '<proyecto>'`. El menú sigue vivo en la pestaña
+`Inicio` y se recupera con `F12`; la pestaña de la tarea conserva su pantalla
+cuando el proceso termina, que se cierra sola con `ui::pause_for` o tras un
+Enter en las tareas que muestran salida.
+
+Con `COMPASS_EXTERNAL_WINDOWS=1` (o si abrir la ConPTY falla) se recupera el
+comportamiento antiguo: `cmd::spawn_new_window_autoexit` abre una ventana
+externa de PowerShell.
 
 ### Android dev (Tauri)
 `android::dev()` **no** invoca el CLI de Tauri: lanza el script `dev:android` de `package.json`. Antes ejecuta:
@@ -1173,7 +1258,30 @@ detector de `cmd.exe`/`pwsh` que comparte con la sonda del instalador. De
 argumentos de las ventanas (`&`, `Read-Host`, `-NoProfile`, sin sintaxis de
 cmd), la resolución del shell y `newest_artifact`. De `terminal.rs`, la carpeta
 de perfil de cada shell además de la versión y el BOM. De `tauri.rs`, el
-fallback a `npx.cmd`. El resto
+fallback a `npx.cmd`. De `container.rs`, la codificación de teclas a xterm
+(texto, control, flechas, Alt y F1–F12) y el recorte de títulos largos de la
+barra.
+
+Dos pruebas abren una **ConPTY real** y están `#[ignore]` porque dependen del
+sistema y tardan unos segundos:
+
+```text
+cargo test --bin compass session_renders_its_output -- --ignored
+cargo test --test container_e2e -- --ignored --nocapture
+```
+
+La primera comprueba que una sesión pinta su salida (`hola contenedor`). La
+segunda (`tests/container_e2e.rs`) arranca el `compass.exe` real en una ConPTY
+de 120×35, entra en `CONFIGURACIÓN`, ejecuta la card Git y verifica la secuencia
+completa: barra `Inicio │ 1 Git`, submenú de Git dentro de la pestaña, F12 al
+menú sin cerrar la pestaña, F12 de vuelta, Ctrl+W para cerrarla y Esc para
+salir.
+
+⚠️ El menú de Git se pinta también dentro de una pestaña (120 columnas), así
+que la rejilla de cards ya no puede ser fija: `git_cols(ancho)` limita las
+columnas a las que caben (`GIT_CARD_W = 26`) y cada card se recorta contra el
+área. Con la rejilla fija de 5×26 = 130 columnas ratatui paniqueaba con
+`index outside of buffer`. El resto
 —detección de proyectos, escritura real en el registro— se
 verifica con compilación (`cargo build`) y pruebas manuales en la máquina de
 destino.

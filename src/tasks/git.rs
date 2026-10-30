@@ -1183,15 +1183,22 @@ struct GroupSize {
     height: u16,
 }
 
-fn calc_git_group_sizes(cards: &[GitItem]) -> Vec<GroupSize> {
+/// Columnas que caben en `width`. El menú de Git también se pinta dentro de
+/// las pestañas del contenedor (120 columnas), donde la rejilla fija de
+/// `GIT_COLS` se salía del buffer y ratatui paniqueaba.
+fn git_cols(width: u16) -> usize {
+    ((width as usize) / (GIT_CARD_W as usize)).clamp(1, GIT_COLS)
+}
+
+fn calc_git_group_sizes(cards: &[GitItem], cols: usize) -> Vec<GroupSize> {
     let mut groups = Vec::new();
     let mut start = 0;
     while start < cards.len() {
         let mut count = 0;
-        while start + count < cards.len() && count < GIT_COLS {
+        while start + count < cards.len() && count < cols {
             count += 1;
         }
-        let rows = (count as u16 + GIT_COLS as u16 - 1) / GIT_COLS as u16;
+        let rows = (count as u16 + cols as u16 - 1) / cols as u16;
         let height = rows * GIT_CARD_H + 1;
         groups.push(GroupSize {
             cards: count,
@@ -1203,8 +1210,8 @@ fn calc_git_group_sizes(cards: &[GitItem]) -> Vec<GroupSize> {
     groups
 }
 
-fn calc_git_total_height(cards: &[GitItem]) -> u16 {
-    let groups = calc_git_group_sizes(cards);
+fn calc_git_total_height(cards: &[GitItem], cols: usize) -> u16 {
+    let groups = calc_git_group_sizes(cards, cols);
     groups.iter().map(|g| g.height).sum::<u16>() + (groups.len().saturating_sub(1) as u16)
 }
 
@@ -1298,15 +1305,15 @@ fn create_git_card(
 }
 
 fn git_card_at(cards: &[GitItem], x: u16, y: u16, area: Rect) -> Option<usize> {
-    let groups = calc_git_group_sizes(cards);
-    let total_h = calc_git_total_height(cards);
+    let cols = git_cols(area.width);
+    let groups = calc_git_group_sizes(cards, cols);
+    let total_h = calc_git_total_height(cards, cols);
 
     let content_width = area.width as usize;
     let content_height = area.height as usize;
 
     let card_w = GIT_CARD_W as usize;
     let card_h = GIT_CARD_H as usize;
-    let cols = GIT_COLS;
 
     let total_card_w = cols * card_w;
     let total_card_h = total_h as usize;
@@ -1348,15 +1355,15 @@ fn git_card_at(cards: &[GitItem], x: u16, y: u16, area: Rect) -> Option<usize> {
 }
 
 fn render_git_cards(frame: &mut Frame, area: Rect, cards: &[GitItem], state: &GitState) {
-    let groups = calc_git_group_sizes(cards);
-    let total_h = calc_git_total_height(cards);
+    let cols = git_cols(area.width);
+    let groups = calc_git_group_sizes(cards, cols);
+    let total_h = calc_git_total_height(cards, cols);
 
     let content_width = area.width as usize;
     let content_height = area.height as usize;
 
     let card_w = GIT_CARD_W as usize;
     let card_h = GIT_CARD_H as usize;
-    let cols = GIT_COLS;
 
     let total_card_w = cols * card_w;
     let total_card_h = total_h as usize;
@@ -1375,7 +1382,10 @@ fn render_git_cards(frame: &mut Frame, area: Rect, cards: &[GitItem], state: &Gi
             let row = i / cols;
             let card_x = x_start.saturating_add((col * card_w) as u16);
             let card_y = y_start.saturating_add((row * card_h) as u16);
-            let card_area = Rect::new(card_x, card_y, card_w as u16, card_h as u16);
+            // Con menos de una card de ancho/alto, el recorte evita escribir
+            // fuera del buffer (ratatui paniquea en ese caso).
+            let card_area =
+                Rect::new(card_x, card_y, card_w as u16, card_h as u16).intersection(area);
 
             let item = cards[card_index];
             let is_selected = card_index == state.selected;

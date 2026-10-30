@@ -41,7 +41,10 @@ impl Harness {
             }
             std::thread::sleep(Duration::from_millis(150));
         }
-        panic!("tiempo agotado esperando {what}.\n--- pantalla ---\n{}\n--- fin ---", self.contents());
+        panic!(
+            "tiempo agotado esperando {what}.\n--- pantalla ---\n{}\n--- fin ---",
+            self.contents()
+        );
     }
 
     fn send(&mut self, bytes: &[u8]) {
@@ -85,10 +88,7 @@ fn card_opens_a_session_tab_and_f12_switches_between_menu_and_tab() {
     command.env_remove("COMPASS_EXTERNAL_WINDOWS");
     command.env("RUST_BACKTRACE", "1");
 
-    let child = pair
-        .slave
-        .spawn_command(command)
-        .expect("lanzar compass");
+    let child = pair.slave.spawn_command(command).expect("lanzar compass");
     drop(pair.slave);
 
     let mut reader = pair.master.try_clone_reader().expect("lector");
@@ -120,13 +120,16 @@ fn card_opens_a_session_tab_and_f12_switches_between_menu_and_tab() {
 
     // 2. Pestaña CONFIGURACIÓN y card Git (primera de esa pestaña).
     h.send(b"\t");
-    h.wait_until("la pestaña CONFIGURACIÓN", |s| s.contains("CONFIGURACION"));
+    h.wait_until("la pestaña CONFIGURACIÓN", |s| {
+        s.contains("CONFIGURACION")
+    });
 
     // 3. Enter: la card abre una pestaña y corre `compass --task git` dentro.
     h.send(b"\r");
     h.wait_until("la barra con la pestaña nueva", |s| s.contains("1 Git"));
+    // La etiqueta se recorta al ancho de la card (26 columnas).
     h.wait_until("el submenú de Git dentro de la pestaña", |s| {
-        s.contains("Inicializar repositorio")
+        s.contains("Inicializar reposit")
     });
 
     // 4. F12 vuelve al menú sin cerrar la pestaña.
@@ -138,7 +141,7 @@ fn card_opens_a_session_tab_and_f12_switches_between_menu_and_tab() {
     // 5. F12 de nuevo regresa a la pestaña (su pantalla seguía viva).
     h.send(b"\x1b[24~");
     h.wait_until("la pestaña tras el segundo F12", |s| {
-        s.contains("Inicializar repositorio") && s.contains("1 Git")
+        s.contains("Inicializar reposit") && s.contains("1 Git")
     });
 
     // 6. Ctrl+W cierra la pestaña y vuelve a Inicio.

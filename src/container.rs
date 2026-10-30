@@ -223,7 +223,14 @@ impl Container {
     }
 
     /// Abre una pestaña nueva y le da el foco.
-    pub fn open(&mut self, title: String, script: &str, dir: &Path, rows: u16, cols: u16) -> Result<()> {
+    pub fn open(
+        &mut self,
+        title: String,
+        script: &str,
+        dir: &Path,
+        rows: u16,
+        cols: u16,
+    ) -> Result<()> {
         let session = PtySession::spawn(script, dir, rows, cols)?;
         self.panes.push(Pane { title, session });
         self.active = Some(self.panes.len() - 1);
@@ -356,9 +363,7 @@ impl Container {
 
     fn handle_event(&mut self, evt: Event) {
         match evt {
-            Event::Key(key)
-                if matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) =>
-            {
+            Event::Key(key) if matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) => {
                 // Teclas reservadas del contenedor: no llegan al hijo.
                 if key.code == KeyCode::F(12) {
                     self.show_menu();
@@ -441,10 +446,7 @@ impl Container {
                 if x + 1 > area.right() {
                     break;
                 }
-                spans.push(Span::styled(
-                    "\u{2502}",
-                    Style::default().fg(theme.muted),
-                ));
+                spans.push(Span::styled("\u{2502}", Style::default().fg(theme.muted)));
                 x += 1;
             }
             let style = if target == self.active {
@@ -481,8 +483,8 @@ impl Container {
             return;
         };
 
-        let [term, footer] = Layout::vertical([Constraint::Min(0), Constraint::Length(1)])
-            .areas(body);
+        let [term, footer] =
+            Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(body);
         if term.height == 0 || term.width == 0 {
             return;
         }
@@ -493,10 +495,7 @@ impl Container {
         });
 
         let state = if pane.session.is_exited() {
-            Span::styled(
-                "proceso finalizado",
-                Style::default().fg(theme.warning),
-            )
+            Span::styled("proceso finalizado", Style::default().fg(theme.warning))
         } else {
             Span::styled("en ejecucion", Style::default().fg(theme.success))
         };
@@ -687,7 +686,10 @@ mod tests {
     #[test]
     fn shortens_long_tab_titles() {
         assert_eq!(short_title("Run", 20), "Run");
-        assert_eq!(short_title("0123456789012345678901234", 10), "012345678\u{2026}");
+        assert_eq!(
+            short_title("0123456789012345678901234", 10),
+            "012345678\u{2026}"
+        );
     }
 
     /// Integración real de la ConPTY: arranca un shell, recoge su salida y la
