@@ -172,13 +172,16 @@ izquierda (`Ctrl+T temas: <nombre>`, en color `brand`); a la derecha va la
 
 ### Título de ventana y rutas
 
-- **Barra de título**: la fija el **propio proceso** al arrancar, vía
-  `cmd::set_console_title()` (crossterm `SetTitle` → `SetConsoleTitleW` en
-  Windows), con `platform::dir_display_name()`: el **nombre del directorio**
-  (`School Tracker`), no la ruta. Se aplica en la TUI (`menu::run`) y en todas
-  las tareas (`run_task_direct`). Las ventanas de PowerShell fijan además el
-  título del script (`[Console]::Title = …`) para que se vea bien durante el
-  arranque, pero el valor definitivo lo pone el proceso hijo.
+- **Barra de título**: cada proyecto arranca su **propio** `compass.exe` y por
+  tanto su propia ventana; el título las distingue con
+  `ProjectContext::window_title()` = **nombre del directorio + tipo de
+  proyecto** (`School Tracker · Tauri`), no la ruta. Lo fija el propio proceso
+  al arrancar con `cmd::set_console_title()` (crossterm `SetTitle` →
+  `SetConsoleTitleW` en Windows) desde la TUI (`menu::run`), las tareas
+  (`run_task_direct`) y los submenús (`git`, `signer`). Las ventanas de
+  PowerShell fijan además el título del script (`[Console]::Title = …`) para
+  que se vea bien durante el arranque, pero el valor definitivo lo pone el
+  proceso hijo.
 - **Pie del TUI**: a la izquierda, los atajos (`Tab pestañas`, `↑↓ navegar`,
   `Enter ejecutar`, `Esc salir`) y el tema activo (`Ctrl+T temas: <nombre>`, en
   color `brand`). A la derecha, la **ruta completa** del proyecto en color
@@ -263,13 +266,14 @@ container.rs
   ├─ PtySession — una sesión ConPTY (`portable-pty`) que corre el shell activo
   │   con `-Command <script>`; lector en hilo → `vt100::Parser`; writer, resize,
   │   `is_exited()` y `close()` (taskkill /T del árbol + kill del hijo)
-  ├─ Container — pestañas: `active: Option<usize>` (None = Inicio/menú), `last`
-  │   para F12, `bar` con las zonas clicables; open/show_menu/show_last/select/
-  │   next/close/close_all, poll_input() y handle_event() (teclas reservadas:
-  │   F12, Ctrl+Tab, Ctrl+Shift+Tab, Ctrl+W, Alt+1..9, Alt+M; el resto se
-  │   codifica a xterm con `encode_key` y se escribe en la ConPTY)
-  └─ draw_bar() (Inicio + una etiqueta por pestaña, ✓ al terminar) y
-      draw_body() (PseudoTerminal de `tui-term` + pie con atajos y shell)
+  ├─ Container — pestañas: `active: Option<usize>` (None = pestaña Compass),
+  │   `last` para F12, `bar` y `closes` con las zonas clicables;
+  │   open/show_menu/show_last/select/next/close/close_all, poll_input() y
+  │   handle_event() (teclas reservadas: F12, Ctrl+Tab, Ctrl+Shift+Tab, Ctrl+W,
+  │   Alt+1..9, Alt+M; el resto se codifica a xterm con `encode_key` y se
+  │   escribe en la ConPTY)
+  └─ draw_bar() (cajas redondeadas separadas, "Compass" + una por tarea con
+      `×` y ✓ al terminar) y draw_body() (PseudoTerminal de `tui-term` + pie)
 
 theme.rs
   ├─ Theme — roles semánticos (text/muted/border/brand, dev/mnt/cfg + *_bg,
@@ -555,7 +559,8 @@ pwsh -NoLogo -NoProfile -Command "& 'C:\…\compass.exe' --task <task> --path '<
 
 - `container.rs::PtySession` es dueña de la sesión: un hilo lee la salida y la
   alimenta a `vt100::Parser`; `Container` guarda las pestañas, cuál está activa
-  (`active: None` = Inicio, o sea el menú) y la última visitada (`last`).
+  (`active: None` = la pestaña **Compass**, o sea el menú) y la última visitada
+  (`last`).
 - El hijo hereda **`COMPASS_EMBEDDED=1`** (`cmd::embedded()`). Con esa marca,
   `spawn_new_window_autoexit` / `spawn_new_window_interactive` ejecutan el
   comando **en la consola actual** (`shell_status`) en vez de abrir otra
@@ -565,6 +570,17 @@ pwsh -NoLogo -NoProfile -Command "& 'C:\…\compass.exe' --task <task> --path '<
   resize del frame se propaga a la ConPTY (`master.resize` + `parser.set_size`).
 - El pie muestra los atajos y el shell activo; al terminar el proceso, la
   pestaña conserva su última pantalla y se marca con `✓` / "proceso finalizado".
+- **Barra de pestañas** (`draw_bar`, 3 líneas: `BAR_HEIGHT`): una caja
+  redondeada por pestaña (`Block` + `BorderType::Rounded`), separadas por una
+  columna vacía. La activa va en `brand` + BOLD con `hover_bg` de fondo; las
+  inactivas llevan borde `border` y texto normal; las terminadas, tonos
+  `muted`. La primera pestaña se llama **Compass** (el menú); las de tarea
+  muestran `N título`.
+- **Botón de cierre**: cada pestaña de tarea lleva `×` a la derecha
+  (`self.closes` guarda su zona clicable: el glifo y el hueco previo, a todo el
+  alto de la barra). Un clic lo cierra sin exigir que la pestaña esté activa;
+  cerrar una pestaña que no es la activa **no mueve el foco** (sólo se
+  corrigen los índices `active`/`last`), y cerrar la activa pasa al vecino.
 
 | Tecla | Acción |
 |-------|--------|
@@ -580,8 +596,10 @@ Detalles que importan:
   matar sólo al `pwsh` de la pestaña dejaría vivos a `cargo`/`gradlew`/`flutter`
   escribiendo en la ConPTY. `process::exit` no ejecuta destructores, así que
   `run()` llama a `panes.close_all()` antes de salir.
-- **El ratón sólo sirve para la barra de pestañas**: no se reenvían secuencias
-  de ratón al hijo (limitación conocida).
+- **El ratón sólo sirve para la barra de pestañas** (seleccionar una pestaña o
+  pulsar su `×`): no se reenvían secuencias de ratón al hijo (limitación
+  conocida; además crossterm lee el ratón de los registros de consola, así que
+  una ConPTY de prueba no puede inyectarlo).
 - **Plan B**: si abrir la ConPTY falla, la card cae a la ventana externa de
   siempre (`spawn_in_window`); `COMPASS_EXTERNAL_WINDOWS=1` recupera ese
   comportamiento para todas las cards sin recompilar.
@@ -1273,9 +1291,10 @@ cargo test --test container_e2e -- --ignored --nocapture
 La primera comprueba que una sesión pinta su salida (`hola contenedor`). La
 segunda (`tests/container_e2e.rs`) arranca el `compass.exe` real en una ConPTY
 de 120×35, entra en `CONFIGURACIÓN`, ejecuta la card Git y verifica la secuencia
-completa: barra `Inicio │ 1 Git`, submenú de Git dentro de la pestaña, F12 al
-menú sin cerrar la pestaña, F12 de vuelta, Ctrl+W para cerrarla y Esc para
-salir.
+completa: primera fila con las cajas redondeadas `Compass` y `1 Git ×`, submenú
+de Git dentro de la pestaña, F12 al menú sin cerrar la pestaña, F12 de vuelta,
+Ctrl+W para cerrarla y Esc para salir. El clic del `×` no se simula: crossterm
+lee el ratón de los registros de consola y una ConPTY no los genera.
 
 ⚠️ El menú de Git se pinta también dentro de una pestaña (120 columnas), así
 que la rejilla de cards ya no puede ser fija: `git_cols(ancho)` limita las

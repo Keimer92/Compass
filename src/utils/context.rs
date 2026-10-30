@@ -27,6 +27,19 @@ fn is_python_project(d: &Path) -> bool {
 }
 
 impl ProjectType {
+    /// Etiqueta corta del tipo (títulos de ventana y selector).
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Tauri => "Tauri",
+            Self::Flutter => "Flutter",
+            Self::Kotlin => "Kotlin",
+            Self::Python => "Python",
+            Self::Rust => "Rust",
+            Self::Go => "Go",
+            Self::GoWails => "Go + Wails",
+        }
+    }
+
     pub fn whatsapp_path(&self, root: &PathBuf) -> PathBuf {
         match self {
             Self::Tauri => root.join("src-tauri").join("whatsapp-engine"),
@@ -50,6 +63,18 @@ pub struct ProjectContext {
 }
 
 impl ProjectContext {
+    /// Título de la ventana: nombre del directorio + tipo de proyecto.
+    ///
+    /// Cada proyecto arranca su propio `compass.exe` y por tanto su propia
+    /// ventana; el título tiene que identificar cuál es sin abrirla.
+    pub fn window_title(&self) -> String {
+        format!(
+            "{} \u{b7} {}",
+            platform::dir_display_name(&self.script_dir),
+            self.project_type.label()
+        )
+    }
+
     pub fn assert_android_sdk(&self) -> Result<()> {
         if self.android_home.is_none() {
             anyhow::bail!(
@@ -185,15 +210,7 @@ fn detect_project_root() -> Result<(PathBuf, ProjectType)> {
 
 /// Etiqueta corta del tipo de proyecto, para el selector.
 fn type_label(pt: ProjectType) -> &'static str {
-    match pt {
-        ProjectType::Tauri => "Tauri",
-        ProjectType::Flutter => "Flutter",
-        ProjectType::Kotlin => "Kotlin",
-        ProjectType::Python => "Python",
-        ProjectType::Rust => "Rust",
-        ProjectType::Go => "Go",
-        ProjectType::GoWails => "Go + Wails",
-    }
+    pt.label()
 }
 
 /// Navegador interactivo para elegir la carpeta de un proyecto.

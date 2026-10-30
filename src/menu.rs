@@ -23,7 +23,7 @@ use ratatui::{
     Frame, Terminal,
 };
 
-use crate::container::Container;
+use crate::container::{Container, BAR_HEIGHT};
 use crate::theme::{self, Theme};
 use crate::utils::cmd;
 use crate::utils::context::{ProjectContext, ProjectType};
@@ -849,7 +849,8 @@ fn draw_ui(
         area,
     );
 
-    let [bar, body] = Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).areas(area);
+    let [bar, body] =
+        Layout::vertical([Constraint::Length(BAR_HEIGHT), Constraint::Min(0)]).areas(area);
 
     if panes.active().is_some() {
         // El terminal no tiene cards: el hit-testing del menú queda apagado
@@ -1614,9 +1615,9 @@ pub fn run(ctx: &ProjectContext) -> anyhow::Result<()> {
     let mut terminal = setup_terminal()?;
     let mut state = MenuState::new(ctx.project_type, theme::load());
 
-    // Igual que en las tareas: la ventana del menú se titula por proyecto, no
-    // por ruta del binario.
-    cmd::set_console_title(&platform::dir_display_name(&ctx.script_dir));
+    // Cada proyecto abre su propia ventana; el título lleva el directorio y el
+    // tipo para distinguirlas de un vistazo.
+    cmd::set_console_title(&ctx.window_title());
 
     trace_event(&format!(
         "TERMINAL SIZE: {:?} | project: {}",
@@ -1665,7 +1666,8 @@ pub fn run(ctx: &ProjectContext) -> anyhow::Result<()> {
                     cmd::ps_quote(&project_path.to_string_lossy()),
                 );
                 let size = terminal.size()?;
-                let rows = size.height.saturating_sub(2);
+                // Barra de pestañas + pie del contenedor.
+                let rows = size.height.saturating_sub(BAR_HEIGHT + 1);
                 let cols = size.width;
                 let title = item.label(ctx.project_type).to_string();
 

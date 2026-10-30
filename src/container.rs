@@ -25,7 +25,7 @@ use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize}
 use ratatui::layout::{Constraint, Layout, Position, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::Paragraph;
+use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
 use ratatui::Frame;
 use tui_term::widget::PseudoTerminal;
 
@@ -39,6 +39,12 @@ const FRAME: Duration = Duration::from_millis(33);
 
 /// Líneas de historial que conserva cada sesión para el parser.
 const SCROLLBACK: usize = 2000;
+
+/// Alto de la barra de pestañas: borde superior, etiqueta y borde inferior.
+pub const BAR_HEIGHT: u16 = 3;
+
+/// Columnas vacías entre pestañas.
+const TAB_GAP: u16 = 1;
 
 /// Una sesión ConPTY con su parser de salida.
 pub struct PtySession {
@@ -209,8 +215,10 @@ pub struct Container {
     active: Option<usize>,
     /// Última pestaña de terminal visitada, para que F12 vuelva a ella.
     last: Option<usize>,
-    /// Zonas clicables de la barra dibujada: `None` = Inicio.
+    /// Zonas clicables de la barra dibujada: `None` = pestaña Compass.
     bar: Vec<(Option<usize>, Rect)>,
+    /// Botones de cierre (`×`) dibujados: índice de pestaña y zona clicable.
+    closes: Vec<(usize, Rect)>,
 }
 
 impl Container {
@@ -310,10 +318,19 @@ impl Container {
         if self.panes.is_empty() {
             self.active = None;
             self.last = None;
-        } else {
-            let next = i.min(self.panes.len() - 1);
-            self.active = Some(next);
-            self.last = Some(next);
+            return;
+        }
+        // Cerrar una pestaña que no es la activa no debe mover el foco; sólo
+        // se corrigen los índices cuando quedan por encima de la borrada.
+        match self.active {
+            Some(a) if a == i => self.active = Some(i.min(self.panes.len() - 1)),
+            Some(a) if a > i => self.active = Some(a - 1),
+            _ => {}
+        }
+        match self.last {
+            Some(l) if l == i => self.last = self.active,
+            Some(l) if l > i => self.last = Some(l - 1),
+            _ => {}
         }
     }
 
@@ -327,12 +344,22 @@ impl Container {
         self.last = None;
     }
 
-    /// Clic en la barra de pestañas. `true` si cayó en una.
+    /// Clic en la barra de pestañas. `true` si cayó en una o en un botón `×`.
     pub fn click(&mut self, col: u16, row: u16) -> bool {
+        let pos = Position::new(col, row);
+        let close = self
+            .closes
+            .iter()
+            .find(|(_, rect)| rect.contains(pos))
+            .map(|&(i, _)| i);
+        if let Some(i) = close {
+            self.close_pane(i);
+            return true;
+        }
         let hit = self
             .bar
             .iter()
-            .find(|(_, rect)| rect.contains(Position::new(col, row)))
+            .find(|(_, rect)| rect.contains(pos))
             .map(|(target, _)| *target);
         match hit {
             Some(target) => {
@@ -417,39 +444,61 @@ impl Container {
         }
     }
 
-    /// Pinta la barra superior con Inicio y una etiqueta por pestaña.
+    /// Pinta la barra superior: una caja redondeada por pestaña, con un botón
+    /// `×` en las de tarea. La pestaña del menú se llama "Compass".
     pub fn draw_bar(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
         self.bar.clear();
+        self.closes.clear();
         if area.height == 0 || area.width == 0 {
             return;
         }
 
-        let mut entries: Vec<(Option<usize>, String, bool)> =
-            vec![(None, " Inicio ".to_string(), false)];
+        // (destino, etiqueta, terminada, cerrable)
+        let mut entries: Vec<(Option<usize>, String, bool, bool)> =
+            vec![(None, "Compass".to_string(), false, false)];
         for (i, pane) in self.panes.iter().enumerate() {
-            let mut label = format!(" {} {} ", i + 1, short_title(&pane.title, 20));
-            if pane.session.is_exited() {
-                label.pop();
-                label.push_str(" \u{2713} ");
+            let mut label = format!("{} {}", i + 1, short_title(&pane.title, 20));
+            let exited = pane.session.is_exited();
+            if exited {
+                label.push_str(" \u{2713}");
             }
-            entries.push((Some(i), label, pane.session.is_exited()));
+            entries.push((Some(i), label, exited, true));
         }
 
         let mut x = area.x;
-        let mut spans: Vec<Span> = Vec::new();
-        for (target, label, exited) in entries {
-            let w = label.chars().count() as u16;
+        for (n, (target, label, exited, closable)) in entries.into_iter().enumerate() {
+            let label_w = label.chars().count() as u16;
+            // " etiqueta " (+ " × ") dentro de los bordes.
+            let inner_w = label_w + if closable { 4 } else { 2 };
+            let w = inner_w + 2;
+            if n > 0 {
+                if x + TAB_GAP > area.right() {
+                    break;
+                }
+                x += TAB_GAP;
+            }
             if x + w > area.right() {
                 break;
             }
-            if !spans.is_empty() {
-                if x + 1 > area.right() {
-                    break;
-                }
-                spans.push(Span::styled("\u{2502}", Style::default().fg(theme.muted)));
-                x += 1;
-            }
-            let style = if target == self.active {
+
+            let tab = Rect {
+                x,
+                y: area.y,
+                width: w,
+                height: BAR_HEIGHT.min(area.height),
+            };
+            let active = target == self.active;
+
+            let border_style = if active {
+                Style::default()
+                    .fg(theme.brand)
+                    .add_modifier(Modifier::BOLD)
+            } else if exited {
+                Style::default().fg(theme.muted)
+            } else {
+                Style::default().fg(theme.border)
+            };
+            let text_style = if active {
                 Style::default()
                     .fg(theme.brand)
                     .add_modifier(Modifier::BOLD)
@@ -458,20 +507,43 @@ impl Container {
             } else {
                 Style::default().fg(theme.text)
             };
-            spans.push(Span::styled(label, style));
-            self.bar.push((
-                target,
-                Rect {
-                    x,
-                    y: area.y,
-                    width: w,
-                    height: 1,
-                },
-            ));
+
+            let mut block = Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(border_style);
+            if active {
+                block = block.style(Style::default().bg(theme.hover_bg));
+            }
+
+            let mut spans = vec![Span::styled(format!(" {label} "), text_style)];
+            if closable {
+                let close_style = if active {
+                    text_style
+                } else {
+                    Style::default().fg(theme.muted)
+                };
+                spans.push(Span::styled("\u{d7}", close_style));
+                spans.push(Span::raw(" "));
+
+                // Zona clicable del `×`: el glifo y el hueco previo (dos
+                // columnas), a todo el alto de la barra para acertar fácil.
+                let zone_x = tab.x + 1 + 1 + label_w;
+                self.closes.push((
+                    target.expect("sólo las pestañas de tarea se cierran"),
+                    Rect {
+                        x: zone_x.saturating_sub(1),
+                        y: area.y,
+                        width: 2,
+                        height: tab.height,
+                    },
+                ));
+            }
+
+            frame.render_widget(Paragraph::new(Line::from(spans)).block(block), tab);
+            self.bar.push((target, tab));
             x += w;
         }
-
-        frame.render_widget(Paragraph::new(Line::from(spans)), area);
     }
 
     /// Pinta la sesión activa y su pie. El menú no se dibuja en este modo.

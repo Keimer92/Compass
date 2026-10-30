@@ -35,7 +35,7 @@ use crate::theme::{self, Theme};
 use crate::utils::{
     cmd,
     context::{classify_dir, ProjectContext, ProjectType},
-    platform, ui,
+    ui,
 };
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -1027,7 +1027,7 @@ pub fn manage(ctx: &ProjectContext) -> Result<()> {
     state.trace = TRACE.load(Ordering::Relaxed);
 
     let mut terminal = setup_git_terminal()?;
-    cmd::set_console_title(&platform::dir_display_name(&ctx.script_dir));
+    cmd::set_console_title(&ctx.window_title());
 
     let result = (|| -> anyhow::Result<GitAction> {
         loop {
@@ -1046,7 +1046,7 @@ pub fn manage(ctx: &ProjectContext) -> Result<()> {
                     let action_result = run_git_action(item, ctx);
                     let new_terminal = setup_git_terminal()?;
                     terminal = new_terminal;
-                    cmd::set_console_title(&platform::dir_display_name(&ctx.script_dir));
+                    cmd::set_console_title(&ctx.window_title());
                     action_result?;
                 }
             }

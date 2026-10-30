@@ -1130,7 +1130,7 @@ pub fn manage(ctx: &ProjectContext) -> Result<()> {
     state.trace = TRACE.load(Ordering::Relaxed);
 
     let mut terminal = setup_signing_terminal()?;
-    cmd::set_console_title(&platform::dir_display_name(&ctx.script_dir));
+    cmd::set_console_title(&ctx.window_title());
 
     let result = (|| -> anyhow::Result<SigningAction> {
         loop {
@@ -1151,7 +1151,7 @@ pub fn manage(ctx: &ProjectContext) -> Result<()> {
                     // Volver a configurar la terminal para el TUI
                     let new_terminal = setup_signing_terminal()?;
                     terminal = new_terminal;
-                    cmd::set_console_title(&platform::dir_display_name(&ctx.script_dir));
+                    cmd::set_console_title(&ctx.window_title());
                     action_result?;
                 }
             }

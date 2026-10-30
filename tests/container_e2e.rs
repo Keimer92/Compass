@@ -126,7 +126,17 @@ fn card_opens_a_session_tab_and_f12_switches_between_menu_and_tab() {
 
     // 3. Enter: la card abre una pestaña y corre `compass --task git` dentro.
     h.send(b"\r");
-    h.wait_until("la barra con la pestaña nueva", |s| s.contains("1 Git"));
+    h.wait_until("la barra de pestañas", |s| {
+        // La primera fila es la barra: pestaña del menú llamada Compass y
+        // pestaña de tarea con su ×, cada una en una caja redondeada.
+        s.lines().next().is_some_and(|bar| {
+            bar.contains("Compass")
+                && bar.contains("1 Git")
+                && bar.contains('\u{d7}')
+                && bar.contains('\u{256d}')
+                && bar.contains('\u{256e}')
+        })
+    });
     // La etiqueta se recorta al ancho de la card (26 columnas).
     h.wait_until("el submenú de Git dentro de la pestaña", |s| {
         s.contains("Inicializar reposit")
@@ -144,13 +154,17 @@ fn card_opens_a_session_tab_and_f12_switches_between_menu_and_tab() {
         s.contains("Inicializar reposit") && s.contains("1 Git")
     });
 
-    // 6. Ctrl+W cierra la pestaña y vuelve a Inicio.
+    // 6. Ctrl+W cierra la pestaña y vuelve al menú.
     h.send(b"\x17");
     h.wait_until("el cierre de la pestaña", |s| {
         s.contains("Compass for Rust") && !s.contains("1 Git")
     });
 
     // 7. Esc sale de Compass; el proceso hijo debe terminar.
+    //
+    // El cierre con el botón `×` del ratón no se prueba aquí: crossterm lee
+    // los eventos de ratón de los registros de consola de Windows, y una
+    // ConPTY no los genera a partir de las secuencias VT que escribe el padre.
     h.send(b"\x1b");
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
