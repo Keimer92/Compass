@@ -87,7 +87,10 @@ if (Test-Path 'HKCU:\Software\Classes\Directory\ContextMenus\VibeCoding\shell\01
         $menuVibeCoding = 1
     } elseif (Test-Path $exeCompass) {
         $epoch = [datetime]::SpecifyKind([datetime]'1970-01-01', [System.DateTimeKind]::Utc)
-        $exeStamp = [string][long](((Get-Item $exeCompass).LastWriteTimeUtc) - $epoch).TotalSeconds
+        # `Floor` y no `[long]` a secas: el cast de un double redondea y Rust
+        # trunca (`as_secs`), así que con fracciones de segundo las dos marcas
+        # diferían en 1 y el menú se reinstalaba siempre.
+        $exeStamp = [string][long][math]::Floor(((Get-Item $exeCompass).LastWriteTimeUtc - $epoch).TotalSeconds)
         if ($stampVibe -ne $exeStamp) { $menuVibeCoding = 1 }
     }
 }

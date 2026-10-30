@@ -504,7 +504,7 @@ pub fn install_vibe_coding() -> Result<()> {
     // reinstala aunque `01OpenCode` ya exista.
     if let Some(stamp) = menu_stamp() {
         ps.push_str(&format!(
-            "Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\{CTX_PATH}' -Name 'CompassStamp' -Value '{stamp}' -Force; "
+            "Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\{CTX_PATH}' -Name '{MENU_STAMP}' -Value '{stamp}' -Force; "
         ));
     }
 
@@ -796,6 +796,39 @@ mod tests {
                 .any(|p| p.starts_with("HOME/.qoder/")),
             "el instalador de Qoder deja el binario en %USERPROFILE%\\.qoder: {:?}",
             tool.fallback
+        );
+    }
+
+    /// La sonda de `install.bat` sólo reinstala el menú si el binario cambió.
+    /// Para eso compara la marca que escribe el instalador con el mtime del
+    /// exe: si los dos lados no usan el mismo nombre, el menú se quedaría
+    /// viejo en silencio al añadir una herramienta.
+    #[test]
+    fn probe_reads_the_stamp_written_by_the_installer() {
+        let probe = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/assets/install-probe.ps1"
+        ))
+        .expect("assets/install-probe.ps1");
+
+        assert!(
+            probe.contains(MENU_STAMP),
+            "la sonda tiene que leer la marca `{MENU_STAMP}`"
+        );
+        assert!(
+            probe.contains("01OpenCode"),
+            "la sonda sigue comprobando que el menú exista"
+        );
+    }
+
+    /// La marca es el mtime del exe en segundos Unix: sólo dígitos, para que
+    /// PowerShell pueda compararla como texto.
+    #[test]
+    fn menu_stamp_is_unix_seconds() {
+        let stamp = menu_stamp().expect("el exe de test tiene mtime");
+        assert!(
+            !stamp.is_empty() && stamp.chars().all(|c| c.is_ascii_digit()),
+            "marca inesperada: {stamp}"
         );
     }
 

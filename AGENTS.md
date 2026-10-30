@@ -481,6 +481,7 @@ HKCU\Software\Classes\Directory\ContextMenus\VibeCoding\shell
 - `install.bat` instala/actualiza Vibe Coding con detección de "ya instalado".
 - El menú interactivo `toggle()` gestiona Compass + Vibe Coding + "Instalar todos" / "Desinstalar todos".
 - **Idempotencia**: `install()` compara tanto el comando (`command_is_current()`) como el texto visible (`label_is()`), así un cambio de nombre fuerza el reinstall aunque el comando ya sea correcto.
+- **Menú desactualizado por binario nuevo**: `install_vibe_coding()` escribe `CompassStamp` (mtime del exe en segundos) en `Directory\ContextMenus\VibeCoding`, y la sonda de `install.bat` lo compara con `%USERPROFILE%\.cargo\bin\compass.exe`. Si no coincide —o si falta, como en instalaciones anteriores— el menú se reinstala. Sin esto, recompilar no actualizaba nada: la sonda sólo miraba que `01OpenCode` existiera, así que una herramienta nueva (Qoder) no aparecía. Cubierto por `probe_reads_the_stamp_written_by_the_installer` y `menu_stamp_is_unix_seconds`.
 - **Los cambios del registro requieren reiniciar Explorer**: `taskkill /f /im explorer.exe & start explorer.exe`.
 
 ## Key Patterns
@@ -1044,13 +1045,13 @@ Script de instalación para Windows:
 
 ### Saltar lo que ya está al día
 
-Reinstalar costaba ~30 s en cada ejecución, casi todo en cosas innecesarias. Los tres pasos se deciden con una **sola** invocación de PowerShell, `assets/install-probe.ps1`, que devuelve `<compilar>;<menu CR>;<menu vibe>` con 1 = actuar:
+Reinstalar costaba ~30 s en cada ejecución, casi todo en cosas innecesarias. Los tres pasos se deciden con una **sola** invocación de PowerShell, `assets/install-probe.ps1`, que devuelve `<compilar>;<menu CR>;<menu vibe>;<faltan>` con 1 = actuar:
 
 | Antes | Ahora | Motivo |
 |---|---|---|
 | `cargo install --path . --force` siempre | sólo si algún archivo de `src/`, `Cargo.toml` o `Cargo.lock` es más nuevo que el `.exe` | el `--force` de cargo no es opcional: sin él se niega a reinstalar la misma versión |
 | 2 sondas de registro en PowerShell | 1 sola, con las cuatro comprobaciones | PowerShell 5.1 tarda ~2,5 s en arrancar; 3 llamadas son ~7,5 s |
-| Menú de Vibe Coding **siempre** reinstallado | sólo si falta | la sonda miraba `zz_VibeCoding\shell\OpenCode\command`, una clave que **no existe**: el padre sólo lleva `ExtendedSubCommandsKey` y las subentradas viven en `Directory\ContextMenus\VibeCoding\shell\` con prefijo numérico (`01OpenCode`) |
+| Menú de Vibe Coding **siempre** reinstallado | sólo si falta **o** si lo escribió otro binario | la sonda miraba `zz_VibeCoding\shell\OpenCode\command`, una clave que **no existe**: el padre sólo lleva `ExtendedSubCommandsKey` y las subentradas viven en `Directory\ContextMenus\VibeCoding\shell\` con prefijo numérico (`01OpenCode`). Además, `install_vibe_coding()` guarda `CompassStamp` (mtime del exe en segundos) y la sonda lo compara con el `compass.exe` instalado: recompilar y añadir una herramienta obliga a reescribir el árbol. Sin la marca (instalación anterior) se reinstala una vez |
 | Sin detección de herramientas ausentes | cuarto campo de la sonda | va en la **misma** invocación de PowerShell, así que no cuesta los ~2,5 s de arranque; avisa en minúscula si falta alguna |
 | `timeout /t 3` al final | eliminado | 3 s de espera muerta |
 
@@ -1070,7 +1071,10 @@ pestañas, `ensure_visible`/scroll en terminales cortas, hit-testing de cards y
 pestañas (`card_at`/`tab_at`), navegación con salto de pestaña, adaptación al
 ancho (`layout`), el halo de hover (arranque, bucle de fase, brillo real del
 borde e interior, y recorrido del perímetro) y la paleta/mezcla de colores de
-`theme.rs`. El resto
-—detección de proyectos, `newest_artifact` y acciones del menú contextual— se
+`theme.rs`. De `context_menu.rs` se verifican las partes puras: orden y
+prefijos del submenú, comandos de instalación de cada herramienta, nombre del
+binario, shell de instalación, fallbacks fuera del PATH (incluido `HOME/` de
+Qoder) y la marca `CompassStamp` que comparte con la sonda del instalador. El resto
+—detección de proyectos, `newest_artifact` y escritura real en el registro— se
 verifica con compilación (`cargo build`) y pruebas manuales en la máquina de
 destino.
