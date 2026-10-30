@@ -577,10 +577,14 @@ pwsh -NoLogo -NoProfile -Command "& 'C:\…\compass.exe' --task <task> --path '<
   `muted`. La primera pestaña se llama **Compass** (el menú); las de tarea
   muestran `N título`.
 - **Botón de cierre**: cada pestaña de tarea lleva `×` a la derecha
-  (`self.closes` guarda su zona clicable: el glifo y el hueco previo, a todo el
-  alto de la barra). Un clic lo cierra sin exigir que la pestaña esté activa;
-  cerrar una pestaña que no es la activa **no mueve el foco** (sólo se
-  corrigen los índices `active`/`last`), y cerrar la activa pasa al vecino.
+  (`self.closes` guarda su zona clicable: el glifo y los dos huecos que lo
+  rodean, a todo el alto de la barra). Un clic lo cierra sin exigir que la
+  pestaña esté activa; cerrar una pestaña que no es la activa **no mueve el
+  foco** (sólo se corrigen los índices `active`/`last`), y cerrar la activa
+  pasa al vecino. La zona se calcula en `draw_tab_bar` y tiene que cubrir la
+  celda donde el `Paragraph` dibuja el glifo: un desfase de una columna deja el
+  `×` visible pero muerto al clic (lo cubre
+  `container::tests::close_zone_covers_the_rendered_glyph`).
 
 | Tecla | Acción |
 |-------|--------|
@@ -607,8 +611,10 @@ Detalles que importan:
   de eventos completa por fotograma; leer uno por iteración limitaría la
   escritura rápida a ~30 teclas/s.
 
-Cubierto por `container::tests` (codificación de teclas y `session_renders_its_output`,
-que abre una ConPTY real) y por `tests/container_e2e.rs` (ver "Testing").
+Cubierto por `container::tests` (codificación de teclas, la zona clicable del
+`×` contra el glifo realmente dibujado en un `TestBackend`, y
+`session_renders_its_output`, que abre una ConPTY real) y por
+`tests/container_e2e.rs` (ver "Testing").
 
 ### Ventanas de terminal (fallback)
 Dos lanzadores de ventana, ambos con `CREATE_NEW_CONSOLE`:
@@ -1277,8 +1283,10 @@ argumentos de las ventanas (`&`, `Read-Host`, `-NoProfile`, sin sintaxis de
 cmd), la resolución del shell y `newest_artifact`. De `terminal.rs`, la carpeta
 de perfil de cada shell además de la versión y el BOM. De `tauri.rs`, el
 fallback a `npx.cmd`. De `container.rs`, la codificación de teclas a xterm
-(texto, control, flechas, Alt y F1–F12) y el recorte de títulos largos de la
-barra.
+(texto, control, flechas, Alt y F1–F12), el recorte de títulos largos de la
+barra y el que la zona clicable del `×` cubra la celda donde el `Paragraph`
+pinta el glifo (sin ConPTY: dibuja la barra en un `TestBackend` y busca el `×`
+en el buffer).
 
 Dos pruebas abren una **ConPTY real** y están `#[ignore]` porque dependen del
 sistema y tardan unos segundos:

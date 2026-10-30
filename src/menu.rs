@@ -31,6 +31,15 @@ use crate::utils::platform;
 
 /// Alto de una card: borde superior + una línea de contenido + borde inferior.
 const CARD_H: u16 = 3;
+/// Columnas vacías entre cards de una fila y entre filas: no se tocan.
+const CARD_GAP: u16 = 1;
+/// Alto de una fila de la rejilla: la card más su separación inferior.
+const ROW_H: u16 = CARD_H + CARD_GAP;
+/// Ancho mínimo de una card. Por debajo, la rejilla baja de columnas en vez
+/// de comprimirlas hasta romper etiqueta y descripción.
+const CARD_MIN_W: u16 = 24;
+/// Cards por fila como máximo.
+const GRID_MAX_COLS: usize = 4;
 const FOOTER_H: u16 = 1;
 const TABS_H: u16 = 1;
 
@@ -420,12 +429,35 @@ impl MenuItem {
 struct UiLayout {
     header: Rect,
     tabs: Rect,
-    /// Región visible de la columna de cards (recorta el scroll).
+    /// Región visible de la rejilla de cards (recorta el scroll).
     list: Rect,
+    /// Cards por fila que caben en `list`.
+    cols: usize,
     /// Columna de una celda a la derecha de la lista para la barra de scroll.
     /// `width == 0` si la terminal no deja hueco.
     scrollbar: Rect,
     footer: Rect,
+}
+
+/// Cards por fila para un ancho dado: hasta [`GRID_MAX_COLS`], y menos si las
+/// cards bajarían de [`CARD_MIN_W`].
+fn grid_cols(width: u16) -> usize {
+    ((width + CARD_GAP) / (CARD_MIN_W + CARD_GAP)).clamp(1, GRID_MAX_COLS as u16) as usize
+}
+
+/// Ancho de una columna de la rejilla: la card más su separación derecha.
+fn grid_cell_w(width: u16, cols: usize) -> u16 {
+    (width / cols.max(1) as u16).max(1)
+}
+
+/// Ancho de la card dentro de su columna.
+fn grid_card_w(width: u16, cols: usize) -> u16 {
+    grid_cell_w(width, cols).saturating_sub(CARD_GAP)
+}
+
+/// Filas de cards que caben enteras en un viewport de `height`.
+fn visible_rows(height: u16) -> usize {
+    ((height + CARD_GAP) / ROW_H) as usize
 }
 
 fn layout(area: Rect, warn: bool) -> UiLayout {

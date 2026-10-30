@@ -447,12 +447,6 @@ impl Container {
     /// Pinta la barra superior: una caja redondeada por pestaña, con un botón
     /// `×` en las de tarea. La pestaña del menú se llama "Compass".
     pub fn draw_bar(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
-        self.bar.clear();
-        self.closes.clear();
-        if area.height == 0 || area.width == 0 {
-            return;
-        }
-
         // (destino, etiqueta, terminada, cerrable)
         let mut entries: Vec<(Option<usize>, String, bool, bool)> =
             vec![(None, "Compass".to_string(), false, false)];
@@ -465,85 +459,9 @@ impl Container {
             entries.push((Some(i), label, exited, true));
         }
 
-        let mut x = area.x;
-        for (n, (target, label, exited, closable)) in entries.into_iter().enumerate() {
-            let label_w = label.chars().count() as u16;
-            // " etiqueta " (+ " × ") dentro de los bordes.
-            let inner_w = label_w + if closable { 4 } else { 2 };
-            let w = inner_w + 2;
-            if n > 0 {
-                if x + TAB_GAP > area.right() {
-                    break;
-                }
-                x += TAB_GAP;
-            }
-            if x + w > area.right() {
-                break;
-            }
-
-            let tab = Rect {
-                x,
-                y: area.y,
-                width: w,
-                height: BAR_HEIGHT.min(area.height),
-            };
-            let active = target == self.active;
-
-            let border_style = if active {
-                Style::default()
-                    .fg(theme.brand)
-                    .add_modifier(Modifier::BOLD)
-            } else if exited {
-                Style::default().fg(theme.muted)
-            } else {
-                Style::default().fg(theme.border)
-            };
-            let text_style = if active {
-                Style::default()
-                    .fg(theme.brand)
-                    .add_modifier(Modifier::BOLD)
-            } else if exited {
-                Style::default().fg(theme.muted)
-            } else {
-                Style::default().fg(theme.text)
-            };
-
-            let mut block = Block::default()
-                .borders(Borders::ALL)
-                .border_type(BorderType::Rounded)
-                .border_style(border_style);
-            if active {
-                block = block.style(Style::default().bg(theme.hover_bg));
-            }
-
-            let mut spans = vec![Span::styled(format!(" {label} "), text_style)];
-            if closable {
-                let close_style = if active {
-                    text_style
-                } else {
-                    Style::default().fg(theme.muted)
-                };
-                spans.push(Span::styled("\u{d7}", close_style));
-                spans.push(Span::raw(" "));
-
-                // Zona clicable del `×`: el glifo y el hueco previo (dos
-                // columnas), a todo el alto de la barra para acertar fácil.
-                let zone_x = tab.x + 1 + 1 + label_w;
-                self.closes.push((
-                    target.expect("sólo las pestañas de tarea se cierran"),
-                    Rect {
-                        x: zone_x.saturating_sub(1),
-                        y: area.y,
-                        width: 2,
-                        height: tab.height,
-                    },
-                ));
-            }
-
-            frame.render_widget(Paragraph::new(Line::from(spans)).block(block), tab);
-            self.bar.push((target, tab));
-            x += w;
-        }
+        let (bar, closes) = draw_tab_bar(frame, area, theme, &entries, self.active);
+        self.bar = bar;
+        self.closes = closes;
     }
 
     /// Pinta la sesión activa y su pie. El menú no se dibuja en este modo.
@@ -608,6 +526,104 @@ impl Container {
             );
         }
     }
+}
+
+/// Dibuja las cajas de la barra y devuelve sus zonas clicables: la pestaña y,
+/// en las de tarea, el botón `×`.
+fn draw_tab_bar(
+    frame: &mut Frame,
+    area: Rect,
+    theme: &Theme,
+    entries: &[(Option<usize>, String, bool, bool)],
+    active_tab: Option<usize>,
+) -> (Vec<(Option<usize>, Rect)>, Vec<(usize, Rect)>) {
+    let mut bar = Vec::new();
+    let mut closes = Vec::new();
+    if area.height == 0 || area.width == 0 {
+        return (bar, closes);
+    }
+
+    let mut x = area.x;
+    for (n, (target, label, exited, closable)) in entries.iter().enumerate() {
+        let label_w = label.chars().count() as u16;
+        // " etiqueta " (+ " × ") dentro de los bordes.
+        let inner_w = label_w + if *closable { 4 } else { 2 };
+        let w = inner_w + 2;
+        if n > 0 {
+            if x + TAB_GAP > area.right() {
+                break;
+            }
+            x += TAB_GAP;
+        }
+        if x + w > area.right() {
+            break;
+        }
+
+        let tab = Rect {
+            x,
+            y: area.y,
+            width: w,
+            height: BAR_HEIGHT.min(area.height),
+        };
+        let active = *target == active_tab;
+
+        let border_style = if active {
+            Style::default()
+                .fg(theme.brand)
+                .add_modifier(Modifier::BOLD)
+        } else if *exited {
+            Style::default().fg(theme.muted)
+        } else {
+            Style::default().fg(theme.border)
+        };
+        let text_style = if active {
+            Style::default()
+                .fg(theme.brand)
+                .add_modifier(Modifier::BOLD)
+        } else if *exited {
+            Style::default().fg(theme.muted)
+        } else {
+            Style::default().fg(theme.text)
+        };
+
+        let mut block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(border_style);
+        if active {
+            block = block.style(Style::default().bg(theme.hover_bg));
+        }
+
+        let mut spans = vec![Span::styled(format!(" {label} "), text_style)];
+        if *closable {
+            let close_style = if active {
+                text_style
+            } else {
+                Style::default().fg(theme.muted)
+            };
+            spans.push(Span::styled("\u{d7}", close_style));
+            spans.push(Span::raw(" "));
+
+            // El `×` va tras " etiqueta ": borde + hueco + etiqueta + hueco.
+            // La zona clicable abarca los dos huecos y el glifo, a todo el
+            // alto de la barra para acertar fácil.
+            let glyph_x = tab.x + 3 + label_w;
+            closes.push((
+                target.expect("sólo las pestañas de tarea se cierran"),
+                Rect {
+                    x: glyph_x - 1,
+                    y: area.y,
+                    width: 3,
+                    height: tab.height,
+                },
+            ));
+        }
+
+        frame.render_widget(Paragraph::new(Line::from(spans)).block(block), tab);
+        bar.push((*target, tab));
+        x += w;
+    }
+    (bar, closes)
 }
 
 fn short_title(title: &str, max: usize) -> String {
@@ -762,6 +778,65 @@ mod tests {
             short_title("0123456789012345678901234", 10),
             "012345678\u{2026}"
         );
+    }
+
+    /// Cada `×` dibujado tiene que caer dentro de su zona clicable. La primera
+    /// versión calculaba la zona dos columnas a la izquierda del glifo (se
+    /// olvidaba el hueco final de `" etiqueta "`), así que el clic sobre la
+    /// `×` no cerraba nada.
+    #[test]
+    fn close_zone_covers_the_rendered_glyph() {
+        let entries = vec![
+            (None, "Compass".to_string(), false, false),
+            (Some(0), "1 Git".to_string(), false, true),
+            (Some(1), "2 Etiqueta larga".to_string(), true, true),
+        ];
+        let width = 80;
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, BAR_HEIGHT))
+                .expect("terminal de prueba");
+
+        let mut tabs = Vec::new();
+        let mut zones = Vec::new();
+        terminal
+            .draw(|f| {
+                let (bar, closes) =
+                    draw_tab_bar(f, f.area(), &crate::theme::THEMES[0], &entries, Some(1));
+                tabs = bar;
+                zones = closes;
+            })
+            .expect("dibujo de la barra");
+
+        let buffer = terminal.backend().buffer();
+        let mut glyphs = Vec::new();
+        for y in 0..BAR_HEIGHT {
+            for x in 0..width {
+                if buffer[(x, y)].symbol() == "\u{d7}" {
+                    glyphs.push(Position::new(x, y));
+                }
+            }
+        }
+
+        assert_eq!(glyphs.len(), 2, "una × por pestaña de tarea");
+        // `tabs[0]` es Compass; las de tarea llevan `×`.
+        for (i, (_, tab)) in tabs[1..].iter().enumerate() {
+            let (_, zone) = zones[i];
+            let glyph = glyphs[i];
+            assert!(
+                tab.contains(glyph),
+                "el glifo {i} quedó fuera de su pestaña ({tab:?})"
+            );
+            assert!(
+                zone.contains(glyph),
+                "la zona del × {i} ({zone:?}) no cubre el glifo dibujado en {glyph:?}"
+            );
+            // Clicar la etiqueta selecciona la pestaña; no debe cerrarla.
+            let label_cell = Position::new(tab.x + 2, tab.y + 1);
+            assert!(
+                tab.contains(label_cell) && !zone.contains(label_cell),
+                "la zona del × {i} ({zone:?}) invade la etiqueta en {label_cell:?}"
+            );
+        }
     }
 
     /// Integración real de la ConPTY: arranca un shell, recoge su salida y la
