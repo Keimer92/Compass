@@ -197,6 +197,12 @@ izquierda (`Ctrl+T temas: <nombre>`, en color `brand`); a la derecha va la
   PowerShell fijan además el título del script (`[Console]::Title = …`) para
   que se vea bien durante el arranque, pero el valor definitivo lo pone el
   proceso hijo.
+- **Encabezado del TUI** (`render_header`): `emoji  Compass  v<versión>` en
+  `brand` + BOLD y, debajo, `Proyecto: <directorio>` con el badge del tipo
+  (`TAURI`, `FLUTTER`, …). La versión sale de `env!("CARGO_PKG_VERSION")` —no
+  de un literal— y `clap` usa el mismo `#[command(version)]`, así que
+  `compass --version` y la TUI nunca se desincronizan de `Cargo.toml`. El tipo
+  de proyecto va **sólo** en el badge; el título no repite "Compass for …".
 - **Pie del TUI**: a la izquierda, los atajos (`Tab pestañas`,
   `←→↑↓ navegar`, `Enter ejecutar`, `Esc salir`) y el tema activo (`Ctrl+T
   temas: <nombre>`, en color `brand`). A la derecha, la **ruta completa** del
@@ -220,11 +226,13 @@ aplica el tema; `render_theme_picker()` dibuja la capa.
   la identidad cromática. `theme::tests` verifica que dentro de una pestaña no
   hay dos acentos iguales en ningún tema, que los fondos no chocan con el hover
   ni con `background`, y que `Compass` conserva los colores actuales.
-- `dev`/`mnt`/`cfg`/`*_bg`/`hover_bg` se **conservan** porque los consumen
-  `tasks/git.rs` y `tasks/signer.rs` (`section()`/`selected_bg()`), y los fondos
-  van **explícitos por tema** (no se derivan) porque el "vidrio esmerilado" es
-  una decisión estética. El helper `const fn dark()` evita tener que calcularlos
-  a mano.
+- `dev`/`mnt`/`cfg`/`hover_bg` se **conservan** porque los consumen el menú y
+  los submenús (pestañas y fila de sección), y `hover_bg` va **explícito por
+  tema** (no se deriva) porque el "vidrio esmerilado" es una decisión estética.
+  Los antiguos `dev_bg`/`mnt_bg`/`cfg_bg` (fondo de la card seleccionada por
+  sección) **se eliminaron** cuando Firmas y Git pasaron a usar el mismo
+  `card_bg` por card que el menú: ya no tenían consumidor. El helper
+  `const fn dark()` sigue usándose para `card_bg`.
 - El fondo de **toda la pantalla** es `background` (a lo OpenCode: cada tema pinta
   su propio fondo con un `Block` que cubre `frame.area()` al principio de
   `draw_menu`; el resto de widgets no lo pisan porque sus `Style` no definen
@@ -349,8 +357,9 @@ tasks/
   ├─ go.rs      — run(), build(), test(), clean()         [Go puro]
   ├─ rust.rs    — run(), build(), clean()                [Rust only]
   ├─ cleanup.rs — manage() [submenú unificado: rápida / completa / reporte de tamaños], quick_targets()/full_targets(), clean_project() [Tauri: portabilidad]
-  ├─ git.rs     — manage() [submenú unificado: init / .gitignore / conectar con remoto / estado]; templates de .gitignore por tipo
-  ├─ signer.rs  — dominio único de firmas: manage() [submenú], android_layout(), detect()/SigningInfo [autodetección], Props (parseo de properties), crear/importar/manual, patch_build_gradle(), huellas (keytool), respaldos, base64 + secretos de GitHub Actions, verify_apk() [apksigner]
+  ├─ git.rs     — manage() [submenú unificado: init / .gitignore / conectar con remoto / estado, con `tasks/submenu.rs`]; templates de .gitignore por tipo
+  ├─ signer.rs  — dominio único de firmas: manage() [submenú con `tasks/submenu.rs`], android_layout(), detect()/SigningInfo [autodetección], Props (parseo de properties), crear/importar/manual, patch_build_gradle(), huellas (keytool), respaldos, base64 + secretos de GitHub Actions, verify_apk() [apksigner]
+  ├─ submenu.rs — TUI compartida de los submenús (Firmas, Git): reutiliza la cabecera, la fila de sección, la rejilla adaptativa de cards de 3 líneas, el halo de hover y el pie del menú principal; `Submenu<T>` devuelve `SubmenuAction::{Run(T), Back, Continue}`
   ├─ terminal.rs — configure() [perfil PSReadLine según la versión instalada]
   ├─ context_menu.rs — install/uninstall/toggle para Compass + Vibe Coding (menú cascada con ExtendedSubCommandsKey: OpenCode, Kilo Code, Cline, Antigravity, Copilot CLI, Kiro CLI, Qoder CLI, Hermes)
   └─ whatsapp.rs — build()
@@ -618,10 +627,21 @@ Detalles que importan:
   matar sólo al `pwsh` de la pestaña dejaría vivos a `cargo`/`gradlew`/`flutter`
   escribiendo en la ConPTY. `process::exit` no ejecuta destructores, así que
   `run()` llama a `panes.close_all()` antes de salir.
-- **El ratón sólo sirve para la barra de pestañas** (seleccionar una pestaña o
-  pulsar su `×`): no se reenvían secuencias de ratón al hijo (limitación
-  conocida; además crossterm lee el ratón de los registros de consola, así que
-  una ConPTY de prueba no puede inyectarlo).
+- **El ratón se reenvía a la pestaña activa**: un clic en la barra lo consume el
+  contenedor (selecciona/cierra), y el resto se codifica como **SGR 1006** con
+  `encode_mouse_sgr` y se escribe en la ConPTY, con la fila **relativa al
+  cuerpo** (`row - BAR_HEIGHT`). ConPTY traduce esas secuencias a
+  `MOUSE_EVENT_RECORD`s para el hijo si éste habilitó `ENABLE_MOUSE_INPUT`
+  (crossterm lo hace con `EnableMouseCapture`), así que el hover y los clics
+  funcionan en los submenús (Firmas, Git) que corren dentro de una pestaña. Se
+  reenvía **siempre** (sin mirar el modo de ratón de vt100) porque una shell
+  como `pwsh` ignora las secuencias: no hay basura en pantalla. Cubierto por
+  `container::tests` (`mouse_is_forwarded_relative_to_the_body`,
+  `mouse_drag_and_wheel_use_the_extended_codes`,
+  `mouse_on_the_bar_is_not_forwarded`).
+- **Límite del e2e**: crossterm lee el ratón de los registros de consola de
+  Windows, así que una ConPTY de prueba no puede inyectarlo y el hover de los
+  submenús se verifica en una ventana real.
 - **Plan B**: si abrir la ConPTY falla, la card cae a la ventana externa de
   siempre (`spawn_in_window`); `COMPASS_EXTERNAL_WINDOWS=1` recupera ese
   comportamiento para todas las cards sin recompilar.
@@ -951,6 +971,38 @@ Detalles:
   y `web_url_normalizes_ssh_and_strips_git_suffix`.
 
 CLI: `--task git` (y los alias `git-init`/`gitignore`) abren el mismo submenú.
+
+### Submenús Firmas/Git — mismo estilo que el menú principal (`tasks/submenu.rs`)
+
+Los submenús de **Signing** y **Git** corren en una pestaña del contenedor y usan
+`tasks/submenu.rs`, que **reutiliza las piezas del menú principal** en vez de
+tener su propia estética: `menu::render_header` (emoji, `Compass v<versión>` y
+`Proyecto: … [BADGE]`), una fila de sección con la forma de las pestañas
+(`" GIT 5 "` en el acento de la sección), la **misma rejilla adaptativa** de
+cards de 3 líneas (`menu::card_widget` + `layout`/`grid_*`/`visible_rows`), el
+**halo de hover** (`render_hover_glow`) y el pie con atajos + ruta completa.
+
+- Cada entrada es un `SubmenuItem { icon, label, description, color_key }`; el
+  acento sale de `theme::CARD_KEYS` (`card_accent`/`card_bg`), así que un
+  submenú no repite colores entre sus cards ni inventa literales.
+- `Submenu<T>` devuelve `SubmenuAction::{Run(T), Back, Continue}`; el módulo
+  dueño sólo aporta `Vec<(T, SubmenuItem)>` y ejecuta la acción. `Esc` (o `q`)
+  devuelve `Back`; la card "Volver" es una entrada normal que el llamador
+  mapea a su propio `Back`.
+- Teclado como el menú: `↑↓` por filas, `←→` por cards (h/j/k/l como alias),
+  `Enter` ejecuta, rueda del ratón por filas, clic ejecuta. El **hover** llega
+  porque el contenedor reenvía el ratón a la pestaña activa (ver "Contenedor de
+  terminal").
+- Título y sección: Firmas → `FIRMAS · KEYSTORE` / `"MNT"`; Git → `GIT` /
+  `"CFG"` (la misma pestaña en la que vive su card en el menú principal).
+- El grid ya no es fijo de 26 columnas: en una pestaña de 120 columnas caben 4
+  cards adaptadas, y la descripción se recorta con `…` igual que en el menú.
+
+Cubierto por `tasks::submenu::tests` (cada centro de card resuelve a su índice,
+huecos y cabecera no son cards, cabecera con la versión real, scroll y Enter) y
+por los tests de `signer.rs` sobre las entradas (todas las opciones una sola vez,
+`Back` al final, claves de paleta distintas). El e2e comprueba que el submenú de
+Git se pinta con `GIT 5` y `volver` dentro de la pestaña.
 
 ### PowerShell registry
 - Todo el registro se toca con `cmd::run_ps()` (pwsh si está, si no 5.1).
@@ -1293,8 +1345,10 @@ celda entre cards), `ensure_visible`/scroll por filas en terminales cortas,
 hit-testing de cards y pestañas (`card_at`/`tab_at`, incluido que los huecos no
 responden y que el clic acierta tras hacer scroll), navegación (`arrows_follow_the_grid`:
 `↑↓` por filas y `←→` card a card con salto de pestaña en el borde), adaptación al
-ancho (`layout`), el halo de hover (arranque, bucle de fase, brillo real del
-borde e interior, y recorrido del perímetro) y la paleta/mezcla de colores de
+ancho (`layout`), el encabezado (`header_shows_the_real_compass_version`
+comprueba que muestra `CARGO_PKG_VERSION` y no repite el tipo de proyecto), el
+halo de hover (arranque, bucle de fase, brillo real del borde e interior, y
+recorrido del perímetro) y la paleta/mezcla de colores de
 `theme.rs`. De `context_menu.rs` se verifican las partes puras: orden y
 prefijos del submenú, comandos de instalación de cada herramienta, nombre del
 binario, shell de instalación, fallbacks fuera del PATH (incluido `HOME/` de
@@ -1322,15 +1376,19 @@ La primera comprueba que una sesión pinta su salida (`hola contenedor`). La
 segunda (`tests/container_e2e.rs`) arranca el `compass.exe` real en una ConPTY
 de 120×35, entra en `CONFIGURACIÓN`, ejecuta la card Git y verifica la secuencia
 completa: primera fila con las cajas redondeadas `Compass` y `1 Git ×`, submenú
-de Git dentro de la pestaña, F12 al menú sin cerrar la pestaña, F12 de vuelta,
-Ctrl+W para cerrarla y Esc para salir. El clic del `×` no se simula: crossterm
-lee el ratón de los registros de consola y una ConPTY no los genera.
+de Git dentro de la pestaña (con el estilo del menú: `GIT 5` y `volver`), F12 al
+menú sin cerrar la pestaña, F12 de vuelta, Ctrl+W para cerrarla y Esc para salir.
+El clic del `×` y el hover no se simulan: crossterm lee el ratón de los registros
+de consola y una ConPTY no los genera.
 
-⚠️ El menú de Git se pinta también dentro de una pestaña (120 columnas), así
-que la rejilla de cards ya no puede ser fija: `git_cols(ancho)` limita las
-columnas a las que caben (`GIT_CARD_W = 26`) y cada card se recorta contra el
-área. Con la rejilla fija de 5×26 = 130 columnas ratatui paniqueaba con
-`index outside of buffer`. El resto
-—detección de proyectos, escritura real en el registro— se
+De `tasks/submenu.rs` se cubren la rejilla compartida (cada centro de card
+resuelve a su índice, huecos y cabecera no son cards), la cabecera con la versión
+real, el scroll en terminales cortas y que `Enter` devuelve la entrada
+seleccionada; `signer.rs` verifica que sus 11 entradas aparecen una sola vez, con
+`Back` al final y con claves de paleta distintas. `container.rs` cubre además el
+reenvío del ratón (`mouse_is_forwarded_relative_to_the_body`,
+`mouse_drag_and_wheel_use_the_extended_codes`, `mouse_on_the_bar_is_not_forwarded`).
+
+El resto —detección de proyectos, escritura real en el registro— se
 verifica con compilación (`cargo build`) y pruebas manuales en la máquina de
 destino.

@@ -30,29 +30,28 @@ use crate::utils::context::{ProjectContext, ProjectType};
 use crate::utils::platform;
 
 /// Alto de una card: borde superior + una línea de contenido + borde inferior.
-const CARD_H: u16 = 3;
+pub(crate) const CARD_H: u16 = 3;
 /// Columnas vacías entre cards de una fila y entre filas: no se tocan.
-const CARD_GAP: u16 = 1;
+pub(crate) const CARD_GAP: u16 = 1;
 /// Alto de una fila de la rejilla: la card más su separación inferior.
-const ROW_H: u16 = CARD_H + CARD_GAP;
+pub(crate) const ROW_H: u16 = CARD_H + CARD_GAP;
 /// Ancho mínimo de una card. Por debajo, la rejilla baja de columnas en vez
 /// de comprimirlas hasta romper etiqueta y descripción.
 const CARD_MIN_W: u16 = 24;
 /// Cards por fila como máximo.
 const GRID_MAX_COLS: usize = 4;
-const FOOTER_H: u16 = 1;
-const TABS_H: u16 = 1;
-
+pub(crate) const FOOTER_H: u16 = 1;
+pub(crate) const TABS_H: u16 = 1;
 /// Duración de una vuelta completa del halo de hover.
-const HOVER_CYCLE: Duration = Duration::from_millis(2600);
+pub(crate) const HOVER_CYCLE: Duration = Duration::from_millis(2600);
 /// Longitud de la cola luminosa del halo, en celdas de borde.
 const SHIMMER_TRAIL: f32 = 9.0;
 /// Radio del resplandor interior alrededor de la cabeza del halo.
 const GLOW_RADIUS: f32 = 11.0;
 /// Intervalo entre fotogramas mientras hay una animación en curso (~30 fps).
-const ANIM_FRAME: Duration = Duration::from_millis(33);
+pub(crate) const ANIM_FRAME: Duration = Duration::from_millis(33);
 /// Espera del bucle de eventos cuando no hay nada que animar.
-const IDLE_POLL: Duration = Duration::from_secs(1);
+pub(crate) const IDLE_POLL: Duration = Duration::from_secs(1);
 
 static TRACE: AtomicBool = AtomicBool::new(false);
 
@@ -426,17 +425,17 @@ impl MenuItem {
 /// Regiones de la pantalla. Lo calcula [`layout`], pura, para que el dibujado y
 /// el hit-testing del ratón no se desincronicen al redimensionar.
 #[derive(Debug, Clone, Copy)]
-struct UiLayout {
-    header: Rect,
-    tabs: Rect,
+pub(crate) struct UiLayout {
+    pub(crate) header: Rect,
+    pub(crate) tabs: Rect,
     /// Región visible de la rejilla de cards (recorta el scroll).
-    list: Rect,
+    pub(crate) list: Rect,
     /// Cards por fila que caben en `list`.
-    cols: usize,
+    pub(crate) cols: usize,
     /// Columna de una celda a la derecha de la lista para la barra de scroll.
     /// `width == 0` si la terminal no deja hueco.
-    scrollbar: Rect,
-    footer: Rect,
+    pub(crate) scrollbar: Rect,
+    pub(crate) footer: Rect,
 }
 
 /// Cards por fila para un ancho dado: hasta [`GRID_MAX_COLS`], y menos si las
@@ -446,21 +445,21 @@ fn grid_cols(width: u16) -> usize {
 }
 
 /// Ancho de una columna de la rejilla: la card más su separación derecha.
-fn grid_cell_w(width: u16, cols: usize) -> u16 {
+pub(crate) fn grid_cell_w(width: u16, cols: usize) -> u16 {
     (width / cols.max(1) as u16).max(1)
 }
 
 /// Ancho de la card dentro de su columna.
-fn grid_card_w(width: u16, cols: usize) -> u16 {
+pub(crate) fn grid_card_w(width: u16, cols: usize) -> u16 {
     grid_cell_w(width, cols).saturating_sub(CARD_GAP)
 }
 
 /// Filas de cards que caben enteras en un viewport de `height`.
-fn visible_rows(height: u16) -> usize {
+pub(crate) fn visible_rows(height: u16) -> usize {
     ((height + CARD_GAP) / ROW_H) as usize
 }
 
-fn layout(area: Rect, warn: bool) -> UiLayout {
+pub(crate) fn layout(area: Rect, warn: bool) -> UiLayout {
     let header_h: u16 = if warn { 3 } else { 2 };
     let [header, tabs, list, footer] = Layout::vertical([
         Constraint::Length(header_h),
@@ -807,7 +806,7 @@ impl MenuState {
     }
 }
 
-fn setup_terminal() -> io::Result<Terminal<CrosstermBackend<io::Stdout>>> {
+pub(crate) fn setup_terminal() -> io::Result<Terminal<CrosstermBackend<io::Stdout>>> {
     enable_raw_mode()?;
     let mut out = stdout();
     execute!(out, EnterAlternateScreen, EnableMouseCapture)?;
@@ -815,7 +814,9 @@ fn setup_terminal() -> io::Result<Terminal<CrosstermBackend<io::Stdout>>> {
     Terminal::new(backend)
 }
 
-fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> {
+pub(crate) fn restore_terminal(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+) -> io::Result<()> {
     disable_raw_mode()?;
     execute!(
         terminal.backend_mut(),
@@ -826,7 +827,7 @@ fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io
     Ok(())
 }
 
-fn show_android_warning(ctx: &ProjectContext) -> bool {
+pub(crate) fn show_android_warning(ctx: &ProjectContext) -> bool {
     ctx.android_home.is_none() && ctx.project_type != ProjectType::Python
 }
 
@@ -878,7 +879,7 @@ fn draw_menu_in(frame: &mut Frame, area: Rect, state: &mut MenuState, ctx: &Proj
 
     state.ensure_visible();
     render_cards(frame, ui, state, ctx.project_type, theme);
-    render_scrollbar(frame, ui, state, theme);
+    render_scrollbar(frame, ui, state.tab_len(), state.scroll, theme);
     render_footer(frame, ui.footer, theme, ctx);
 
     // El modal va al final para quedar por encima de todo lo demás.
@@ -1037,7 +1038,7 @@ fn render_cards(
 /// `Block` del Paragraph tiene un único color de borde. El brillo se mezcla con
 /// el color que ya tenía cada celda: en el borde cambia el `fg`; en el interior
 /// tiñe el `bg` hacia el tinte oscuro del acento, sin tocar el texto.
-fn render_hover_glow(
+pub(crate) fn render_hover_glow(
     frame: &mut Frame,
     rect: Rect,
     phase: f32,
@@ -1152,14 +1153,20 @@ fn shimmer_glow(accent: Color, text: Color) -> Color {
     }
 }
 
-fn render_scrollbar(frame: &mut Frame, ui: UiLayout, state: &MenuState, theme: &Theme) {
-    let rows = (state.tab_len() + ui.cols - 1) / ui.cols;
+pub(crate) fn render_scrollbar(
+    frame: &mut Frame,
+    ui: UiLayout,
+    count: usize,
+    scroll: u16,
+    theme: &Theme,
+) {
+    let rows = (count + ui.cols - 1) / ui.cols;
     let content = rows.saturating_mul(ROW_H as usize);
     if ui.scrollbar.width == 0 || content <= ui.list.height as usize {
         return;
     }
     let mut sb_state = ScrollbarState::new(content)
-        .position(state.scroll as usize * ROW_H as usize)
+        .position(scroll as usize * ROW_H as usize)
         .viewport_content_length(ui.list.height as usize);
     let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
         .thumb_style(Style::default().fg(theme.brand))
@@ -1243,21 +1250,32 @@ fn render_theme_picker(frame: &mut Frame, area: Rect, theme: &Theme, picker: The
     frame.render_widget(Paragraph::new(Text::from(lines)).block(block), rect);
 }
 
-fn render_header(frame: &mut Frame, area: Rect, ctx: &ProjectContext, theme: &Theme) {
+pub(crate) fn render_header(frame: &mut Frame, area: Rect, ctx: &ProjectContext, theme: &Theme) {
     let project_name = ctx
         .script_dir
         .file_name()
         .map(|n| n.to_string_lossy())
         .unwrap_or(std::borrow::Cow::Borrowed("Proyecto"));
 
-    let (emoji, label, badge) = match ctx.project_type {
-        ProjectType::Tauri => ("\u{1f980}", "Compass for Rust / Tauri", "TAURI"),
-        ProjectType::Flutter => ("\u{1f3af}", "Compass for Dart / Flutter", "FLUTTER"),
-        ProjectType::Kotlin => ("\u{1f537}", "Compass for Kotlin / KMP", "KOTLIN"),
-        ProjectType::Rust => ("\u{2699}", "Compass for Rust", "RUST"),
-        ProjectType::Go => ("\u{1f4e6}", "Compass for Go", "GO"),
-        ProjectType::GoWails => ("\u{1f408}", "Compass for Go / Wails", "GO"),
-        ProjectType::Python => ("\u{1f40d}", "Compass for Python", "PYTHON"),
+    // El tipo de proyecto ya lo muestra el badge de la segunda línea: el
+    // título es el nombre de la app y su versión real de compilación.
+    let emoji = match ctx.project_type {
+        ProjectType::Tauri => "\u{1f980}",
+        ProjectType::Flutter => "\u{1f3af}",
+        ProjectType::Kotlin => "\u{1f537}",
+        ProjectType::Rust => "\u{2699}",
+        ProjectType::Go => "\u{1f4e6}",
+        ProjectType::GoWails => "\u{1f408}",
+        ProjectType::Python => "\u{1f40d}",
+    };
+    let badge = match ctx.project_type {
+        ProjectType::Tauri => "TAURI",
+        ProjectType::Flutter => "FLUTTER",
+        ProjectType::Kotlin => "KOTLIN",
+        ProjectType::Rust => "RUST",
+        ProjectType::Go => "GO",
+        ProjectType::GoWails => "GO",
+        ProjectType::Python => "PYTHON",
     };
     let badge_color = match ctx.project_type {
         ProjectType::Tauri => theme.success,
@@ -1272,12 +1290,12 @@ fn render_header(frame: &mut Frame, area: Rect, ctx: &ProjectContext, theme: &Th
     let mut lines = vec![
         Line::from(vec![
             Span::styled(
-                format!("  {}  {}  v", emoji, label),
+                format!("  {}  Compass  v", emoji),
                 Style::default()
                     .fg(theme.brand)
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::styled("0.1.0", Style::default().fg(theme.muted)),
+            Span::styled(env!("CARGO_PKG_VERSION"), Style::default().fg(theme.muted)),
         ]),
         Line::from(vec![
             Span::styled("     Proyecto: ", Style::default().fg(theme.muted)),
@@ -1383,7 +1401,36 @@ fn create_card(
     theme: &Theme,
     width: u16,
 ) -> Paragraph<'static> {
-    let key = item.color_key();
+    card_widget(
+        item.icon(),
+        item.label(project_type),
+        item.description(project_type),
+        item.color_key(),
+        is_selected,
+        is_hovered,
+        theme,
+        width,
+    )
+}
+
+/// Card de tres líneas con acento propio, compartida con los submenús (Firmas,
+/// Git) para que su aspecto sea exactamente el del menú principal.
+///
+/// | Estado | Borde | Fondo |
+/// |---|---|---|
+/// | reposo | acento propio, sin BOLD | ninguno |
+/// | hover | `text` + BOLD | `hover_bg` neutro |
+/// | seleccionado | acento propio + BOLD | `card_bg` (tinte del acento) |
+pub(crate) fn card_widget(
+    icon: &str,
+    label: &str,
+    desc: &str,
+    key: &str,
+    is_selected: bool,
+    is_hovered: bool,
+    theme: &Theme,
+    width: u16,
+) -> Paragraph<'static> {
     let accent = theme.card_accent(key);
 
     // Selección gana a hover: es la que Enter ejecutaría.
@@ -1404,10 +1451,6 @@ fn create_card(
     } else if is_hovered {
         block = block.style(Style::default().bg(theme.hover_bg));
     }
-
-    let icon = item.icon();
-    let label = item.label(project_type);
-    let desc = item.description(project_type);
 
     let mut label_style = Style::default().fg(accent);
     if is_selected || is_hovered {
@@ -1455,6 +1498,22 @@ fn create_card(
 /// o `None` si está fuera de la rejilla visible o en un hueco entre cards.
 fn card_at(col: u16, row: u16, state: &MenuState) -> Option<usize> {
     let ui = state.ui?;
+    let local = grid_index_at(ui, state.scroll, state.tab_len(), col, row)?;
+    Some(state.tab_range().start + local)
+}
+
+/// Índice de card (relativo a la lista pintada) bajo unas coordenadas, o `None`
+/// si el punto cae fuera de la rejilla visible o en un hueco entre cards.
+///
+/// Lo comparten el menú principal y los submenús: la geometría es la misma
+/// (`layout` + rejilla adaptativa + scroll por filas).
+pub(crate) fn grid_index_at(
+    ui: UiLayout,
+    scroll: u16,
+    len: usize,
+    col: u16,
+    row: u16,
+) -> Option<usize> {
     if !ui.list.contains(Position::new(col, row)) {
         return None;
     }
@@ -1469,15 +1528,15 @@ fn card_at(col: u16, row: u16, state: &MenuState) -> Option<usize> {
         return None;
     }
 
-    let y_off = (row - ui.list.y) as usize + state.scroll as usize * ROW_H as usize;
+    let y_off = (row - ui.list.y) as usize + scroll as usize * ROW_H as usize;
     if y_off % ROW_H as usize >= CARD_H as usize {
         return None;
     }
     let local = (y_off / ROW_H as usize) * ui.cols + grid_col;
-    if local >= state.tab_len() {
+    if local >= len {
         return None;
     }
-    Some(state.tab_range().start + local)
+    Some(local)
 }
 
 enum MenuAction {
@@ -2517,5 +2576,36 @@ mod tests {
         assert!(state.scroll > 0, "la última card exige desplazar la lista");
         let row = (state.local_selected() / state.cols) as u16;
         assert!(row >= state.scroll && row < state.scroll + visible_rows(state.vh) as u16);
+    }
+
+    /// El encabezado muestra la versión real del binario (`CARGO_PKG_VERSION`),
+    /// no un literal que se queda atrás al subir la versión en `Cargo.toml`.
+    #[test]
+    fn header_shows_the_real_compass_version() {
+        use ratatui::backend::TestBackend;
+
+        let mut term = Terminal::new(TestBackend::new(100, 30)).unwrap();
+        let ctx = test_ctx(ProjectType::Rust);
+        let mut state = MenuState::new(ProjectType::Rust, crate::theme::DEFAULT);
+        term.draw(|f| draw_menu(f, &mut state, &ctx)).unwrap();
+
+        let buf = term.backend().buffer();
+        let screen: String = (0..buf.area.height)
+            .map(|y| {
+                (0..buf.area.width)
+                    .map(|x| buf[(x, y)].symbol())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(
+            screen.contains(&format!("Compass  v{}", env!("CARGO_PKG_VERSION"))),
+            "el encabezado debe mostrar la versión del paquete: {screen}"
+        );
+        assert!(
+            !screen.contains("Compass for"),
+            "el tipo de proyecto va en el badge, no en el título: {screen}"
+        );
     }
 }

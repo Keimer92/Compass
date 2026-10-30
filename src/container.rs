@@ -433,14 +433,31 @@ impl Container {
                     }
                 }
             }
-            // El ratón sólo sirve para la barra: el resto pertenece al hijo y
-            // las secuencias de ratón no se reenvían (limitación conocida).
+            // La barra superior pertenece al contenedor; el resto del ratón se
+            // reenvía al hijo activo como SGR 1006. ConPTY lo traduce a
+            // `MOUSE_EVENT`s, así que los TUIs hijos (firmas, Git) tienen el
+            // mismo hover y clic que el menú. Un shell que no pidió el modo
+            // ratón los ignora (verificado: no llegan como texto a la entrada).
             Event::Mouse(mouse) => {
-                if let MouseEventKind::Up(MouseButton::Left) = mouse.kind {
-                    self.click(mouse.column, mouse.row);
+                let clicked_bar = matches!(mouse.kind, MouseEventKind::Up(MouseButton::Left))
+                    && self.click(mouse.column, mouse.row);
+                if !clicked_bar {
+                    self.forward_mouse(mouse);
                 }
             }
             _ => {}
+        }
+    }
+
+    fn forward_mouse(&mut self, mouse: event::MouseEvent) {
+        let Some(i) = self.active else {
+            return;
+        };
+        let Some(pane) = self.panes.get(i) else {
+            return;
+        };
+        if let Some(seq) = encode_mouse_sgr(mouse, BAR_HEIGHT) {
+            pane.session.write(&seq);
         }
     }
 
@@ -703,6 +720,48 @@ pub fn encode_key(key: KeyEvent) -> Option<Vec<u8>> {
     Some(bytes)
 }
 
+/// Codifica un evento de ratón como SGR 1006 (`CSI < b ; x ; y M|m`), el
+/// formato que ConPTY traduce a `MOUSE_EVENT_RECORD`s para el hijo.
+///
+/// `top` es la primera fila del área del hijo dentro de la ventana (la barra de
+/// pestañas ocupa las de arriba): las coordenadas del ratón son absolutas y el
+/// hijo empieza a contar en 1 en su propio origen. Devuelve `None` si el
+/// puntero está sobre la barra.
+fn encode_mouse_sgr(mouse: event::MouseEvent, top: u16) -> Option<Vec<u8>> {
+    if mouse.row < top {
+        return None;
+    }
+    let button = |b: MouseButton| match b {
+        MouseButton::Left => 0,
+        MouseButton::Middle => 1,
+        MouseButton::Right => 2,
+    };
+    let (code, release) = match mouse.kind {
+        MouseEventKind::Down(b) => (button(b), false),
+        MouseEventKind::Up(b) => (button(b), true),
+        MouseEventKind::Drag(b) => (button(b) + 32, false),
+        MouseEventKind::Moved => (35, false),
+        MouseEventKind::ScrollUp => (64, false),
+        MouseEventKind::ScrollDown => (65, false),
+        MouseEventKind::ScrollLeft => (66, false),
+        MouseEventKind::ScrollRight => (67, false),
+    };
+    let mut mods = 0;
+    if mouse.modifiers.contains(KeyModifiers::SHIFT) {
+        mods |= 4;
+    }
+    if mouse.modifiers.contains(KeyModifiers::ALT) {
+        mods |= 8;
+    }
+    if mouse.modifiers.contains(KeyModifiers::CONTROL) {
+        mods |= 16;
+    }
+    let x = mouse.column as u32 + 1;
+    let y = (mouse.row - top) as u32 + 1;
+    let end = if release { 'm' } else { 'M' };
+    Some(format!("\x1b[<{};{};{}{}", code + mods, x, y, end).into_bytes())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -769,6 +828,68 @@ mod tests {
             encode_key(key(KeyCode::F(12), KeyModifiers::NONE)),
             Some(b"\x1b[24~".to_vec())
         );
+    }
+
+    fn mouse(kind: MouseEventKind, column: u16, row: u16) -> event::MouseEvent {
+        event::MouseEvent {
+            kind,
+            column,
+            row,
+            modifiers: KeyModifiers::NONE,
+        }
+    }
+
+    /// El ratón del cuerpo se reenvía como SGR con la fila relativa al hijo (la
+    /// barra de pestañas ocupa las primeras `BAR_HEIGHT` filas).
+    #[test]
+    fn mouse_is_forwarded_relative_to_the_body() {
+        let moved = mouse(MouseEventKind::Moved, 9, BAR_HEIGHT + 4);
+        assert_eq!(
+            encode_mouse_sgr(moved, BAR_HEIGHT),
+            Some(b"\x1b[<35;10;5M".to_vec())
+        );
+
+        let down = mouse(MouseEventKind::Down(MouseButton::Left), 0, BAR_HEIGHT);
+        assert_eq!(
+            encode_mouse_sgr(down, BAR_HEIGHT),
+            Some(b"\x1b[<0;1;1M".to_vec())
+        );
+        // La liberación usa la variante `m` en minúscula.
+        let up = mouse(MouseEventKind::Up(MouseButton::Left), 0, BAR_HEIGHT);
+        assert_eq!(
+            encode_mouse_sgr(up, BAR_HEIGHT),
+            Some(b"\x1b[<0;1;1m".to_vec())
+        );
+    }
+
+    #[test]
+    fn mouse_drag_and_wheel_use_the_extended_codes() {
+        let drag = mouse(MouseEventKind::Drag(MouseButton::Left), 4, BAR_HEIGHT + 1);
+        assert_eq!(
+            encode_mouse_sgr(drag, BAR_HEIGHT),
+            Some(b"\x1b[<32;5;2M".to_vec())
+        );
+        let wheel_up = mouse(MouseEventKind::ScrollUp, 4, BAR_HEIGHT + 1);
+        assert_eq!(
+            encode_mouse_sgr(wheel_up, BAR_HEIGHT),
+            Some(b"\x1b[<64;5;2M".to_vec())
+        );
+        let wheel_down = mouse(MouseEventKind::ScrollDown, 4, BAR_HEIGHT + 1);
+        assert_eq!(
+            encode_mouse_sgr(wheel_down, BAR_HEIGHT),
+            Some(b"\x1b[<65;5;2M".to_vec())
+        );
+    }
+
+    /// El ratón sobre la barra de pestañas no se reenvía al hijo.
+    #[test]
+    fn mouse_on_the_bar_is_not_forwarded() {
+        for row in 0..BAR_HEIGHT {
+            assert_eq!(
+                encode_mouse_sgr(mouse(MouseEventKind::Moved, 3, row), BAR_HEIGHT),
+                None
+            );
+        }
     }
 
     #[test]

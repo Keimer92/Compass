@@ -12,22 +12,20 @@
 //! | `border` | borde de una card en reposo |
 //! | `brand` | título de Compass en la cabecera |
 //! | `dev` `mnt` `cfg` | acento de cada sección (títulos y marcas del pie) |
-//! | `dev_bg` `mnt_bg` `cfg_bg` | fondo de la card **seleccionada** por sección |
 //! | `card_hexes` | **acento propio de cada card** (17 entradas, en el orden de [`CARD_KEYS`]) |
 //! | `hover_bg` | fondo de la card **hovereada** (neutro, distinto de la selección) |
 //! | `background` | fondo de **toda la pantalla** (como el bg de los temas de OpenCode) |
 //! | `success` `info` `accent` `warning` | badge de tipo de proyecto y avisos |
 //!
-//! Los `*_bg` y el `hover_bg` no se derivan del resto: van explícitos por tema
-//! porque el "vidrio esmerilado" de la selección es una decisión estética, no
-//! una función. El fondo de la card seleccionada **sí** se deriva del acento de
-//! esa card (`dark()` al 27 %, la misma receta que `dev_bg`/`mnt_bg`/`cfg_bg`),
-//! así que por tema sólo se eligen 17 colores, no 34.
+//! El fondo de la card seleccionada se deriva del acento de esa card (`dark()`
+//! al 27 %), así que por tema sólo se eligen 17 colores, no 34. El `hover_bg`
+//! va explícito porque el "vidrio esmerilado" del hover es una decisión
+//! estética, no una función.
 //!
-//! Aun así hay tests (`tests::hover_is_distinct_from_every_selection`,
-//! `tests::card_hexes_are_distinct_within_each_tab`) que garantizan que hover y
-//! selección nunca colisionan en ningún tema y que dos cards de una misma
-//! pestaña no comparten acento.
+//! Hay tests (`tests::card_hexes_are_distinct_within_each_tab`,
+//! `tests::card_bgs_never_collide_with_hover_or_background`) que garantizan que
+//! hover y selección nunca colisionan en ningún tema y que dos cards de una
+//! misma pestaña no comparten acento.
 //!
 //! ## Persistencia
 //!
@@ -116,9 +114,6 @@ pub struct Theme {
     pub dev: Color,
     pub mnt: Color,
     pub cfg: Color,
-    pub dev_bg: Color,
-    pub mnt_bg: Color,
-    pub cfg_bg: Color,
     pub hover_bg: Color,
     pub background: Color,
     pub success: Color,
@@ -139,15 +134,6 @@ impl Theme {
             "DEV" => self.dev,
             "MNT" => self.mnt,
             _ => self.cfg,
-        }
-    }
-
-    /// Fondo de la card **seleccionada** de una sección.
-    pub fn selected_bg(&self, section: &str) -> Color {
-        match section {
-            "DEV" => self.dev_bg,
-            "MNT" => self.mnt_bg,
-            _ => self.cfg_bg,
         }
     }
 
@@ -190,9 +176,6 @@ pub static THEMES: &[Theme] = &[
         dev: Color::Cyan,
         mnt: Color::Yellow,
         cfg: Color::Magenta,
-        dev_bg: hex(0x163444),
-        mnt_bg: hex(0x443a16),
-        cfg_bg: hex(0x3c1c48),
         hover_bg: hex(0x1e1e24),
         background: hex(0x16161e),
         success: Color::Green,
@@ -217,9 +200,6 @@ pub static THEMES: &[Theme] = &[
         dev: hex(0x56b6c2),
         mnt: hex(0xf5a742),
         cfg: hex(0x9d7cd8),
-        dev_bg: dark(0x56b6c2, 27),
-        mnt_bg: dark(0xf5a742, 27),
-        cfg_bg: dark(0x9d7cd8, 27),
         hover_bg: hex(0x1e1e1e),
         background: hex(0x131313),
         success: hex(0x7fd88f),
@@ -242,9 +222,6 @@ pub static THEMES: &[Theme] = &[
         dev: hex(0x82aaff),
         mnt: hex(0xffc777),
         cfg: hex(0xc099ff),
-        dev_bg: dark(0x82aaff, 27),
-        mnt_bg: dark(0xffc777, 27),
-        cfg_bg: dark(0xc099ff, 27),
         hover_bg: hex(0x222436),
         background: hex(0x1a1b26),
         success: hex(0xc3e88d),
@@ -267,9 +244,6 @@ pub static THEMES: &[Theme] = &[
         dev: hex(0x89b4fa),
         mnt: hex(0xf9e2af),
         cfg: hex(0xcba6f7),
-        dev_bg: dark(0x89b4fa, 27),
-        mnt_bg: dark(0xf9e2af, 27),
-        cfg_bg: dark(0xcba6f7, 27),
         hover_bg: hex(0x313244),
         background: hex(0x1e1e2e),
         success: hex(0xa6e3a1),
@@ -292,9 +266,6 @@ pub static THEMES: &[Theme] = &[
         dev: hex(0x8be9fd),
         mnt: hex(0xf1fa8c),
         cfg: hex(0xff79c6),
-        dev_bg: dark(0x8be9fd, 27),
-        mnt_bg: dark(0xf1fa8c, 27),
-        cfg_bg: dark(0xff79c6, 27),
         hover_bg: hex(0x3a3c4e),
         background: hex(0x282a36),
         success: hex(0x50fa7b),
@@ -317,9 +288,6 @@ pub static THEMES: &[Theme] = &[
         dev: hex(0x83a598),
         mnt: hex(0xfabd2f),
         cfg: hex(0xd3869b),
-        dev_bg: dark(0x83a598, 27),
-        mnt_bg: dark(0xfabd2f, 27),
-        cfg_bg: dark(0xd3869b, 27),
         hover_bg: hex(0x3c3836),
         background: hex(0x282828),
         success: hex(0xb8bb26),
@@ -342,9 +310,6 @@ pub static THEMES: &[Theme] = &[
         dev: hex(0x88c0d0),
         mnt: hex(0xebcb8b),
         cfg: hex(0xb48ead),
-        dev_bg: dark(0x88c0d0, 27),
-        mnt_bg: dark(0xebcb8b, 27),
-        cfg_bg: dark(0xb48ead, 27),
         hover_bg: hex(0x3b4252),
         background: hex(0x2e3440),
         success: hex(0xa3be8c),
@@ -367,9 +332,6 @@ pub static THEMES: &[Theme] = &[
         dev: hex(0x61afef),
         mnt: hex(0xe5c07b),
         cfg: hex(0xc678dd),
-        dev_bg: dark(0x61afef, 27),
-        mnt_bg: dark(0xe5c07b, 27),
-        cfg_bg: dark(0xc678dd, 27),
         hover_bg: hex(0x353b45),
         background: hex(0x282c34),
         success: hex(0x98c379),
@@ -392,9 +354,6 @@ pub static THEMES: &[Theme] = &[
         dev: hex(0x66d9ef),
         mnt: hex(0xe6db74),
         cfg: hex(0xae81ff),
-        dev_bg: dark(0x66d9ef, 27),
-        mnt_bg: dark(0xe6db74, 27),
-        cfg_bg: dark(0xae81ff, 27),
         hover_bg: hex(0x3e3d32),
         background: hex(0x272822),
         success: hex(0xa6e22e),
@@ -417,9 +376,6 @@ pub static THEMES: &[Theme] = &[
         dev: hex(0x9ccfd8),
         mnt: hex(0xf6c177),
         cfg: hex(0xc4a7e7),
-        dev_bg: dark(0x9ccfd8, 27),
-        mnt_bg: dark(0xf6c177, 27),
-        cfg_bg: dark(0xc4a7e7, 27),
         hover_bg: hex(0x26233a),
         background: hex(0x191724),
         success: hex(0x9ccfd8),
@@ -442,9 +398,6 @@ pub static THEMES: &[Theme] = &[
         dev: hex(0x7e9cd8),
         mnt: hex(0xd7a657),
         cfg: hex(0x957fb8),
-        dev_bg: dark(0x7e9cd8, 27),
-        mnt_bg: dark(0xd7a657, 27),
-        cfg_bg: dark(0x957fb8, 27),
         hover_bg: hex(0x2a2a37),
         background: hex(0x1f1f28),
         success: hex(0x98bb6c),
@@ -467,9 +420,6 @@ pub static THEMES: &[Theme] = &[
         dev: hex(0x62ff94),
         mnt: hex(0xe6ff57),
         cfg: hex(0xc770ff),
-        dev_bg: dark(0x62ff94, 27),
-        mnt_bg: dark(0xe6ff57, 27),
-        cfg_bg: dark(0xc770ff, 27),
         hover_bg: hex(0x141c12),
         background: hex(0x0a120a),
         success: hex(0x2eff6a),
@@ -492,9 +442,6 @@ pub static THEMES: &[Theme] = &[
         dev: hex(0x36f9f6),
         mnt: hex(0xfede5d),
         cfg: hex(0xb084eb),
-        dev_bg: dark(0x36f9f6, 27),
-        mnt_bg: dark(0xfede5d, 27),
-        cfg_bg: dark(0xb084eb, 27),
         hover_bg: hex(0x2a2139),
         background: hex(0x241b2f),
         success: hex(0x72f1b8),
@@ -517,9 +464,6 @@ pub static THEMES: &[Theme] = &[
         dev: hex(0x268bd2),
         mnt: hex(0xb58900),
         cfg: hex(0xd33682),
-        dev_bg: dark(0x268bd2, 27),
-        mnt_bg: dark(0xb58900, 27),
-        cfg_bg: dark(0xd33682, 27),
         hover_bg: hex(0x0d3a47),
         background: hex(0x002b36),
         success: hex(0x859900),
@@ -644,18 +588,6 @@ mod tests {
         }
     }
 
-    /// Regresión equivalente a la del menú, pero para **todos** los temas: el
-    /// hover nunca debe pintarse igual que una card seleccionada, o dejaría de
-    /// distinguirse (el bug que ya se arregló una vez con el tinte compartido).
-    #[test]
-    fn hover_is_distinct_from_every_selection() {
-        for t in THEMES {
-            assert_ne!(t.hover_bg, t.dev_bg, "{}: hover == selección DEV", t.name);
-            assert_ne!(t.hover_bg, t.mnt_bg, "{}: hover == selección MNT", t.name);
-            assert_ne!(t.hover_bg, t.cfg_bg, "{}: hover == selección CFG", t.name);
-        }
-    }
-
     #[test]
     fn text_is_readable_against_muted() {
         for t in THEMES {
@@ -685,8 +617,6 @@ mod tests {
         assert_eq!(t.section("CFG"), t.cfg);
         // Desconocida cae en CFG.
         assert_eq!(t.section("???"), t.cfg);
-        assert_eq!(t.selected_bg("DEV"), t.dev_bg);
-        assert_eq!(t.selected_bg("desconocida"), t.cfg_bg);
     }
 
     /// Toda clave de [`CARD_KEYS`] debe resolver en su posición del arreglo, y
@@ -732,9 +662,8 @@ mod tests {
         }
     }
 
-    /// Misma regresión que `hover_is_distinct_from_every_selection`, pero con el
-    /// fondo derivado de cada acento: el hover no puede pintarse como una
-    /// selección, y el fondo de la pantalla tampoco.
+    /// El hover no puede pintarse como una selección (fondo derivado de cada
+    /// acento), y el fondo de la pantalla tampoco.
     #[test]
     fn card_bgs_never_collide_with_hover_or_background() {
         for t in THEMES {

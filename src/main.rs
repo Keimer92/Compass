@@ -15,7 +15,7 @@ use std::io::{self, Write};
 #[command(
     name = "compass",
     about = "Compass - Tauri/Flutter/Kotlin/Go/Python/Rust para Windows",
-    version = "0.1.0"
+    version
 )]
 struct Cli {
     #[arg(

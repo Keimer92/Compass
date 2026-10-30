@@ -116,7 +116,7 @@ fn card_opens_a_session_tab_and_f12_switches_between_menu_and_tab() {
     };
 
     // 1. Menú principal visible.
-    h.wait_until("el menú principal", |s| s.contains("Compass for Rust"));
+    h.wait_until("el menú principal", |s| s.contains("Proyecto:"));
 
     // 2. Pestaña CONFIGURACIÓN y card Git (primera de esa pestaña).
     h.send(b"\t");
@@ -137,15 +137,16 @@ fn card_opens_a_session_tab_and_f12_switches_between_menu_and_tab() {
                 && bar.contains('\u{256e}')
         })
     });
-    // La etiqueta se recorta al ancho de la card (26 columnas).
+    // El submenú reutiliza el estilo del menú principal: cabecera con
+    // "Proyecto:", fila de sección "GIT 5" y pie con "volver".
     h.wait_until("el submenú de Git dentro de la pestaña", |s| {
-        s.contains("Inicializar reposit")
+        s.contains("Inicializar reposit") && s.contains("GIT 5") && s.contains("volver")
     });
 
     // 4. F12 vuelve al menú sin cerrar la pestaña.
     h.send(b"\x1b[24~");
     h.wait_until("el menú tras F12", |s| {
-        s.contains("Compass for Rust") && s.contains("1 Git")
+        s.contains("Proyecto:") && s.contains("1 Git")
     });
 
     // 5. F12 de nuevo regresa a la pestaña (su pantalla seguía viva).
@@ -157,7 +158,7 @@ fn card_opens_a_session_tab_and_f12_switches_between_menu_and_tab() {
     // 6. Ctrl+W cierra la pestaña y vuelve al menú.
     h.send(b"\x17");
     h.wait_until("el cierre de la pestaña", |s| {
-        s.contains("Compass for Rust") && !s.contains("1 Git")
+        s.contains("Proyecto:") && !s.contains("1 Git")
     });
 
     // 7. Esc sale de Compass; el proceso hijo debe terminar.

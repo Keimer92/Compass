@@ -9,6 +9,7 @@ pub mod kotlin;
 pub mod python;
 pub mod rust;
 pub mod signer;
+pub mod submenu;
 pub mod terminal;
 pub mod version;
 pub mod whatsapp;
