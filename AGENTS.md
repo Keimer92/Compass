@@ -41,14 +41,14 @@ Compass ejecuta como aplicación de escritorio únicamente en **Windows**. Andro
 
 ### Layout: pestañas + rejilla horizontal adaptativa con scroll
 
-El menú ya no pinta las 17 tarjetas en una sola rejilla ni en una columna. Hay
+El menú ya no pinta las 18 tarjetas en una sola rejilla ni en una columna. Hay
 **dos pestañas** y las cards van en una **rejilla que se adapta al ancho**: hasta
 **4 por fila**, separadas por una celda vacía, y la fila se desplaza:
 
 | Pestaña | Contenido |
 |---------|-----------|
 | `DESARROLLO · MNT` | las cards DEV ∪ MNT (run, build, apk, clean, sign, version…) |
-| `CONFIGURACIÓN` | Git, WhatsApp, Terminal |
+| `CONFIGURACIÓN` | Git, WhatsApp, Terminal, Entorno |
 
 `MenuItem::tab()` deriva la pestaña de `section()` (`DEV`/`MNT` → `DevMnt`, el
 resto → `Cfg`). `MenuState::new` filtra por tipo de proyecto y luego ordena los
@@ -218,10 +218,10 @@ aplica el tema; `render_theme_picker()` dibuja la capa.
   quien no toque el tema.
 - Un `Theme` son **roles semánticos**, no colores: `menu.rs` no tiene un solo
   literal de color. Ambos fondos de card salen de la paleta del tema.
-- **Acento por card**: `theme::CARD_KEYS` fija las 17 claves semánticas (una por
-  `MenuItem`, en orden canónico) y `Theme.card_hexes: [u32; 17]` guarda un hex
+- **Acento por card**: `theme::CARD_KEYS` fija las 18 claves semánticas (una por
+  `MenuItem`, en orden canónico) y `Theme.card_hexes: [u32; 18]` guarda un hex
   por clave **y por tema**. `card_accent(key)` es ese color y `card_bg(key)` el
-  mismo con `dark(hex, 27)`; por tema sólo se eligen 17 hex, no 34. La barra de
+  mismo con `dark(hex, 27)`; por tema sólo se eligen 18 hex, no 36. La barra de
   pestañas sigue usando `dev`/`cfg` (el acento de *su* sección) para conservar
   la identidad cromática. `theme::tests` verifica que dentro de una pestaña no
   hay dos acentos iguales en ningún tema, que los fondos no chocan con el hover
@@ -300,10 +300,11 @@ container.rs
 
 theme.rs
   ├─ Theme — roles semánticos (text/muted/border/brand, dev/mnt/cfg + *_bg,
-  │          hover_bg, success/info/accent/warning) **+ card_hexes: [u32; 17]**
+  │          hover_bg, success/info/accent/warning) **+ card_hexes: [u32; 18]**
   │          (acento por card, orden de CARD_KEYS). Ningún literal de color en
   │          menu.rs: cambiar de tema sólo cambia esta tabla.
-  ├─ CARD_KEYS — 17 claves semánticas (run, android, …, git, whatsapp, terminal);
+  ├─ CARD_KEYS — 18 claves semánticas (run, android, …, git, whatsapp, terminal,
+  │              environment);
   │              card_accent(key) / card_bg(key) las resuelven contra el tema
   ├─ THEMES — 14 temas basados en OpenCode (Compass, OpenCode, Tokyo Night,
   │           Catppuccin, Dracula, Gruvbox, Nord, One Dark, Monokai, Rosé Pine,
@@ -314,7 +315,8 @@ theme.rs
   └─ load()/save() — persiste el nombre en <data_dir>/compass/theme
 
 menu.rs
-  ├─ MenuItem (17 variants: WindowsDev, AndroidDev, ..., InstallDebug, Signing, Version)
+  ├─ MenuItem (18 variants: WindowsDev, AndroidDev, ..., Signing, Version,
+  │   Environment)
   │   — 🚫 **ya no existe la variante `ContextMenu`**: `install.bat` instala el menú
   │     contextual al arrancar, la tarjeta era redundante (las tareas `context-menu*`
   │     por CLI siguen disponibles)
@@ -344,7 +346,7 @@ menu.rs
 utils/
   ├─ context.rs — detect(), ProjectType, ProjectContext, whatsapp_path()
   ├─ platform.rs — helpers de portabilidad: IS_WINDOWS, exe_name(), gradlew_name(), home_dir(), data_dir(), find_gradlew(), NDK_VERSION, tauri_native_pkg()
-  ├─ cmd.rs — shell()/shell_path()/ps_quote/embedded(), run*, run_ps*, set_console_title, spawn_new_window_autoexit, spawn_new_window_interactive [en modo embebido ejecutan en la consola actual], run_build_and_reveal, run_in_current_window, run_shell_status, run_npm_install, clear_screen, remove_dir
+  ├─ cmd.rs — shell()/shell_path()/ps_quote/embedded(), run*, run_ps*, run_ps_file_status, set_console_title, spawn_new_window_autoexit, spawn_new_window_interactive [en modo embebido ejecutan en la consola actual], run_build_and_reveal, run_in_current_window, run_shell_status, run_npm_install, clear_screen, remove_dir
   ├─ tauri.rs — command(), ensure(), cli_entry() [CLI sin shim de .bin + reinstalación si falta el binding nativo]
   ├─ ui.rs — ask_text(), ask_password(), success_banner(), info_banner(), pause()
   ├─ console_guard.rs — guarda del cierre de la ventana anfitriona: install() [SetConsoleCtrlHandler], set_open_tabs(), register_pane()/unregister_pane(); en conhost deshabilita SC_CLOSE con pestañas abiertas y en el cierre mata los árboles + aviso nativo
@@ -364,7 +366,8 @@ tasks/
   ├─ submenu.rs — TUI compartida de los submenús (Firmas, Git): reutiliza la cabecera, la fila de sección, la rejilla adaptativa de cards de 3 líneas, el halo de hover y el pie del menú principal; `Submenu<T>` devuelve `SubmenuAction::{Run(T), Back, Continue}`
   ├─ terminal.rs — configure() [perfil PSReadLine según la versión instalada]
   ├─ context_menu.rs — install/uninstall/toggle para Compass + Vibe Coding (menú cascada con ExtendedSubCommandsKey: OpenCode, Kilo Code, Cline, Antigravity, Copilot CLI, Kiro CLI, Qoder CLI, Hermes)
-  └─ whatsapp.rs — build()
+  ├─ environment.rs — manage() [submenú: backup completo / inventario / restaurar / validar / abrir respaldos]; scripts `Backup-Variables.ps1` y `Restore-Variables.ps1` embebidos con `include_str!` y materializados en `<data_dir>/compass/env-backup`
+  ├─ whatsapp.rs — build()
   └─ version.rs — bump() [port de versionar.bat: Tauri/Rust, todo-o-nada]
 ```
 
@@ -388,6 +391,7 @@ tasks/
 | Git | `git::manage` | `git::manage` | `git::manage` | `git::manage` | `git::manage` |
 | BuildWhatsApp | `whatsapp::build` | `whatsapp::build` | `whatsapp::build` | `whatsapp::build` | `whatsapp::build` |
 | ConfigureTerminal | `terminal::configure` | `terminal::configure` | `terminal::configure` | `terminal::configure` | `terminal::configure` |
+| Environment | `environment::manage` | `environment::manage` | `environment::manage` | `environment::manage` | `environment::manage` |
 | Salir | `Esc` → `process::exit(0)` | ídem | ídem | ídem | ídem |
 
 ### Go puro
@@ -859,6 +863,58 @@ máquina con pwsh —o al día— no se toca la red.
 Antes de sobrescribir se copia el perfil previo a `Microsoft.PowerShell_profile.ps1.compass-bak` . Si el contenido ya coincide, no se toca el archivo.
 
 Cubierto por `tasks::terminal::tests` (9 tests): parseo de versión, decisión de actualizar, elección de perfil, **los nombres del perfil legacy existen todos en la 2.0.0** (lista real sacada con `Get-Command`), ausencia de nombres predictivos, `-PredictionSource` protegido por `try`/`catch`, BOM (incluido que su presencia forma parte de la comparación) y la carpeta de perfil de cada shell.
+
+### Entorno — respaldo y restauración (`tasks/environment.rs`)
+
+La tarjeta **Entorno** de `CONFIGURACIÓN` migra el proyecto *Variables
+Backupper* (PowerShell). En vez de reescribir 110 KB de PowerShell en Rust, los
+scripts se **incrustan en el binario** con `include_str!` y se escriben en
+`<data_dir>/compass/env-backup/` (`%LOCALAPPDATA%\compass\env-backup`) antes de
+usarlos. `materialize()` sólo reescribe un script si falta o si su contenido
+cambió, así que una recompilación de Compass actualiza los scripts sin dejar
+versiones viejas.
+
+| Card | Args al script | Qué hace |
+|------|----------------|----------|
+| 💾 Backup completo | `-Destino <dir> -ConservarN <n>` | Variables de usuario/sistema, inventario de herramientas y archivos de configuración (`.gitconfig`, SSH, VS Code, keystores…) |
+| 📋 Solo inventario | `… -SoloInventario` | Herramientas y versiones, **sin copiar archivos** |
+| ♻ Restaurar entorno | `-CarpetaBackup <dir> [-RestaurarArchivos]` | Restaura variables, PATH y archivos; genera `pre-restore_*` para el rollback |
+| 🔍 Validar backup | `-CarpetaBackup <dir> -SoloValidar` | Diff de lo que cambiaría, sin tocar nada |
+| 📂 Abrir respaldos | — | Abre `…\env-backup\Backup` en el explorador |
+| ↩ Volver | — | Regresa al menú |
+
+- Las preguntas que el script ya hace (`Read-Host`: destino alternativo,
+  confirmar unidad `C:`, borrar respaldos antiguos, restaurar archivos) siguen
+  funcionando porque el proceso hereda stdio de la pestaña. Compass sólo
+  adelanta **destino** (default `…\env-backup\Backup`) y **cuántos conservar**
+  (default 1, acotado a `1..=99`) antes de lanzarlo.
+- La restauración propone como default **el respaldo más reciente** de
+  `…\env-backup\Backup` (`latest_backup()`: orden lexicográfico, que sirve
+  porque el sufijo es `_yyyy-MM-dd_HHmmss`); vacío = el script lista lo que
+  encuentre.
+- Se ejecutan con `cmd::run_ps_file_status` → `pwsh -NoLogo -NoProfile
+  -ExecutionPolicy Bypass -File <script> <args…>`, con cwd en
+  `…\env-backup`: `-ExecutionPolicy Bypass` es obligatorio porque el perfil del
+  usuario o una política de máquina puede bloquear scripts sueltos. Los
+  argumentos van uno a uno (sin shell), así que las rutas con espacios no se
+  parten.
+- ⚠️ **Variables de sistema requieren Administrador**: sin elevación el script
+  avisa y respalda/restaura sólo las de usuario. Compass lo informa en la
+  cabecera de la acción; no relanza con UAC.
+- ⚠️ **Los respaldos son sensibles** (claves SSH privadas, tokens de Git/npm,
+  contraseñas de Maven, export del registro). Por eso el destino por defecto
+  vive **fuera del proyecto** (`%LOCALAPPDATA%`), y conviene copiarlo a otra
+  unidad o cifrarlo antes de subirlo a la nube.
+- El submenú usa `tasks/submenu.rs`, igual que Firmas y Git (restaurar la
+  consola → ejecutar → volver a montar el TUI), y el título de ventana se fija
+  de nuevo tras cada acción.
+
+Cubierto por `tasks::environment::tests`: los scripts embebidos contienen los
+marcadores reales (`Invoke-Native`, `-Destino`, `-CarpetaBackup`,
+`pre-restore_`), `materialize()` es idempotente y corrige un script corrupto,
+`latest_backup()` elige el más nuevo, las entradas cubren cada acción una sola
+vez con `Volver` al final y claves de paleta distintas, y `is_yes()` acepta
+`s`/`si`/`sí`/`y`/`yes`.
 
 ### KMP Desktop (Hot Reload)
 `kotlin::run_windows()` ejecuta `:composeApp:run` con Hot Reload incorporado.
@@ -1391,7 +1447,10 @@ fallback a `npx.cmd`. De `container.rs`, la codificación de teclas a xterm
 barra y el que la zona clicable del `×` cubra la celda donde el `Paragraph`
 pinta el glifo (sin ConPTY: dibuja la barra en un `TestBackend` y busca el `×`
 en el buffer). De `console_guard.rs`, el texto del aviso (singular/plural y la
-indicación de usar `Esc`) y que sin `install()` el contador no toca Win32.
+indicación de usar `Esc`) y que sin `install()` el contador no toca Win32. De
+`environment.rs`, los marcadores de los scripts embebidos (que sean los reales),
+la idempotencia de `materialize()`, la elección del respaldo más reciente, las
+entradas del submenú y el parseo de respuestas afirmativas.
 
 Dos pruebas abren una **ConPTY real** y están `#[ignore]` porque dependen del
 sistema y tardan unos segundos:

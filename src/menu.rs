@@ -101,6 +101,9 @@ pub enum MenuItem {
     Git,
     BuildWhatsApp,
     ConfigureTerminal,
+    /// Respaldo y restauración del entorno de desarrollo de Windows
+    /// (variables, inventario de herramientas y archivos de configuración).
+    Environment,
 }
 
 /// Pestañas del menú: DEV∪MNT en la primera, sólo CFG en la segunda.
@@ -160,6 +163,7 @@ impl MenuItem {
             Self::Git => "\u{1f527}",
             Self::BuildWhatsApp => "\u{1f4ac}",
             Self::ConfigureTerminal => "\u{2699}",
+            Self::Environment => "\u{1f4be}",
         }
     }
 
@@ -176,7 +180,10 @@ impl MenuItem {
             | Self::FlutterProfile
             | Self::Tests => "DEV",
             Self::Clean | Self::DebugAndroid | Self::Signing | Self::Version => "MNT",
-            Self::Git | Self::BuildWhatsApp | Self::ConfigureTerminal => "CFG",
+            Self::Git
+            | Self::BuildWhatsApp
+            | Self::ConfigureTerminal
+            | Self::Environment => "CFG",
         }
     }
 
@@ -207,6 +214,7 @@ impl MenuItem {
             Self::Git => "git",
             Self::BuildWhatsApp => "whatsapp",
             Self::ConfigureTerminal => "terminal",
+            Self::Environment => "environment",
         }
     }
 
@@ -281,6 +289,7 @@ impl MenuItem {
             Self::Git => "Git",
             Self::BuildWhatsApp => "WhatsApp",
             Self::ConfigureTerminal => "Terminal",
+            Self::Environment => "Entorno",
         }
     }
 
@@ -301,6 +310,7 @@ impl MenuItem {
                 Self::Git => "Init · gitignore · remoto",
                 Self::BuildWhatsApp => "Compila WhatsApp",
                 Self::ConfigureTerminal => "Autocompletado",
+                Self::Environment => "Backup y restauracion",
                 Self::FlutterProfile => "",
                 Self::Tests => "",
                 Self::AndroidHmr => "",
@@ -320,6 +330,7 @@ impl MenuItem {
                 Self::BuildWhatsApp => "Compila WhatsApp",
                 Self::Version => "Bump pkg/cargo/tauri",
                 Self::ConfigureTerminal => "Autocompletado",
+                Self::Environment => "Backup y restauracion",
                 Self::FlutterProfile => "",
                 Self::AndroidHmr => "",
                 Self::Tests => "",
@@ -339,6 +350,7 @@ impl MenuItem {
                 Self::BuildWhatsApp => "Compila WhatsApp",
                 Self::Version => "",
                 Self::ConfigureTerminal => "Autocompletado",
+                Self::Environment => "Backup y restauracion",
                 Self::FlutterProfile => "flutter run --profile",
                 Self::AndroidHmr => "",
                 Self::Tests => "",
@@ -358,6 +370,7 @@ impl MenuItem {
                 Self::BuildWhatsApp => "Compila WhatsApp",
                 Self::Version => "",
                 Self::ConfigureTerminal => "Autocompletado",
+                Self::Environment => "Backup y restauracion",
                 Self::FlutterProfile => "",
                 Self::AndroidHmr => "",
                 Self::Tests => "",
@@ -378,6 +391,7 @@ impl MenuItem {
                 Self::BuildWhatsApp => "Compila WhatsApp",
                 Self::Version => "build/config.yml",
                 Self::ConfigureTerminal => "Autocompletado",
+                Self::Environment => "Backup y restauracion",
                 Self::FlutterProfile => "",
                 Self::Tests => "",
             },
@@ -397,6 +411,7 @@ impl MenuItem {
                 Self::Git => "Init · gitignore · remoto",
                 Self::BuildWhatsApp => "",
                 Self::ConfigureTerminal => "Autocompletado",
+                Self::Environment => "Backup y restauracion",
                 Self::FlutterProfile => "",
                 Self::Tests => "python -m pytest",
             },
@@ -416,6 +431,7 @@ impl MenuItem {
                 Self::Git => "Init · gitignore · remoto",
                 Self::BuildWhatsApp => "",
                 Self::ConfigureTerminal => "Autocompletado",
+                Self::Environment => "Backup y restauracion",
                 Self::FlutterProfile => "",
                 Self::Tests => "go test ./...",
             },
@@ -579,6 +595,7 @@ impl MenuState {
             MenuItem::Git,
             MenuItem::BuildWhatsApp,
             MenuItem::ConfigureTerminal,
+            MenuItem::Environment,
         ];
 
         let mut items: Vec<MenuItem> = base
@@ -1828,6 +1845,7 @@ fn menu_item_to_task(item: MenuItem, ptype: ProjectType) -> &'static str {
 
         (MenuItem::BuildWhatsApp, _) => "whatsapp",
         (MenuItem::ConfigureTerminal, _) => "terminal",
+        (MenuItem::Environment, _) => "environment",
 
         _ => unreachable!(),
     }
@@ -1956,7 +1974,7 @@ mod tests {
     use ratatui::layout::Rect;
     use ratatui::widgets::Widget;
 
-    const ALL_ITEMS: [MenuItem; 17] = [
+    const ALL_ITEMS: [MenuItem; 18] = [
         MenuItem::WindowsDev,
         MenuItem::AndroidDev,
         MenuItem::AndroidHmr,
@@ -1974,6 +1992,7 @@ mod tests {
         MenuItem::Git,
         MenuItem::BuildWhatsApp,
         MenuItem::ConfigureTerminal,
+        MenuItem::Environment,
     ];
 
     /// Ancho de render de las pruebas de estilo; en la TUI real la card ocupa

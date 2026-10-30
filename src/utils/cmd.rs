@@ -463,6 +463,31 @@ pub fn run_shell_status(command: &str, dir: &Path, envs: &[(String, String)]) ->
     Ok(shell_status(command, dir, envs)?.success())
 }
 
+/// Ejecuta un `.ps1` con el shell activo y stdio heredado.
+///
+/// Usa `-File` con los argumentos como argv (no dentro de un `-Command`): una
+/// ruta con espacios no necesita escaparse, y los `Read-Host` del script leen
+/// del teclado de la pestaña. `-ExecutionPolicy Bypass` evita que una política
+/// `Restricted` impida arrancar los scripts de respaldo.
+pub fn run_ps_file_status(
+    script: &Path,
+    args: &[String],
+    dir: &Path,
+    envs: &[(String, String)],
+) -> Result<bool> {
+    let mut c = Command::new(shell());
+    c.args(["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
+        .arg(script)
+        .args(args)
+        .current_dir(dir);
+    for (k, v) in envs {
+        c.env(k, v);
+    }
+    Ok(c.status()
+        .with_context(|| format!("No se pudo ejecutar: {}", script.display()))?
+        .success())
+}
+
 /// Abre una ventana de terminal que **se cierra** al terminar el comando.
 ///
 /// La aloja el shell activo (PowerShell 7 si está instalado): el icono de una

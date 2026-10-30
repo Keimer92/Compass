@@ -316,6 +316,11 @@ fn run_task_direct(ctx: &crate::utils::context::ProjectContext, task: &str) -> R
             _ => anyhow::bail!("No aplicable a este tipo de proyecto"),
         },
         "terminal" => tasks::terminal::configure(ctx),
+        // Respaldo y restauración del entorno de desarrollo (scripts embebidos
+        // del proyecto Variables Backupper). Alias por comodidad en la CLI.
+        "environment" | "env" | "env-backup" | "env-restore" => {
+            tasks::environment::manage(ctx)
+        }
         "flutter-profile" => {
             println!("\n[INFO] Selecciona la plataforma para Profile:\n");
             println!("  1. Windows");

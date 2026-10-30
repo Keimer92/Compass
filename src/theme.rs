@@ -12,13 +12,13 @@
 //! | `border` | borde de una card en reposo |
 //! | `brand` | título de Compass en la cabecera |
 //! | `dev` `mnt` `cfg` | acento de cada sección (títulos y marcas del pie) |
-//! | `card_hexes` | **acento propio de cada card** (17 entradas, en el orden de [`CARD_KEYS`]) |
+//! | `card_hexes` | **acento propio de cada card** (18 entradas, en el orden de [`CARD_KEYS`]) |
 //! | `hover_bg` | fondo de la card **hovereada** (neutro, distinto de la selección) |
 //! | `background` | fondo de **toda la pantalla** (como el bg de los temas de OpenCode) |
 //! | `success` `info` `accent` `warning` | badge de tipo de proyecto y avisos |
 //!
 //! El fondo de la card seleccionada se deriva del acento de esa card (`dark()`
-//! al 27 %), así que por tema sólo se eligen 17 colores, no 34. El `hover_bg`
+//! al 27 %), así que por tema sólo se eligen 18 colores, no 36. El `hover_bg`
 //! va explícito porque el "vidrio esmerilado" del hover es una decisión
 //! estética, no una función.
 //!
@@ -79,16 +79,16 @@ pub fn mix(a: Color, b: Color, t: f32) -> Color {
 /// Claves de los acentos por card, en el orden del arreglo `Theme::card_hexes`.
 ///
 /// Una clave por `MenuItem`. El orden es **load-bearing**: coincide posición a
-/// posición con los 17 hex de cada tema, así que reordenar aquí reordena (y
+/// posición con los 18 hex de cada tema, así que reordenar aquí reordena (y
 /// destiñe) las 14 paletas. `menu::tests::card_keys_cover_every_item` verifica
 /// que no falte ninguna tarjeta ni sobre ninguna clave.
-pub const CARD_KEYS: [&str; 17] = [
+pub const CARD_KEYS: [&str; 18] = [
     // DEV
     "run", "android", "reload", "build", "apk", "apk32", "aab", "install", "profile", "test",
     // MNT
     "clean", "debug", "sign", "version",
     // CFG
-    "git", "whatsapp", "terminal",
+    "git", "whatsapp", "terminal", "environment",
 ];
 
 /// Las claves de la pestaña 1 (`DESARROLLO · MNT`) y de la 2 (`CONFIGURACIÓN`).
@@ -101,7 +101,7 @@ pub const CARD_KEYS_DEV_MNT: [&str; 14] = [
     "clean", "debug", "sign", "version",
 ];
 #[cfg(test)]
-pub const CARD_KEYS_CFG: [&str; 3] = ["git", "whatsapp", "terminal"];
+pub const CARD_KEYS_CFG: [&str; 4] = ["git", "whatsapp", "terminal", "environment"];
 
 /// Conjunto de colores del TUI. Ver la tabla de roles del módulo.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -121,7 +121,7 @@ pub struct Theme {
     pub accent: Color,
     pub warning: Color,
     /// Acento propio de cada card, en el orden de [`CARD_KEYS`].
-    pub card_hexes: [u32; 17],
+    pub card_hexes: [u32; 18],
 }
 
 impl Theme {
@@ -143,7 +143,12 @@ impl Theme {
         let idx = CARD_KEYS
             .iter()
             .position(|k| *k == key)
-            .unwrap_or(CARD_KEYS.len() - 1);
+            .unwrap_or_else(|| {
+                CARD_KEYS
+                    .iter()
+                    .position(|k| *k == "terminal")
+                    .unwrap_or(CARD_KEYS.len() - 1)
+            });
         self.card_hexes[idx]
     }
 
@@ -187,7 +192,7 @@ pub static THEMES: &[Theme] = &[
         card_hexes: [
             0x00abcd, 0x00ffff, 0x5fd7ff, 0xafff00, 0xffd700, 0xffa500, 0xff87d7, 0x00d7af,
             0xffe79f, 0xffff00, 0xffcc2f, 0xff6f6f, 0xffb72f, 0xff4f4f, 0xff00ff, 0xd787ff,
-            0xaf87ff,
+            0xaf87ff, 0x00d7ff,
         ],
     },
     // 1 — OpenCode (tema oficial)
@@ -209,7 +214,7 @@ pub static THEMES: &[Theme] = &[
         card_hexes: [
             0x56b6c2, 0x61afef, 0x98c379, 0xe5c07b, 0xe06c75, 0xff5c93, 0xd19a66, 0x7fd88f,
             0xef6c75, 0xc678dd, 0xf5a742, 0x9d7cd8, 0xfab283, 0xffb86c, 0xbd93f9, 0x2bbac5,
-            0xa8a1ff,
+            0xa8a1ff, 0x89ddff,
         ],
     },
     // 2 — Tokyo Night
@@ -231,7 +236,7 @@ pub static THEMES: &[Theme] = &[
         card_hexes: [
             0x7aa2f7, 0x86e1fc, 0xc3e88d, 0xffc777, 0xf7768e, 0xdb5c3c, 0x2ac3de, 0x73daca,
             0xbb9af7, 0xe0af68, 0xff9e64, 0x7dcfff, 0xffa29b, 0x7cf6b5, 0xb8b2fa, 0xad7ea8,
-            0x9d7cd8,
+            0x9d7cd8, 0x2ac3de,
         ],
     },
     // 3 — Catppuccin (Mocha)
@@ -253,7 +258,7 @@ pub static THEMES: &[Theme] = &[
         card_hexes: [
             0x89b4fa, 0x94e2d5, 0xa6e3a1, 0xf9e2af, 0xf38ba8, 0xe78284, 0xf2cdcd, 0x94b8ff,
             0xf5c2e7, 0xfab387, 0xeba069, 0xb4befe, 0xcba6f7, 0xffa657, 0xa0c4ff, 0x7dcfff,
-            0x89d88b,
+            0x89d88b, 0xffa657,
         ],
     },
     // 4 — Dracula
@@ -275,7 +280,7 @@ pub static THEMES: &[Theme] = &[
         card_hexes: [
             0x8be9fd, 0xbd93f9, 0x50fa7b, 0xf1fa8c, 0xff5555, 0xffb86c, 0x62d4a8, 0x3ee6c4,
             0xe3f9fb, 0x8aff80, 0xfabf9f, 0xff79c6, 0x69d0e7, 0x5aebad, 0xefe48d, 0xff92d0,
-            0xf264c9,
+            0xf264c9, 0x8be9fd,
         ],
     },
     // 5 — Gruvbox (dark)
@@ -297,7 +302,7 @@ pub static THEMES: &[Theme] = &[
         card_hexes: [
             0x83a598, 0x458588, 0xb8bb26, 0xfabd2f, 0xfb4934, 0xfe8019, 0xba5446, 0x8ec07c,
             0xdbe2d5, 0xa9b665, 0xf9f24a, 0xeceaea, 0xd3869b, 0xb16286, 0xd79921, 0xfbf1c7,
-            0x689d6a,
+            0x689d6a, 0x458588,
         ],
     },
     // 6 — Nord
@@ -319,7 +324,7 @@ pub static THEMES: &[Theme] = &[
         card_hexes: [
             0x88c0d0, 0x81a1c1, 0xa3be8c, 0xebcb8b, 0xbf616a, 0xd08770, 0xe5e9f0, 0x8fbcbb,
             0x8fa8d8, 0xb48ead, 0x5e81a7, 0x87afaf, 0xc07866, 0x57909c, 0xd899c4, 0xaeb7df,
-            0xc6d0dd,
+            0xc6d0dd, 0x88c0d0,
         ],
     },
     // 7 — One Dark
@@ -341,7 +346,7 @@ pub static THEMES: &[Theme] = &[
         card_hexes: [
             0x61afef, 0x56b6c2, 0x3ece9d, 0xe5c07b, 0xe06c75, 0xd19a66, 0xbe5046, 0x98c379,
             0xc678dd, 0xb8d17a, 0x7ae0c0, 0xef7d57, 0x9d7cd8, 0xef6ac0, 0x8fa3bf, 0x25d366,
-            0x7f848e,
+            0x7f848e, 0x61afef,
         ],
     },
     // 8 — Monokai
@@ -363,7 +368,7 @@ pub static THEMES: &[Theme] = &[
         card_hexes: [
             0x66d9ef, 0xae81ff, 0xa6e22e, 0xe6db74, 0xf92672, 0xfd971f, 0xff4040, 0x2ee6a8,
             0x8fd1e4, 0xf5f5a0, 0x70e0d0, 0xff9ec9, 0xc06fe0, 0x5ef38c, 0xffcb3d, 0x8be04e,
-            0xb8b8b8,
+            0xb8b8b8, 0x66d9ef,
         ],
     },
     // 9 — Rosé Pine
@@ -385,7 +390,7 @@ pub static THEMES: &[Theme] = &[
         card_hexes: [
             0x9ccfd8, 0xc4a7e7, 0x31748f, 0xf6c177, 0xeb6c88, 0xe6976b, 0xf8bdc0, 0x8ec9a4,
             0xd8b4f0, 0xc2c2a8, 0x6bb8c4, 0xea84a2, 0xcba0f5, 0x5ec4a8, 0x9083a4, 0x6fcf9f,
-            0xebbcba,
+            0xebbcba, 0x9ccfd8,
         ],
     },
     // 10 — Kanagawa
@@ -407,7 +412,7 @@ pub static THEMES: &[Theme] = &[
         card_hexes: [
             0x7e9cd8, 0x7fb4ca, 0x98bb6c, 0xd7a657, 0xe8246a, 0xcc8844, 0xd2787c, 0x80a66f,
             0xa3c48f, 0xc9b87a, 0x6da8c0, 0x76946a, 0x957fb8, 0xd4b08c, 0x5c8496, 0x8fd0a8,
-            0xc0b8a0,
+            0xc0b8a0, 0x7e9cd8,
         ],
     },
     // 11 — Matrix
@@ -429,7 +434,7 @@ pub static THEMES: &[Theme] = &[
         card_hexes: [
             0x62ff94, 0x30b3ff, 0x2eff6a, 0xe6ff57, 0xff4f7e, 0xff8a3d, 0x00e5b0, 0x7cffc4,
             0xb8ff6a, 0xffd800, 0x00b3a6, 0x57d8ff, 0xc770ff, 0x9dff7a, 0x00ffc8, 0xff6a6a,
-            0xc0c0c0,
+            0xc0c0c0, 0x30b3ff,
         ],
     },
     // 12 — Synthwave '84
@@ -451,7 +456,7 @@ pub static THEMES: &[Theme] = &[
         card_hexes: [
             0x36f9f6, 0xff7edb, 0x72f1b8, 0xfede5d, 0xfe44f6, 0xff8b39, 0xfc297b, 0x00d9ff,
             0xb084eb, 0xd8f97f, 0x5580ff, 0xff9de7, 0x9bf6ff, 0xffc0cb, 0x05d9e0, 0x39ff14,
-            0xcd6fff,
+            0xcd6fff, 0x36f9f6,
         ],
     },
     // 13 — Solarized (dark)
@@ -473,7 +478,7 @@ pub static THEMES: &[Theme] = &[
         card_hexes: [
             0x268bd2, 0x6c71c4, 0x2aa198, 0xb58900, 0xdc322f, 0xcb4b16, 0xd33682, 0x859900,
             0x5bbb9a, 0x6fd4c0, 0x93a1a1, 0x8fa8ff, 0xff79b0, 0xffd95e, 0x2b9dd0, 0x25d366,
-            0x657b83,
+            0x657b83, 0x268bd2,
         ],
     },
 ];
@@ -623,7 +628,7 @@ mod tests {
     /// una clave desconocida debe caer en `terminal` (el último acento).
     #[test]
     fn card_keys_map_to_their_position_in_the_palette() {
-        assert_eq!(CARD_KEYS.len(), 17);
+        assert_eq!(CARD_KEYS.len(), 18);
         assert_eq!(
             CARD_KEYS_DEV_MNT.len() + CARD_KEYS_CFG.len(),
             CARD_KEYS.len(),
