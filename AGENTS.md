@@ -101,23 +101,27 @@ Enter ejecutaría.
 
 ### Animación de hover
 
-Al entrar el puntero en una card arranca un **barrido de brillo** de ~700 ms que
-recorre su borde en sentido horario con una cola luminosa que se apaga. Es un
-efecto **de entrada**: moverse dentro de la misma card no lo reinicia, y al
-terminar la TUI vuelve a esperar sin repintar.
+Mientras el puntero está sobre una card, un **halo luminoso circular** recorre
+su borde en bucle (una vuelta cada 2,6 s) con una cola de 9 celdas y un
+resplandor interior que sigue a la cabeza, al estilo del orbe del icono de
+Google. Arranca al entrar en la card, no se reinicia al moverse dentro de ella
+y desaparece al salir.
 
 - Estado: `MenuState.hover_started: Option<Instant>`; `set_hover()` sólo lo
-  reinicia al cambiar de card. `hover_progress()` devuelve el 0..1 y
-  `hover_animating()` decide el ritmo del bucle.
+  reinicia al cambiar de card. `hover_phase()` devuelve la fase 0..1 de la
+  vuelta en curso y `hover_animating()` mantiene activo el ritmo del bucle.
 - Bucle: `handle_event()` usa `event::poll()` con `ANIM_FRAME` (33 ms) mientras
-  hay animación y `IDLE_POLL` (1 s) en reposo. Sin esa temporización la UI sólo
-  se redibujaba al llegar un evento, así que no podía haber animación.
-- Dibujo: `render_hover_shimmer()` pinta celda a celda sobre el buffer
-  **después** de la card (el `Block` sólo admite un color de borde). El brillo
-  sale del acento de la card (`shimmer_glow`), que siempre es RGB; en temas ANSI
-  (`Compass`) las celdas cercanas a la cabeza pasan al brillo y el resto
-  conserva su color, porque `theme::mix` no interpola nombres de color. La
-  animación nunca cambia el fondo ni el layout: sólo el `fg` de esas celdas.
+  hay halo y `IDLE_POLL` (1 s) en reposo. Sin esa temporización la UI sólo se
+  redibujaba al llegar un evento, así que no podía haber animación.
+- Dibujo: `render_hover_glow()` pinta celda a celda sobre el buffer **después**
+  de la card (el `Block` sólo admite un color de borde): en el borde mezcla el
+  `fg` con el brillo y en el interior tiñe el `bg` hacia el tinte del acento
+  (`card_bg`) cerca de la cabeza, con radio elíptico porque la card es ancha y
+  baja. `perimeter_point()` da la coordenada de la cabeza para ese resplandor.
+- El brillo sale del acento de la card (`shimmer_glow`), que siempre es RGB; en
+  temas ANSI (`Compass`) las celdas cercanas a la cabeza pasan al brillo y el
+  resto conserva su color, porque `theme::mix` no interpola nombres de color.
+  La animación nunca cambia el fondo base ni el layout.
 
 ### Teclado y ratón de la TUI
 
@@ -277,7 +281,8 @@ menu.rs
   │   salto de pestaña) + mouse (rueda mueve la selección, clic en pestaña
   │   cambia de pestaña, clic en card ejecuta); poll temporizado (33 ms con
   │   animación de hover, 1 s en reposo)
-  ├─ render_hover_shimmer() — barrido de brillo en el borde de la card hovereada
+  ├─ render_hover_glow() — halo luminoso circular en bucle sobre la card
+  │   hovereada (borde + resplandor interior); perimeter_point() ubica la cabeza
   ├─ Sin botón Salir: `Esc` cierra el programa (`MenuAction::Quit`)
   └─ run(): loop: draw → handle → restore → execute → re-enter
 
@@ -1057,8 +1062,9 @@ La sonda también considera incompleto el menú de Compass si falta la acción `
 visuales de una card"), filtrado por tipo de proyecto, orden y rangos de las
 pestañas, `ensure_visible`/scroll en terminales cortas, hit-testing de cards y
 pestañas (`card_at`/`tab_at`), navegación con salto de pestaña, adaptación al
-ancho (`layout`), la animación de hover (arranque, expiración y brillo real del
-borde) y la paleta/mezcla de colores de `theme.rs`. El resto
+ancho (`layout`), el halo de hover (arranque, bucle de fase, brillo real del
+borde e interior, y recorrido del perímetro) y la paleta/mezcla de colores de
+`theme.rs`. El resto
 —detección de proyectos, `newest_artifact` y acciones del menú contextual— se
 verifica con compilación (`cargo build`) y pruebas manuales en la máquina de
 destino.

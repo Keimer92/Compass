@@ -33,10 +33,12 @@ const CARD_H: u16 = 3;
 const FOOTER_H: u16 = 1;
 const TABS_H: u16 = 1;
 
-/// Duración del barrido de brillo al entrar el puntero en una card.
-const HOVER_ANIM: Duration = Duration::from_millis(700);
-/// Longitud de la cola luminosa del barrido, en celdas de borde.
-const SHIMMER_TRAIL: f32 = 7.0;
+/// Duración de una vuelta completa del halo de hover.
+const HOVER_CYCLE: Duration = Duration::from_millis(2600);
+/// Longitud de la cola luminosa del halo, en celdas de borde.
+const SHIMMER_TRAIL: f32 = 9.0;
+/// Radio del resplandor interior alrededor de la cabeza del halo.
+const GLOW_RADIUS: f32 = 11.0;
 /// Intervalo entre fotogramas mientras hay una animación en curso (~30 fps).
 const ANIM_FRAME: Duration = Duration::from_millis(33);
 /// Espera del bucle de eventos cuando no hay nada que animar.
@@ -663,9 +665,8 @@ impl MenuState {
         self.theme = t;
     }
 
-    /// Actualiza la card bajo el puntero. El barrido de brillo sólo arranca al
-    /// entrar en una card nueva: mover el ratón dentro de la misma no lo
-    /// reinicia.
+    /// Actualiza la card bajo el puntero. El halo luminoso arranca al entrar en
+    /// una card nueva: mover el ratón dentro de la misma no lo reinicia.
     fn set_hover(&mut self, hover: Option<usize>) {
         if self.hover == hover {
             return;
@@ -674,18 +675,16 @@ impl MenuState {
         self.hover_started = hover.map(|_| Instant::now());
     }
 
-    /// Progreso (0..1) del barrido de la card hovereada, o `None` si ya acabó.
-    fn hover_progress(&self) -> Option<f32> {
+    /// Fase (0..1) del halo mientras el puntero está sobre una card. El halo
+    /// gira en bucle: una vuelta completa por [`HOVER_CYCLE`].
+    fn hover_phase(&self) -> Option<f32> {
         let started = self.hover_started?;
-        let elapsed = started.elapsed();
-        if elapsed >= HOVER_ANIM {
-            return None;
-        }
-        Some(elapsed.as_secs_f32() / HOVER_ANIM.as_secs_f32())
+        let phase = started.elapsed().as_secs_f32() / HOVER_CYCLE.as_secs_f32();
+        Some(phase.fract())
     }
 
     fn hover_animating(&self) -> bool {
-        self.hover.is_some() && self.hover_progress().is_some()
+        self.hover.is_some() && self.hover_started.is_some()
     }
 
     /// Ajusta `scroll` para que la card seleccionada quede entera dentro del
@@ -919,28 +918,37 @@ fn render_cards(
         );
         frame.render_widget(card, rect);
 
-        // Barrido de brillo sobre el borde de la card hovereada.
+        // Halo luminoso circular sobre la card hovereada.
         if state.hover == Some(idx) {
-            if let Some(progress) = state.hover_progress() {
-                let accent = theme.card_accent(state.items[idx].color_key());
-                render_hover_shimmer(frame, rect, progress, accent, theme.text);
+            if let Some(phase) = state.hover_phase() {
+                let key = state.items[idx].color_key();
+                render_hover_glow(
+                    frame,
+                    rect,
+                    phase,
+                    theme.card_accent(key),
+                    theme.card_bg(key),
+                    theme.text,
+                );
             }
         }
     }
 }
 
-/// Recorre el borde de `rect` una vez (sentido horario) pintando una cola
-/// luminosa delante de la cabeza del barrido.
+/// Halo luminoso que recorre el borde de `rect` en bucle (sentido horario) y
+/// derrama un resplandor interior alrededor de su cabeza, al estilo del orbe
+/// del icono de Google.
 ///
 /// Se pinta **después** de la card, celda a celda sobre el buffer, porque el
 /// `Block` del Paragraph tiene un único color de borde. El brillo se mezcla con
-/// el color que ya tenía cada celda, así que funciona igual en reposo, hover y
-/// selección.
-fn render_hover_shimmer(
+/// el color que ya tenía cada celda: en el borde cambia el `fg`; en el interior
+/// tiñe el `bg` hacia el tinte oscuro del acento, sin tocar el texto.
+fn render_hover_glow(
     frame: &mut Frame,
     rect: Rect,
-    progress: f32,
+    phase: f32,
     accent: Color,
+    tint: Color,
     bright: Color,
 ) {
     if rect.width < 2 || rect.height < 2 {
@@ -950,17 +958,20 @@ fn render_hover_shimmer(
     let h = rect.height as usize;
     // Perímetro del borde: arriba + abajo + laterales (las esquinas ya cuentan
     // en arriba/abajo).
-    let total = 2 * w + 2 * (h - 2);
-    // Suavizado: la cabeza frena al final del recorrido.
-    let t = progress.clamp(0.0, 1.0);
-    let head = (1.0 - (1.0 - t).powi(3)) * total as f32;
-    let fade = 1.0 - t;
+    let total = (2 * w + 2 * (h - 2)) as f32;
+    let phase = phase.rem_euclid(1.0);
+    let head = phase * total;
+    // Respiración: dos pulsos de intensidad por vuelta.
+    let breath = 0.72 + 0.28 * (phase * std::f32::consts::TAU * 2.0).sin();
     let glow = shimmer_glow(accent, bright);
 
+    // 1. Cola luminosa sobre el borde, con distancia circular para que la
+    //    cabeza y su estela crucen las esquinas sin saltos.
     let mut pos = 0usize;
-    let mut paint = |frame: &mut Frame, x: u16, y: u16| {
-        let dist = (pos as f32 - head).abs();
-        let k = (1.0 - dist / SHIMMER_TRAIL).max(0.0) * fade;
+    let mut paint_border = |frame: &mut Frame, x: u16, y: u16| {
+        let raw = (pos as f32 - head).abs();
+        let dist = raw.min(total - raw);
+        let k = (1.0 - dist / SHIMMER_TRAIL).max(0.0) * breath;
         if k > 0.02 {
             let cell = &mut frame.buffer_mut()[(x, y)];
             let fg = match cell.fg {
@@ -977,17 +988,60 @@ fn render_hover_shimmer(
     };
 
     for x in rect.x..rect.right() {
-        paint(frame, x, rect.y);
+        paint_border(frame, x, rect.y);
     }
     for y in rect.y + 1..rect.bottom() {
-        paint(frame, rect.right() - 1, y);
+        paint_border(frame, rect.right() - 1, y);
     }
     for x in (rect.x..rect.right() - 1).rev() {
-        paint(frame, x, rect.bottom() - 1);
+        paint_border(frame, x, rect.bottom() - 1);
     }
     for y in (rect.y + 1..rect.bottom() - 1).rev() {
-        paint(frame, rect.x, y);
+        paint_border(frame, rect.x, y);
     }
+
+    // 2. Resplandor interior: el fondo se oscurece hacia el tinte del acento
+    //    cerca de la cabeza. Radio elíptico porque la card es ancha y baja.
+    let (cx, cy) = perimeter_point(rect, head);
+    for y in rect.y + 1..rect.bottom() - 1 {
+        for x in rect.x + 1..rect.right() - 1 {
+            let dx = x as f32 - cx as f32;
+            let dy = (y as f32 - cy as f32) * 2.0;
+            let d = (dx * dx + dy * dy).sqrt();
+            let k = (1.0 - d / GLOW_RADIUS).max(0.0) * 0.8 * breath;
+            if k > 0.02 {
+                let cell = &mut frame.buffer_mut()[(x, y)];
+                cell.set_bg(theme::mix(cell.bg, tint, k.min(1.0)));
+            }
+        }
+    }
+}
+
+/// Coordenada `(x, y)` del punto `pos` del perímetro de `rect`, en el mismo
+/// recorrido que hace [`render_hover_glow`] (arriba → derecha → abajo →
+/// izquierda).
+fn perimeter_point(rect: Rect, pos: f32) -> (u16, u16) {
+    let w = rect.width as f32;
+    let h = rect.height as f32;
+    let total = 2.0 * w + 2.0 * (h - 2.0);
+    let mut p = pos.rem_euclid(total);
+    // Arriba (incluye las dos esquinas superiores).
+    if p < w {
+        return (rect.x + p as u16, rect.y);
+    }
+    p -= w;
+    // Derecha (sin la esquina superior, con la inferior).
+    if p < h - 1.0 {
+        return (rect.right() - 1, rect.y + p as u16 + 1);
+    }
+    p -= h - 1.0;
+    // Abajo (de derecha a izquierda).
+    if p < w - 1.0 {
+        return (rect.right() - 2 - p as u16, rect.bottom() - 1);
+    }
+    p -= w - 1.0;
+    // Izquierda (sin esquinas).
+    (rect.x, rect.bottom() - 2 - p as u16)
 }
 
 /// Brillo del barrido: mezcla el acento de la card con el texto del tema cuando
@@ -1980,15 +2034,15 @@ mod tests {
         );
     }
 
-    /// El barrido arranca al **entrar** en una card: moverse dentro de la misma
+    /// El halo arranca al **entrar** en una card: moverse dentro de la misma
     /// no lo reinicia, y salir lo cancela.
     #[test]
-    fn hover_starts_the_shimmer_only_when_entering_a_card() {
+    fn hover_starts_the_glow_only_when_entering_a_card() {
         let mut s = MenuState::new(ProjectType::GoWails, crate::theme::DEFAULT);
         let idx = s.tabs[Tab::DevMnt.index()].start + 3;
 
         s.set_hover(Some(idx));
-        assert!(s.hover_animating(), "entrar en una card inicia el barrido");
+        assert!(s.hover_animating(), "entrar en una card inicia el halo");
         let started = s.hover_started.expect("el instante de entrada");
 
         s.set_hover(Some(idx));
@@ -2003,23 +2057,27 @@ mod tests {
         assert!(s.hover_started.is_none(), "sin hover no hay animación");
     }
 
-    /// Pasada la duración, la animación termina sola y el bucle vuelve a
-    /// esperar sin repintar a 30 fps.
+    /// El halo gira en bucle: la fase vuelve a 0 cada `HOVER_CYCLE`, así que
+    /// sigue animándose mientras el puntero permanezca sobre la card.
     #[test]
-    fn hover_animation_expires() {
+    fn hover_phase_cycles_while_hovering() {
         let mut s = MenuState::new(ProjectType::GoWails, crate::theme::DEFAULT);
         s.set_hover(Some(s.tabs[Tab::DevMnt.index()].start));
-        assert!(s.hover_progress().is_some());
 
-        s.hover_started = Some(Instant::now() - HOVER_ANIM - Duration::from_millis(5));
-        assert!(!s.hover_animating());
-        assert!(s.hover_progress().is_none());
+        s.hover_started = Some(Instant::now() - HOVER_CYCLE / 2);
+        let half = s.hover_phase().expect("hay halo");
+        assert!((half - 0.5).abs() < 0.05, "media vuelta ≈ fase 0.5: {half}");
+
+        s.hover_started = Some(Instant::now() - HOVER_CYCLE * 3 / 2);
+        let wrapped = s.hover_phase().expect("el halo no caduca");
+        assert!((wrapped - 0.5).abs() < 0.05, "vuelta y media ≈ fase 0.5");
+        assert!(s.hover_animating(), "mientras haya hover el halo sigue");
     }
 
-    /// El barrido pinta sobre el borde de la card hovereada: a mitad de la
-    /// animación hay celdas del borde con un fg distinto al del hover en reposo.
+    /// El halo pinta sobre la card hovereada: el borde cambia de `fg` y el
+    /// interior de `bg` (resplandor), respecto del mismo hover sin animación.
     #[test]
-    fn hover_shimmer_brightens_the_card_border() {
+    fn hover_glow_brightens_the_border_and_the_interior() {
         use ratatui::backend::TestBackend;
 
         let mut term = Terminal::new(TestBackend::new(80, 30)).unwrap();
@@ -2030,15 +2088,15 @@ mod tests {
         let local = 1;
         let idx = state.tabs[Tab::DevMnt.index()].start + local;
         state.set_hover(Some(idx));
-        // Hover ya asentado, sin brillo: éste es el estado de referencia.
-        state.hover_started = Some(Instant::now() - HOVER_ANIM - Duration::from_millis(5));
+        // Hover sin halo: éste es el estado de referencia.
+        state.hover_started = None;
         term.draw(|f| draw_menu(f, &mut state, &ctx)).unwrap();
         let settled = term.backend().buffer().clone();
 
-        // A mitad del barrido, el borde de esa card cambia de color.
-        state.hover_started = Some(Instant::now() - HOVER_ANIM / 2);
+        // Media vuelta: la cabeza está en el borde y su resplandor, dentro.
+        state.hover_started = Some(Instant::now() - HOVER_CYCLE / 2);
         term.draw(|f| draw_menu(f, &mut state, &ctx)).unwrap();
-        let animating = term.backend().buffer().clone();
+        let glowing = term.backend().buffer().clone();
 
         let ui = state.ui.expect("layout dibujado");
         let rect = Rect {
@@ -2048,25 +2106,49 @@ mod tests {
             height: CARD_H,
         };
 
-        let mut changed = 0;
+        let mut border_changes = 0;
         for x in rect.x..rect.right() {
             for y in [rect.y, rect.bottom() - 1] {
-                if settled[(x, y)].fg != animating[(x, y)].fg {
-                    changed += 1;
+                if settled[(x, y)].fg != glowing[(x, y)].fg {
+                    border_changes += 1;
                 }
             }
         }
         for y in rect.y..rect.bottom() {
             for x in [rect.x, rect.right() - 1] {
-                if settled[(x, y)].fg != animating[(x, y)].fg {
-                    changed += 1;
+                if settled[(x, y)].fg != glowing[(x, y)].fg {
+                    border_changes += 1;
                 }
             }
         }
         assert!(
-            changed > 0,
-            "el barrido debe iluminar celdas del borde de la card hovereada"
+            border_changes > 0,
+            "el halo debe iluminar celdas del borde de la card hovereada"
         );
+
+        let mut interior_changes = 0;
+        for x in rect.x + 1..rect.right() - 1 {
+            if settled[(x, rect.y + 1)].bg != glowing[(x, rect.y + 1)].bg {
+                interior_changes += 1;
+            }
+        }
+        assert!(
+            interior_changes > 0,
+            "el resplandor debe teñir el fondo interior de la card"
+        );
+    }
+
+    /// El recorrido del halo por el perímetro no se sale del borde.
+    #[test]
+    fn perimeter_point_walks_the_border() {
+        let rect = Rect::new(3, 2, 10, 3);
+        for pos in [0.0, 4.9, 9.9, 10.0, 15.5, 21.9, 22.5] {
+            let (x, y) = perimeter_point(rect, pos);
+            assert!(
+                x == rect.x || x == rect.right() - 1 || y == rect.y || y == rect.bottom() - 1,
+                "pos={pos} cayó fuera del borde: ({x}, {y})"
+            );
+        }
     }
 
     /// Abrir el modal resalta el tema activo y permite previsualizar otro sin

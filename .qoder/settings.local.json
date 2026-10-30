@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(where qoder 2>/dev/null; where qodercli 2>/dev/null; ls \"$LOCALAPPDATA\" 2>/dev/null | grep -i qoder; ls \"$USERPROFILE/.qoder\" 2>/dev/null | head -20)",
+      "Bash(curl -fsSL https://qoder.com/install.ps1 2>/dev/null | grep -inE \"install_dir|LOCALAPPDATA|USERPROFILE|\\\\.qoder|bin|PATH|Exe|qoder\" | head -60)"
+    ]
+  }
+}
