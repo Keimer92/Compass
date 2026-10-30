@@ -69,9 +69,27 @@ if ($gitignoreFolderCommand -like '*start "" /D*' -or
 # `ExtendedSubCommandsKey`, y las sub-entadas viven en otra ruta, con prefijo
 # numérico (`01OpenCode`, `04Antigravity`...) porque Windows las ordena
 # alfabéticamente. Hay que mirar ahí, no en `zz_VibeCoding\shell`.
+#
+# Además de existir, el menú tiene que haberlo instalado *este* binario: cada
+# instalación escribe `CompassStamp` (mtime del exe en segundos). Si el exe
+# cambió de mtime, la lista de herramientas o sus comandos pueden haber
+# cambiado. Sin la marca (instalación anterior a ella) también se reinstala una
+# vez; sin esto, un binario recompilado dejaba el menú viejo porque
+# `01OpenCode` ya existía.
 $menuVibeCoding = 1
 if (Test-Path 'HKCU:\Software\Classes\Directory\ContextMenus\VibeCoding\shell\01OpenCode\command') {
     $menuVibeCoding = 0
+    $stampVibe = [string](Get-ItemProperty `
+        -Path 'HKCU:\Software\Classes\Directory\ContextMenus\VibeCoding' `
+        -Name 'CompassStamp' -ErrorAction SilentlyContinue).CompassStamp
+    $exeCompass = Join-Path $env:USERPROFILE '.cargo\bin\compass.exe'
+    if ([string]::IsNullOrEmpty($stampVibe)) {
+        $menuVibeCoding = 1
+    } elseif (Test-Path $exeCompass) {
+        $epoch = [datetime]::SpecifyKind([datetime]'1970-01-01', [System.DateTimeKind]::Utc)
+        $exeStamp = [string][long](((Get-Item $exeCompass).LastWriteTimeUtc) - $epoch).TotalSeconds
+        if ($stampVibe -ne $exeStamp) { $menuVibeCoding = 1 }
+    }
 }
 
 # Herramientas de Vibe Coding ausentes. Se comprueba aquí, y no en un segundo

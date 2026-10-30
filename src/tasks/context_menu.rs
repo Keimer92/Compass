@@ -175,6 +175,10 @@ Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_Vi
 const VIBE_KEY: &str = "zz_VibeCoding";
 const CTX_PATH: &str = "Directory\\ContextMenus\\VibeCoding";
 
+/// Valor del registro donde el instalador guarda el mtime del exe que escribió
+/// el menú. `assets/install-probe.ps1` lo lee con el mismo nombre.
+const MENU_STAMP: &str = "CompassStamp";
+
 /// Herramienta CLIexpuesta en el menú cascada "Vibe Coding".
 /// El ORDEN de este array define el orden en el submenú (Windows no tiene
 /// mechanism de orden explícito: ordena alfabéticamente por nombre de clave).
@@ -404,6 +408,22 @@ fn join_relative(base: &std::path::Path, relative: &str) -> std::path::PathBuf {
         .fold(base.to_path_buf(), |acc, part| acc.join(part))
 }
 
+/// Identifica el binario que instala el menú: mtime del `.exe` en segundos
+/// Unix.
+///
+/// `assets/install-probe.ps1` compara esta marca con el mtime del
+/// `compass.exe` instalado. Si no coinciden, el menú lo escribió otra versión
+/// y hay que reinstalarlo (puede tener menos sub-entradas o comandos viejos).
+fn menu_stamp() -> Option<String> {
+    let exe = std::env::current_exe().ok()?;
+    let modified = std::fs::metadata(exe).ok()?.modified().ok()?;
+    let secs = modified
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_secs();
+    Some(secs.to_string())
+}
+
 /// Instala el menú cascada "Vibe Coding" con las sub-entradas que estén disponibles.
 pub fn install_vibe_coding() -> Result<()> {
     let icon = opencode_icon();
@@ -475,6 +495,16 @@ pub fn install_vibe_coding() -> Result<()> {
             title = tool.title,
             icon = icon,
             cmdline = cmdline
+        ));
+    }
+
+    // Marca de qué binario instaló este menú. La sonda de `install.bat` la
+    // compara con el mtime del `compass.exe` instalado: si el binario cambió
+    // (nueva herramienta, comando distinto), el menú está desactualizado y se
+    // reinstala aunque `01OpenCode` ya exista.
+    if let Some(stamp) = menu_stamp() {
+        ps.push_str(&format!(
+            "Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\{CTX_PATH}' -Name 'CompassStamp' -Value '{stamp}' -Force; "
         ));
     }
 
