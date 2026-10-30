@@ -26,6 +26,7 @@ use ratatui::{
 use crate::container::{Container, BAR_HEIGHT};
 use crate::theme::{self, Theme};
 use crate::utils::cmd;
+use crate::utils::console_guard;
 use crate::utils::context::{ProjectContext, ProjectType};
 use crate::utils::platform;
 
@@ -535,6 +536,16 @@ struct MenuState {
     theme: &'static Theme,
     /// Selector de tema abierto (`Ctrl+T`). `None` = menú normal.
     picker: Option<ThemePicker>,
+    /// Aviso al salir con pestañas de tarea abiertas. `None` = no se ha
+    /// intentado salir todavía (o se canceló).
+    quit_confirm: Option<QuitConfirm>,
+}
+
+/// Datos del aviso de salida: cuántas pestañas hay y cuántas siguen vivas.
+#[derive(Debug, Clone, Copy)]
+struct QuitConfirm {
+    tabs: usize,
+    running: usize,
 }
 
 /// Estado del modal de temas.
@@ -671,6 +682,7 @@ impl MenuState {
             ui: None,
             theme,
             picker: None,
+            quit_confirm: None,
         }
     }
 
@@ -882,9 +894,12 @@ fn draw_menu_in(frame: &mut Frame, area: Rect, state: &mut MenuState, ctx: &Proj
     render_scrollbar(frame, ui, state.tab_len(), state.scroll, theme);
     render_footer(frame, ui.footer, theme, ctx);
 
-    // El modal va al final para quedar por encima de todo lo demás.
+    // Los modales van al final para quedar por encima de todo lo demás.
     if let Some(picker) = state.picker {
         render_theme_picker(frame, area, theme, picker);
+    }
+    if let Some(confirm) = state.quit_confirm {
+        render_quit_confirm(frame, area, theme, confirm);
     }
 
     state.ui = Some(ui);
@@ -1250,6 +1265,65 @@ fn render_theme_picker(frame: &mut Frame, area: Rect, theme: &Theme, picker: The
     frame.render_widget(Paragraph::new(Text::from(lines)).block(block), rect);
 }
 
+/// Aviso al salir: deja claro cuántas pestañas internas se cerrarán (y si
+/// alguna sigue con un proceso vivo) antes de matar sus árboles.
+fn render_quit_confirm(frame: &mut Frame, area: Rect, theme: &Theme, confirm: QuitConfirm) {
+    let w = 52u16.min(area.width);
+    let h = 6u16.min(area.height);
+    let x = area.x + (area.width.saturating_sub(w)) / 2;
+    let y = area.y + (area.height.saturating_sub(h)) / 2;
+    let rect = Rect {
+        x,
+        y,
+        width: w,
+        height: h,
+    };
+
+    frame.render_widget(Clear, rect);
+
+    let tabs = match confirm.tabs {
+        1 => " Hay 1 pestaña abierta.".to_string(),
+        n => format!(" Hay {n} pestañas abiertas."),
+    };
+    let running = match confirm.running {
+        0 => " Sus procesos ya terminaron.".to_string(),
+        1 => " 1 de ellas con un proceso en ejecución.".to_string(),
+        n => format!(" {n} de ellas con procesos en ejecución."),
+    };
+    let lines = vec![
+        Line::from(Span::styled(
+            tabs,
+            Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(Span::styled(running, Style::default().fg(theme.warning))),
+        Line::from(""),
+        Line::from(Span::styled(
+            " Al salir se cerrarán sus pestañas y procesos.",
+            Style::default().fg(theme.muted),
+        )),
+    ];
+
+    let block = Block::default()
+        .style(Style::default().bg(theme.background))
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(theme.warning))
+        .title(Span::styled(
+            " Salir de Compass ",
+            Style::default()
+                .fg(theme.warning)
+                .add_modifier(Modifier::BOLD),
+        ))
+        .title_bottom(Line::from(vec![
+            Span::styled(" Enter ", Style::default().fg(theme.text)),
+            Span::styled("salir y cerrar  ", Style::default().fg(theme.muted)),
+            Span::styled("Esc ", Style::default().fg(theme.text)),
+            Span::styled("cancelar ", Style::default().fg(theme.muted)),
+        ]));
+
+    frame.render_widget(Paragraph::new(Text::from(lines)).block(block), rect);
+}
+
 pub(crate) fn render_header(frame: &mut Frame, area: Rect, ctx: &ProjectContext, theme: &Theme) {
     let project_name = ctx
         .script_dir
@@ -1602,6 +1676,24 @@ fn handle_event(state: &mut MenuState, panes: &mut Container) -> anyhow::Result<
         return Ok(MenuAction::Continue);
     }
 
+    // Con el aviso de salida abierto el teclado le pertenece: Enter confirma
+    // (sale) y Esc o `n` cancelan. El ratón no responde, igual que en el modal
+    // de temas.
+    if state.quit_confirm.is_some() {
+        if let Event::Key(key) = evt {
+            if key.kind == KeyEventKind::Press {
+                match key.code {
+                    KeyCode::Enter => return Ok(MenuAction::Quit),
+                    KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => {
+                        state.quit_confirm = None;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        return Ok(MenuAction::Continue);
+    }
+
     match evt {
         Event::Key(key) if key.kind == KeyEventKind::Press => {
             state.set_hover(None);
@@ -1773,6 +1865,10 @@ pub fn run(ctx: &ProjectContext) -> anyhow::Result<()> {
     // tipo para distinguirlas de un vistazo.
     cmd::set_console_title(&ctx.window_title());
 
+    // Con pestañas internas, el cierre de la ventana anfitriona no debe
+    // llevarse por delante sus procesos (ver `utils::console_guard`).
+    console_guard::install();
+
     trace_event(&format!(
         "TERMINAL SIZE: {:?} | project: {}",
         terminal.size()?,
@@ -1795,6 +1891,19 @@ pub fn run(ctx: &ProjectContext) -> anyhow::Result<()> {
 
         match handle_event(&mut state, &mut panes)? {
             MenuAction::Quit => {
+                // Salir con pestañas abiertas mata sus procesos: se avisa una
+                // vez y se pide confirmación. Con el aviso ya abierto, el Enter
+                // llega aquí de nuevo y sale.
+                if state.quit_confirm.is_none() {
+                    let tabs = panes.tab_count();
+                    if tabs > 0 {
+                        state.quit_confirm = Some(QuitConfirm {
+                            tabs,
+                            running: panes.running_count(),
+                        });
+                        continue;
+                    }
+                }
                 // `process::exit` no ejecuta destructores: sin cerrar aquí
                 // las pestañas, sus procesos sobreviven a Compass.
                 panes.close_all();
@@ -2576,6 +2685,55 @@ mod tests {
         assert!(state.scroll > 0, "la última card exige desplazar la lista");
         let row = (state.local_selected() / state.cols) as u16;
         assert!(row >= state.scroll && row < state.scroll + visible_rows(state.vh) as u16);
+    }
+
+    /// Salir con pestañas abiertas mata sus procesos: el aviso debe decirlo y
+    /// ofrecer cancelar, antes de que el `close_all` llegue a ejecutarse.
+    #[test]
+    fn quit_confirm_warns_about_open_tabs() {
+        use ratatui::backend::TestBackend;
+
+        let ctx = test_ctx(ProjectType::Rust);
+        for (confirm, count_text) in [
+            (
+                QuitConfirm {
+                    tabs: 1,
+                    running: 0,
+                },
+                "Hay 1 pestaña abierta",
+            ),
+            (
+                QuitConfirm {
+                    tabs: 3,
+                    running: 2,
+                },
+                "Hay 3 pestañas abiertas",
+            ),
+        ] {
+            let mut term = Terminal::new(TestBackend::new(100, 30)).unwrap();
+            let mut state = MenuState::new(ProjectType::Rust, crate::theme::DEFAULT);
+            state.quit_confirm = Some(confirm);
+            term.draw(|f| draw_menu(f, &mut state, &ctx)).unwrap();
+
+            let buf = term.backend().buffer();
+            let screen: String = (0..buf.area.height)
+                .map(|y| {
+                    (0..buf.area.width)
+                        .map(|x| buf[(x, y)].symbol())
+                        .collect::<String>()
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            assert!(screen.contains(count_text), "falta el aviso: {screen}");
+            assert!(
+                screen.contains("Al salir se cerrarán sus pestañas"),
+                "el aviso debe explicar qué se cerrará: {screen}"
+            );
+            assert!(
+                screen.contains("cancelar"),
+                "Esc debe poder cancelar la salida: {screen}"
+            );
+        }
     }
 
     /// El encabezado muestra la versión real del binario (`CARGO_PKG_VERSION`),

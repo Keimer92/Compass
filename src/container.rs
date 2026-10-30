@@ -30,7 +30,7 @@ use ratatui::Frame;
 use tui_term::widget::PseudoTerminal;
 
 use crate::theme::Theme;
-use crate::utils::cmd;
+use crate::utils::{cmd, console_guard};
 
 /// Espera del bucle del terminal (≈30 fps): así la salida del hijo y el
 /// cursor se ven fluir, y la pulsación de una tecla no espera al siguiente
@@ -178,6 +178,11 @@ impl PtySession {
         self.exited.load(Ordering::Relaxed)
     }
 
+    /// PID del shell de la pestaña (`0` si el sistema no lo dio).
+    pub fn pid(&self) -> u32 {
+        self.pid
+    }
+
     /// Mata el árbol de procesos de la pestaña.
     ///
     /// `taskkill /T` hace falta porque matar sólo al `pwsh` de la pestaña deja
@@ -230,6 +235,19 @@ impl Container {
         self.active
     }
 
+    /// Pestañas de tarea abiertas (el menú no cuenta).
+    pub fn tab_count(&self) -> usize {
+        self.panes.len()
+    }
+
+    /// Pestañas cuyo proceso sigue vivo; al salir se matan sus árboles.
+    pub fn running_count(&self) -> usize {
+        self.panes
+            .iter()
+            .filter(|pane| !pane.session.is_exited())
+            .count()
+    }
+
     /// Abre una pestaña nueva y le da el foco.
     pub fn open(
         &mut self,
@@ -240,9 +258,13 @@ impl Container {
         cols: u16,
     ) -> Result<()> {
         let session = PtySession::spawn(script, dir, rows, cols)?;
+        console_guard::register_pane(session.pid());
         self.panes.push(Pane { title, session });
         self.active = Some(self.panes.len() - 1);
         self.last = self.active;
+        // Con pestañas abiertas, conhost no deja cerrar la ventana anfitriona
+        // de golpe: la salida pasa por el aviso del menú.
+        console_guard::set_open_tabs(self.panes.len());
         Ok(())
     }
 
@@ -314,6 +336,8 @@ impl Container {
             return;
         }
         let pane = self.panes.remove(i);
+        console_guard::unregister_pane(pane.session.pid());
+        console_guard::set_open_tabs(self.panes.len());
         pane.session.close();
         if self.panes.is_empty() {
             self.active = None;
@@ -338,8 +362,10 @@ impl Container {
     /// ejecuta destructores).
     pub fn close_all(&mut self) {
         for pane in self.panes.drain(..) {
+            console_guard::unregister_pane(pane.session.pid());
             pane.session.close();
         }
+        console_guard::set_open_tabs(0);
         self.active = None;
         self.last = None;
     }

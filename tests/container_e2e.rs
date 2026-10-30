@@ -6,8 +6,9 @@
 //! 1. una card abre una **pestaña** dentro de Compass (barra `Inicio │ 1 Git`),
 //! 2. la tarea corre dentro de esa pestaña (se ve su submenú),
 //! 3. F12 vuelve al menú sin cerrar la pestaña,
-//! 4. F12 de nuevo regresa a la pestaña,
-//! 5. Ctrl+W cierra la pestaña y deja el menú.
+//! 4. Esc avisa de que hay pestañas abiertas y Esc cancela la salida,
+//! 5. F12 de nuevo regresa a la pestaña,
+//! 6. Ctrl+W cierra la pestaña y deja el menú.
 //!
 //! Se ejecuta a mano porque depende del sistema y tarda unos segundos:
 //!
@@ -143,25 +144,43 @@ fn card_opens_a_session_tab_and_f12_switches_between_menu_and_tab() {
         s.contains("Inicializar reposit") && s.contains("GIT 5") && s.contains("volver")
     });
 
-    // 4. F12 vuelve al menú sin cerrar la pestaña.
+    // 4. F12 vuelve al menú sin cerrar la pestaña. La espera no puede fiarse
+    //    de "Proyecto:": el submenú reutiliza la cabecera y también lo pinta.
+    //    La fila de pestañas solo existe en el menú.
     h.send(b"\x1b[24~");
     h.wait_until("el menú tras F12", |s| {
-        s.contains("Proyecto:") && s.contains("1 Git")
+        s.contains("DESARROLLO · MNT") && s.contains("1 Git")
     });
 
-    // 5. F12 de nuevo regresa a la pestaña (su pantalla seguía viva).
+    // 5. Esc con la pestaña abierta no sale: avisa de que hay pestañas
+    //    internas y sus procesos se cerrarían.
+    h.send(b"\x1b");
+    h.wait_until("el aviso de pestañas abiertas", |s| {
+        s.contains("pestaña abierta")
+            && s.contains("proceso en ejecución")
+            && s.contains("cancelar")
+    });
+
+    // 6. El segundo Esc cancela el aviso y deja el menú intacto.
+    h.send(b"\x1b");
+    h.wait_until("el menú tras cancelar la salida", |s| {
+        s.contains("DESARROLLO · MNT") && !s.contains("pestaña abierta")
+    });
+
+    // 7. F12 regresa a la pestaña (su pantalla seguía viva).
     h.send(b"\x1b[24~");
     h.wait_until("la pestaña tras el segundo F12", |s| {
         s.contains("Inicializar reposit") && s.contains("1 Git")
     });
 
-    // 6. Ctrl+W cierra la pestaña y vuelve al menú.
+    // 8. Ctrl+W cierra la pestaña y vuelve al menú.
     h.send(b"\x17");
     h.wait_until("el cierre de la pestaña", |s| {
         s.contains("Proyecto:") && !s.contains("1 Git")
     });
 
-    // 7. Esc sale de Compass; el proceso hijo debe terminar.
+    // 9. Esc sale de Compass (ya sin pestañas, sin aviso); el proceso hijo
+    //    debe terminar.
     //
     // El cierre con el botón `×` del ratón no se prueba aquí: crossterm lee
     // los eventos de ratón de los registros de consola de Windows, y una

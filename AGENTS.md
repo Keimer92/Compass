@@ -150,7 +150,7 @@ y desaparece al salir.
 | `↑` `↓` | mueven una **fila** de la rejilla (`±cols`) sin salir de la pestaña |
 | `Tab` / `Shift+Tab` | pestaña siguiente / anterior |
 | `Enter` | ejecuta la card seleccionada |
-| `Esc` | sale |
+| `Esc` | sale (con pestañas internas abiertas, pide confirmación) |
 | `Ctrl+T` | abre el modal de temas |
 | rueda del ratón | mueve una fila (`∓1`), así nunca contradice lo que se ve |
 | clic izquierdo | ejecuta la card bajo el cursor (`hover` se actualiza con la actividad del ratón); los huecos entre cards no responden |
@@ -335,7 +335,8 @@ menu.rs
   │   hovereada (borde + resplandor interior); perimeter_point() ubica la cabeza
   ├─ draw_ui() — frame completo: barra de pestañas del `Container` (1 línea) +
   │   menú o sesión activa; `draw_menu_in(area)` permite pintar el menú debajo
-  ├─ Sin botón Salir: `Esc` cierra el programa (`MenuAction::Quit`)
+  ├─ Sin botón Salir: `Esc` cierra el programa (`MenuAction::Quit`); si hay
+  │   pestañas de tarea abiertas, antes pide confirmación (`quit_confirm`)
   └─ run(): loop draw_ui → (pestaña activa → `panes.poll_input()`) o
       handle_event → Run abre una **pestaña** con el CLI de la tarea (fallback a
       ventana externa si la ConPTY falla o con `COMPASS_EXTERNAL_WINDOWS=1`)
@@ -346,6 +347,7 @@ utils/
   ├─ cmd.rs — shell()/shell_path()/ps_quote/embedded(), run*, run_ps*, set_console_title, spawn_new_window_autoexit, spawn_new_window_interactive [en modo embebido ejecutan en la consola actual], run_build_and_reveal, run_in_current_window, run_shell_status, run_npm_install, clear_screen, remove_dir
   ├─ tauri.rs — command(), ensure(), cli_entry() [CLI sin shim de .bin + reinstalación si falta el binding nativo]
   ├─ ui.rs — ask_text(), ask_password(), success_banner(), info_banner(), pause()
+  ├─ console_guard.rs — guarda del cierre de la ventana anfitriona: install() [SetConsoleCtrlHandler], set_open_tabs(), register_pane()/unregister_pane(); en conhost deshabilita SC_CLOSE con pestañas abiertas y en el cierre mata los árboles + aviso nativo
   └─ android.rs — select_device(), wait_for_device_boot(), list_physical_devices() [sólo dispositivos físicos]
 
 tasks/
@@ -627,6 +629,32 @@ Detalles que importan:
   matar sólo al `pwsh` de la pestaña dejaría vivos a `cargo`/`gradlew`/`flutter`
   escribiendo en la ConPTY. `process::exit` no ejecuta destructores, así que
   `run()` llama a `panes.close_all()` antes de salir.
+- **Salir con pestañas abiertas pide confirmación**: `Esc` en el menú no sale
+  directamente si el contenedor tiene pestañas de tarea (`Container::tab_count`)
+  —se matarían sus árboles—. `MenuState.quit_confirm` abre un aviso modal con la
+  cuenta y cuántas siguen con un proceso vivo (`running_count`), y exige
+  `Enter` para salir; `Esc` (o `n`) cancela y deja el menú como estaba. Sin
+  pestañas, `Esc` sale de inmediato. El modal reutiliza el estilo del de temas
+  (`Clear` + caja redondeada, borde en `warning`) y mientras está abierto el
+  teclado es suyo. Cubierto por `menu::tests::quit_confirm_warns_about_open_tabs`.
+- **Cierre de la ventana anfitriona** (`utils/console_guard.rs`): la `×` del
+  terminal no pasa por el menú, así que el proceso moriría sin cerrar las
+  pestañas. `install()` registra `SetConsoleCtrlHandler` y el contenedor
+  sincroniza la cuenta con `set_open_tabs()` y los PIDs con
+  `register_pane()`/`unregister_pane()`.
+  - **conhost**: con pestañas abiertas se deshabilita `SC_CLOSE` del menú del
+    sistema (`GetSystemMenu` + `EnableMenuItem(MF_GRAYED)` + `DrawMenuBar`), así
+    que la `×` no cierra; se rehabilita al cerrar la última. La salida segura es
+    `Esc` → modal → `Enter`.
+  - **Windows Terminal**: el host cierra la ConPTY y la app **no puede vetarlo**
+    (microsoft/terminal#6549; `EnableMenuItem` no afecta a la `×` de su
+    pestaña). Al recibir `CTRL_CLOSE_EVENT` el manejador mata los árboles de las
+    pestañas (`taskkill /T`) y muestra un aviso nativo (`MessageBoxW`) con la
+    cuenta; el cierre sigue adelante. Es lo máximo que permite el host.
+  - `CTRL_LOGOFF_EVENT`/`CTRL_SHUTDOWN_EVENT` solo matan los árboles, sin
+    diálogo (no se debe bloquear un apagado).
+  - Sin `install()` (tests, tareas CLI) el módulo es inerte: `set_open_tabs()`
+    solo guarda el contador y no toca Win32.
 - **El ratón se reenvía a la pestaña activa**: un clic en la barra lo consume el
   contenedor (selecciona/cierra), y el resto se codifica como **SGR 1006** con
   `encode_mouse_sgr` y se escribe en la ConPTY, con la fila **relativa al
@@ -1362,7 +1390,8 @@ fallback a `npx.cmd`. De `container.rs`, la codificación de teclas a xterm
 (texto, control, flechas, Alt y F1–F12), el recorte de títulos largos de la
 barra y el que la zona clicable del `×` cubra la celda donde el `Paragraph`
 pinta el glifo (sin ConPTY: dibuja la barra en un `TestBackend` y busca el `×`
-en el buffer).
+en el buffer). De `console_guard.rs`, el texto del aviso (singular/plural y la
+indicación de usar `Esc`) y que sin `install()` el contador no toca Win32.
 
 Dos pruebas abren una **ConPTY real** y están `#[ignore]` porque dependen del
 sistema y tardan unos segundos:
@@ -1377,9 +1406,12 @@ segunda (`tests/container_e2e.rs`) arranca el `compass.exe` real en una ConPTY
 de 120×35, entra en `CONFIGURACIÓN`, ejecuta la card Git y verifica la secuencia
 completa: primera fila con las cajas redondeadas `Compass` y `1 Git ×`, submenú
 de Git dentro de la pestaña (con el estilo del menú: `GIT 5` y `volver`), F12 al
-menú sin cerrar la pestaña, F12 de vuelta, Ctrl+W para cerrarla y Esc para salir.
-El clic del `×` y el hover no se simulan: crossterm lee el ratón de los registros
-de consola y una ConPTY no los genera.
+menú sin cerrar la pestaña, `Esc` con la pestaña abierta (aviso de salida, luego
+`Esc` para cancelarlo), F12 de vuelta, Ctrl+W para cerrarla y `Esc` para salir.
+La espera del menú no puede usar `Proyecto:`: el submenú reutiliza la cabecera y
+también lo pinta; se distingue por la fila `DESARROLLO · MNT`. El clic del `×` y
+el hover no se simulan: crossterm lee el ratón de los registros de consola y una
+ConPTY no los genera.
 
 De `tasks/submenu.rs` se cubren la rejilla compartida (cada centro de card
 resuelve a su índice, huecos y cabecera no son cards), la cabecera con la versión
