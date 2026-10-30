@@ -306,7 +306,7 @@ tasks/
   ├─ git.rs     — manage() [submenú unificado: init / .gitignore / conectar con remoto / estado]; templates de .gitignore por tipo
   ├─ signer.rs  — dominio único de firmas: manage() [submenú], android_layout(), detect()/SigningInfo [autodetección], Props (parseo de properties), crear/importar/manual, patch_build_gradle(), huellas (keytool), respaldos, base64 + secretos de GitHub Actions, verify_apk() [apksigner]
   ├─ terminal.rs — configure() [perfil PSReadLine según la versión instalada]
-  ├─ context_menu.rs — install/uninstall/toggle para Compass + Vibe Coding (menú cascada con ExtendedSubCommandsKey: OpenCode, Kilo Code, Cline, Antigravity, Kiro CLI, Hermes, Copilot CLI)
+  ├─ context_menu.rs — install/uninstall/toggle para Compass + Vibe Coding (menú cascada con ExtendedSubCommandsKey: OpenCode, Kilo Code, Cline, Antigravity, Copilot CLI, Kiro CLI, Qoder CLI, Hermes)
   └─ whatsapp.rs — build()
   └─ version.rs — bump() [port de versionar.bat: Tauri/Rust, todo-o-nada]
 ```
@@ -397,7 +397,7 @@ módulo recalcula estas rutas (antes estaban copiadas en cuatro sitios).
 |---------|---------|----------------|
 | **Compass** | `"<exe_path>" "%1"` | `HKCR\Directory\shell\zz_Compass` |
 
-### Vibe Coding (menú cascada: 7 agentes)
+### Vibe Coding (menú cascada: 8 agentes)
 
 Usa el método **`ExtendedSubCommandsKey`** (el oficial de Windows para menús cascada, mismo que usa Command Prompt y PowerShell).
 
@@ -415,7 +415,8 @@ HKCU\Software\Classes\Directory\ContextMenus\VibeCoding\shell
   04Antigravity  → command
   05Copilot      → command
   06KiroCli      → command
-  07Hermes       → command
+  07QoderCli     → command
+  08Hermes       → command
 ```
 
 ⚠️ Las sub-entradas **no** cuelgan de `zz_VibeCoding\shell`: cuelgan de `Directory\ContextMenus\VibeCoding\shell` (ruta compartida con `Directory\Background`), y `zz_VibeCoding` sólo lleva el puntero `ExtendedSubCommandsKey`. Buscar en el sitio equivocado es lo que hacía que `install.bat` reinstallara el menú en cada ejecución.
@@ -428,17 +429,20 @@ HKCU\Software\Classes\Directory\ContextMenus\VibeCoding\shell
 | 04 | **Antigravity** | `cmd.exe /c start "Antigravity" /D "%V" cmd.exe /c "agy --dangerously-skip-permissions"` | Abre Antigravity omitiendo todos los prompts de permisos |
 | 05 | **Copilot CLI** | `cmd.exe /c start "Copilot CLI" /D "%V" cmd.exe /c "copilot --yolo"` | Abre GitHub Copilot CLI con todos los permisos (`--yolo` = `--allow-all-tools --allow-all-paths --allow-all-urls`) |
 | 06 | **Kiro CLI** | `cmd.exe /c start "Kiro CLI" /D "%V" cmd.exe /c "kiro-cli chat --trust-all-tools"` | Abre Kiro CLI con confianza total de sesión (YOLO mode). El binario es **`kiro-cli`**, no `kiro` |
-| 07 | **Hermes** | `cmd.exe /c start "Hermes" /D "%V" cmd.exe /c "hermes"` | Abre Hermes (Nous Research), sin flags: su TUI arranca a pelo |
+| 07 | **Qoder CLI** | `cmd.exe /c start "Qoder CLI" /D "%V" cmd.exe /c "qodercli --yolo"` | Abre Qoder CLI en YOLO mode (`--yolo` = `--permission-mode bypass_permissions`). El binario real es **`qodercli`**; `qoder` es el dispatcher que instala el script |
+| 08 | **Hermes** | `cmd.exe /c start "Hermes" /D "%V" cmd.exe /c "hermes"` | Abre Hermes (Nous Research), sin flags: su TUI arranca a pelo |
 
 ⚠️ **Kiro CLI no tiene comando de instalación**: se instala con su `.exe` (o `winget install Kiro-CLI`), no desde la terminal. Por eso `install` va **vacío** en su entrada de `VIBE_TOOLS`, y eso significa explícitamente **"detectar e instalar el submenú, pero no preguntar por instalarlo"**. `ensure_tools_installed()` salta el bucle de preguntas cuando `install` está vacío y sólo avisa. Preguntar algo a lo que no se puede responder con un Enter sería un bucle sin salida. Cubierto por `a_empty_install_means_detect_only_never_ask`.
 
 ⚠️ Kiro rompe el patrón de rutas del resto: su instalador lo deja en `%LOCALAPPDATA%\Kiro-Cli\kiro-cli.exe`, **plano y sin subcarpeta `bin`**, al contrario que `%LOCALAPPDATA%\agy\bin` y `%LOCALAPPDATA%\hermes\bin`. La sonda de `install.bat` lo tiene en un mapa `$nombres` por eso.
 
-⚠️ **Hermes, Antigravity y Copilot CLI no se detectan sólo por el PATH.** Los instaladores nativos de Hermes y Antigravity dejan el binario en su propia carpeta (`%LOCALAPPDATA%\hermes\bin`, `%LOCALAPPDATA%\agy\bin`) y no siempre lo agregan al PATH del usuario; winget lo deja en `%LOCALAPPDATA%\Microsoft\WinGet\Links`. Por eso `VibeTool::fallback` declara rutas alternativas con prefijo `LOCALAPPDATA/` o `HOME/`, que `fallback_candidates()` expande. **Los npm globales no necesitan nada de esto** (npm sí modifica el PATH), y hay un test que lo comprueba (`native_installers_declare_a_localappdata_fallback`).
+⚠️ Qoder también rompe el patrón, y por partida doble: el instalador (`irm https://qoder.com/install.ps1 | iex`) **delega en `qodercli install`**, que coloca el ejecutable bajo `%USERPROFILE%\.qoder` (`…\.qoder\bin\qodercli\qodercli.exe`), no bajo `%LOCALAPPDATA%`. Por eso sus fallbacks usan el prefijo `HOME/` (que `fallback_candidates()` expande con `USERPROFILE`), y la sonda de `install.bat` lo comprueba como caso especial. El comando documentado es `qoder`, pero es un dispatcher `.cmd` que arranca PowerShell para delegar en `qodercli`: el menú invoca el binario directo.
+
+⚠️ **Hermes, Antigravity, Copilot CLI y Qoder CLI no se detectan sólo por el PATH.** Los instaladores nativos de Hermes y Antigravity dejan el binario en su propia carpeta (`%LOCALAPPDATA%\hermes\bin`, `%LOCALAPPDATA%\agy\bin`) y no siempre lo agregan al PATH del usuario; winget lo deja en `%LOCALAPPDATA%\Microsoft\WinGet\Links`, y el de Qoder en `%USERPROFILE%\.qoder`. Por eso `VibeTool::fallback` declara rutas alternativas con prefijo `LOCALAPPDATA/` o `HOME/`, que `fallback_candidates()` expande. **Los npm globales no necesitan nada de esto** (npm sí modifica el PATH), y hay un test que lo comprueba (`native_installers_declare_a_fallback_outside_the_path`). Al resolver por fallback, `resolve_tool_command()` **conserva los argumentos** y entrecomilla la ruta (`"<ruta>" --yolo`), así el modo autónomo no se pierde.
 
 ### Instalación de las herramientas (`vibe-setup`)
 
-`ensure_tools_installed()` detecta cuáles de las 7 faltan. **Sólo pregunta por las que tienen instalador**: Kiro CLI se avisa pero no se pregunta, porque va con `.exe`. El comando de instalación vive en `VibeTool::install`, verificado en la documentación oficial de cada producto:
+`ensure_tools_installed()` detecta cuáles de las 8 faltan. **Sólo pregunta por las que tienen instalador**: Kiro CLI se avisa pero no se pregunta, porque va con `.exe`. El comando de instalación vive en `VibeTool::install`, verificado en la documentación oficial de cada producto:
 
 | Herramienta | `install` | `install_via` |
 |---|---|---|
@@ -447,6 +451,7 @@ HKCU\Software\Classes\Directory\ContextMenus\VibeCoding\shell
 | Cline | `npm install -g cline` | `Cmd` |
 | Antigravity | `irm https://antigravity.google/cli/install.ps1 \| iex` | `PowerShell` |
 | Kiro CLI | *(ninguno: `.exe`)* | — |
+| Qoder CLI | `irm https://qoder.com/install.ps1 \| iex` | `PowerShell` |
 | Hermes | `iex (irm https://hermes-agent.nousresearch.com/install.ps1)` | `PowerShell` |
 | Copilot CLI | `winget install --id GitHub.Copilot --exact --accept-source-agreements --accept-package-agreements` | `Cmd` |
 
@@ -471,6 +476,7 @@ HKCU\Software\Classes\Directory\ContextMenus\VibeCoding\shell
 - **Antigravity CLI**: binario nativo (no npm) instalado por `irm https://antigravity.google/cli/install.ps1 | iex` → `%LOCALAPPDATA%\agy\bin\agy.exe`. No siempre está en PATH; `resolve_tool_command()` hace fallback a esa ruta si `Get-Command agy` falla.
 - **Hermes CLI** (Nous Research): instalador nativo `iex (irm https://hermes-agent.nousresearch.com/install.ps1)`. En Windows nativo vive bajo `%LOCALAPPDATA%\hermes\bin` (el README lo dice explícitamente). Mismo caso de fallback que Antigravity. `hermes` arranca su TUI sin flags; `hermes-acp` es el servidor ACP para editores y no va al menú.
 - **Kiro CLI** (AWS): se instala con su `.exe` (`winget install Kiro-CLI` o el instalador de kiro.dev), **no hay comando de terminal**. El ejecutable queda en `%LOCALAPPDATA%\Kiro-Cli\kiro-cli.exe` — nótese que **no** sigue el patrón `…\<tool>\bin` del resto, por eso la sonda de `install.bat` lo lleva en un mapa. El subcomando para chatear es `kiro-cli chat`; `--tui` fuerza la interfaz nueva y `--legacy-ui` la antigua. `install` va vacío en `VIBE_TOOLS`, que significa "detectar, nunca preguntar por instalarlo".
+- **Qoder CLI** (Qoder): instalador nativo recomendado `irm https://qoder.com/install.ps1 | iex`; existe un paquete npm de compatibilidad (`npm install -g @qoder-ai/qodercli`), pero la propia documentación lo desaconseja para instalaciones nuevas. `--yolo` equivale a `--permission-mode bypass_permissions` (aprueba todas las herramientas sin popups); es un flag oculto en `--help`, pero documentado en docs.qoder.com/cli/cli-reference. La documentación invoca `qoder --version`, pero ese `qoder` es un dispatcher `.cmd` que arranca PowerShell y delega en **`qodercli`** (el nombre del binario que descarga el instalador); el menú usa `qodercli --yolo` directo. El instalador delega en `qodercli install`, que coloca el ejecutable bajo `%USERPROFILE%\.qoder\bin\qodercli\` y configura el PATH para terminales nuevas, así que en el proceso actual hace falta el fallback `HOME/`.
 - **Copilot CLI** (GitHub): se instala con `winget install --id GitHub.Copilot --exact` (paquete `GitHub.Copilot`), **no por npm**. Con `--yolo` arranca con todos los permisos concedidos (`--allow-all` = `--allow-all-tools --allow-all-paths --allow-all-urls`); sin flags la TUI pide confirmación por herramienta. ⚠️ winget **no** sigue el patrón `%LOCALAPPDATA%\<tool>\bin`: crea el enlace en `%LOCALAPPDATA%\Microsoft\WinGet\Links\copilot.exe`, y ésa es la ruta que declara `VibeTool::fallback` y la que comprueba la sonda de `install.bat`. Ojo también con el shim que instala VS Code en `%ProgramFiles%\Microsoft VS Code\bin\copilot-shim\`, que está antes en el PATH y responde igual, así que `Get-Command copilot` puede acertar aunque winget aún no haya refrescado el PATH.
 - `install.bat` instala/actualiza Vibe Coding con detección de "ya instalado".
 - El menú interactivo `toggle()` gestiona Compass + Vibe Coding + "Instalar todos" / "Desinstalar todos".

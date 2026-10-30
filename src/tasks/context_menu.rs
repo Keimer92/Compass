@@ -169,7 +169,7 @@ Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_Vi
     Ok(())
 }
 
-// ── Vibe Coding (menú cascada: OpenCode + Kilo Code + Cline + Antigravity) ──
+// ── Vibe Coding (menú cascada con todas las CLIs de `VIBE_TOOLS`) ──
 // Usa ExtendedSubCommandsKey (método oficial de Windows para menús cascada)
 
 const VIBE_KEY: &str = "zz_VibeCoding";
@@ -195,8 +195,9 @@ struct VibeTool {
     /// Rutas donde el instalador deja el ejecutable cuando **no** lo agrega al
     /// PATH. Los npm globales sí lo hacen, así que para ellos va vacía.
     ///
-    /// Con prefijo `LOCALAPPDATA/` se expanden. Los instaladores nativos dejan el binario
-    /// en su propia carpeta y no siempre tocan el PATH del usuario.
+    /// Con prefijo `LOCALAPPDATA/` o `HOME/` se expanden. Los instaladores
+    /// nativos dejan el binario en su propia carpeta y no siempre tocan el PATH
+    /// del usuario.
     fallback: &'static [&'static str],
     install_via: InstallVia,
 }
@@ -213,18 +214,20 @@ enum InstallVia {
 }
 
 /// Orden solicitado: OpenCode → Kilo Code → Cline → Antigravity → Copilot CLI
-/// → Kiro CLI → Hermes.
+/// → Kiro CLI → Qoder CLI → Hermes.
 /// Los prefijos numéricos fuerzan ese orden porque Windows ordena las
-/// sub-claves de `shell` alfabéticamente (01 < 02 < … < 07).
+/// sub-claves de `shell` alfabéticamente (01 < 02 < … < 08).
 ///
 /// `cli` es lo que se ejecuta al elegir la entrada del menú; el primer token es
 /// el binario que [`resolve_tool_command`] busca en el PATH. Para Kiro CLI ese
-/// token es `kiro-cli`, que es como nombra el ejecutable el instalador.
+/// token es `kiro-cli`, que es como nombra el ejecutable el instalador, y para
+/// Qoder es `qodercli` (la documentación lo invoca como `qoder`, que es un
+/// dispatcher `.cmd` que delega en `qodercli`).
 ///
 /// Comandos de instalación verificados en la documentación oficial de cada
 /// producto (opencode.ai/download, kilo.ai/docs, docs.cline.bot,
-/// antigravity.google/docs, kiro.dev, hermes-agent.nousresearch.com y
-/// docs.github.com/copilot/how-tos/copilot-cli).
+/// antigravity.google/docs, kiro.dev, hermes-agent.nousresearch.com,
+/// qoder.com/cli y docs.github.com/copilot/how-tos/copilot-cli).
 const VIBE_TOOLS: &[VibeTool] = &[
     VibeTool {
         key: "01OpenCode",
@@ -304,7 +307,28 @@ const VIBE_TOOLS: &[VibeTool] = &[
         install_via: InstallVia::Cmd,
     },
     VibeTool {
-        key: "07Hermes",
+        key: "07QoderCli",
+        title: "Qoder CLI",
+        // `--yolo` equivale a `--permission-mode bypass_permissions`: aprueba
+        // todas las herramientas sin pedir confirmación (docs.qoder.com/cli/cli-reference).
+        // El binario real es `qodercli`; `qoder` es el dispatcher que instala el
+        // script de instalación y la documentación usa para invocarlo.
+        cli: "qodercli --yolo",
+        // Instalador nativo recomendado por la documentación (`irm … | iex`).
+        // Existe un paquete npm de compatibilidad, pero el propio instalador
+        // desaconseja usarlo en instalaciones nuevas.
+        install: "irm https://qoder.com/install.ps1 | iex",
+        // El instalador delega en `qodercli install`, que coloca el ejecutable
+        // bajo `%USERPROFILE%\.qoder` y configura el PATH para terminales
+        // nuevas, no para el proceso que acaba de instalarlo.
+        fallback: &[
+            "HOME/.qoder/bin/qodercli/qodercli.exe",
+            "HOME/.qoder/bin/qodercli.exe",
+        ],
+        install_via: InstallVia::PowerShell,
+    },
+    VibeTool {
+        key: "08Hermes",
         title: "Hermes",
         cli: "hermes",
         // Hermes arranca su TUI a pelo, sin flags: `hermes` a secas.
@@ -317,25 +341,30 @@ const VIBE_TOOLS: &[VibeTool] = &[
 
 /// Resuelve el ejecutable real de una herramienta de Vibe Coding.
 ///
-/// Primero busca en el PATH. Para `agy` (binario nativo, no npm) hace fallback a
-/// las rutas de instalación conocidas, porque el instalador de Antigravity no
-/// lo agrega al PATH por defecto.
-///
+/// Primero busca en el PATH. Si el binario no está ahí (instalador nativo que
+/// aún no ha refrescado el PATH), prueba las rutas conocidas de
+/// [`VibeTool::fallback`] y devuelve el comando con sus argumentos intactos:
+/// `"<ruta>" --yolo` sigue siendo el modo YOLO, no sólo el ejecutable.
 fn resolve_tool_command(tool: &VibeTool) -> Option<(String, String)> {
-    if command_exists(tool.cli.split_whitespace().next().unwrap_or(tool.cli)) {
+    let (bin, args) = match tool.cli.split_once(' ') {
+        Some((bin, args)) => (bin, Some(args)),
+        None => (tool.cli, None),
+    };
+
+    if command_exists(bin) {
         return Some((tool.cli.to_string(), String::new()));
     }
 
-    // Fallback: ruta conocida de instalación de Antigravity CLI. En Windows es
-    // `%LOCALAPPDATA%\agy\bin\agy.exe`, que no se agrega al PATH por defecto.
-    // Segundo intento: la ruta fija donde el instalador deja el ejecutable cuando
-    // no lo mete en el PATH. Se declara por herramienta en vez de codificar el
-    // caso de Antigravity aquí, porque si no cada agente nuevo obliga a tocar
-    // esta función.
     for candidate in fallback_candidates(tool) {
         if candidate.exists() {
             if let Some(p) = candidate.to_str() {
-                return Some((p.to_string(), p.to_string()));
+                // Comillas porque la ruta puede tener espacios (p. ej. el
+                // perfil de Windows).
+                let cmd = match args {
+                    Some(args) => format!("\"{p}\" {args}"),
+                    None => format!("\"{p}\""),
+                };
+                return Some((cmd, p.to_string()));
             }
         }
     }
@@ -345,7 +374,8 @@ fn resolve_tool_command(tool: &VibeTool) -> Option<(String, String)> {
 
 /// Rutas donde puede estar el ejecutable de `tool` sin estar en el PATH.
 ///
-/// El prefijo `LOCALAPPDATA/` se expande; las rutas absolutas se dejan tal cual.
+/// Los prefijos `LOCALAPPDATA/` y `HOME/` se expanden; las rutas absolutas se
+/// dejan tal cual.
 fn fallback_candidates(tool: &VibeTool) -> Vec<std::path::PathBuf> {
     let mut out = Vec::new();
 
@@ -353,6 +383,10 @@ fn fallback_candidates(tool: &VibeTool) -> Vec<std::path::PathBuf> {
         if let Some(rest) = hint.strip_prefix("LOCALAPPDATA/") {
             if let Ok(local) = std::env::var("LOCALAPPDATA") {
                 out.push(join_relative(std::path::Path::new(&local), rest));
+            }
+        } else if let Some(rest) = hint.strip_prefix("HOME/") {
+            if let Some(home) = crate::utils::platform::home_dir() {
+                out.push(join_relative(&home, rest));
             }
         } else {
             out.push(std::path::PathBuf::from(hint));
@@ -392,7 +426,7 @@ pub fn install_vibe_coding() -> Result<()> {
         .collect();
 
     if resolved.is_empty() {
-        println!("[WARN] No se encontró opencode, kilo, cline ni agy en el PATH.");
+        println!("[WARN] No se encontró ninguna CLI de Vibe Coding (ni en el PATH ni en sus rutas de instalación).");
         println!("[WARN] Se instalará el menú Vibe Coding sin sub-entradas.");
         println!("[WARN] Instala las CLIs y vuelve a ejecutar el instalador.");
     } else {
@@ -641,7 +675,8 @@ mod tests {
                 InstallVia::Cmd,
             ),
             ("06KiroCli", "Kiro CLI", "", InstallVia::Cmd),
-            ("07Hermes", "Hermes", "iex (irm https://hermes-agent.nousresearch.com/install.ps1)", InstallVia::PowerShell),
+            ("07QoderCli", "Qoder CLI", "irm https://qoder.com/install.ps1 | iex", InstallVia::PowerShell),
+            ("08Hermes", "Hermes", "iex (irm https://hermes-agent.nousresearch.com/install.ps1)", InstallVia::PowerShell),
         ];
 
         assert_eq!(
@@ -705,6 +740,35 @@ mod tests {
         );
     }
 
+    /// Qoder CLI va justo después de Kiro, arranca en YOLO (`--yolo` equivale a
+    /// `--permission-mode bypass_permissions`) y su ejecutable real es
+    /// `qodercli`: `qoder` es el dispatcher que instala el script.
+    #[test]
+    fn qoder_comes_after_kiro_and_runs_in_yolo_mode() {
+        let posiciones: Vec<&str> = VIBE_TOOLS.iter().map(|t| t.key).collect();
+        let kiro = posiciones.iter().position(|k| *k == "06KiroCli").unwrap();
+        let qoder = posiciones.iter().position(|k| *k == "07QoderCli").unwrap();
+        assert_eq!(qoder, kiro + 1, "Qoder debe ir inmediatamente tras Kiro");
+
+        let tool = &VIBE_TOOLS[qoder];
+        assert_eq!(tool.title, "Qoder CLI");
+        let palabras: Vec<&str> = tool.cli.split_whitespace().collect();
+        assert_eq!(palabras.first(), Some(&"qodercli"));
+        assert!(
+            palabras.contains(&"--yolo"),
+            "el menú tiene que abrir Qoder en modo YOLO: {}",
+            tool.cli
+        );
+
+        assert!(
+            tool.fallback
+                .iter()
+                .any(|p| p.starts_with("HOME/.qoder/")),
+            "el instalador de Qoder deja el binario en %USERPROFILE%\\.qoder: {:?}",
+            tool.fallback
+        );
+    }
+
     /// El prefijo numérico es lo único que fija el orden del submenú, porque
     /// Windows ordena las sub-claves de `shell` alfabéticamente. Si dos
     /// herramientas comparten número, el orden pedido se pierde.
@@ -744,9 +808,10 @@ mod tests {
 
     /// Los instaladores nativos dejan el binario fuera del PATH, y sin este
     /// fallback su sub-entrada no aparecería nunca en el menú aunque estuviera
-    /// instalado. En Windows el prefijo `LOCALAPPDATA/` es el que importa.
+    /// instalado. El prefijo puede ser `LOCALAPPDATA/` (agy, Kiro, Hermes) o
+    /// `HOME/` (Qoder, que instala bajo `%USERPROFILE%\.qoder`).
     #[test]
-    fn native_installers_declare_a_localappdata_fallback() {
+    fn native_installers_declare_a_fallback_outside_the_path() {
         for tool in VIBE_TOOLS {
             let es_npm = matches!(tool.install, s if s.starts_with("npm "));
             if es_npm {
@@ -758,8 +823,10 @@ mod tests {
                 continue;
             }
             assert!(
-                tool.fallback.iter().any(|p| p.starts_with("LOCALAPPDATA/")),
-                "{} es un instalador nativo y necesita fallback en %LOCALAPPDATA%: {:?}",
+                tool.fallback
+                    .iter()
+                    .any(|p| p.starts_with("LOCALAPPDATA/") || p.starts_with("HOME/")),
+                "{} es un instalador nativo y necesita fallback fuera del PATH: {:?}",
                 tool.title,
                 tool.fallback
             );
@@ -791,9 +858,10 @@ mod tests {
             let ejecutable = tool.cli.split_whitespace().next().unwrap();
             let candidatas = fallback_candidates(tool);
             assert!(
-                candidatas
-                    .iter()
-                    .all(|p| !p.to_string_lossy().contains("LOCALAPPDATA/")),
+                candidatas.iter().all(|p| {
+                    let s = p.to_string_lossy();
+                    !s.contains("LOCALAPPDATA/") && !s.contains("HOME/")
+                }),
                 "{}: quedaron prefijos sin expandir: {candidatas:?}",
                 tool.title
             );

@@ -83,14 +83,16 @@ if (Test-Path 'HKCU:\Software\Classes\Directory\ContextMenus\VibeCoding\shell\01
 # del PATH, así que `Get-Command` no los ve aunque estén instalados.
 # `kiro-cli` no sigue el patrón `LOCALAPPDATA\<herramienta>\bin`: su instalador
 # lo deja en `LOCALAPPDATA\Kiro-Cli`, plano y con otro nombre de carpeta.
+# `qodercli` instala bajo `%USERPROFILE%\.qoder`, también fuera del patrón.
 $nombres = @{
-    'opencode' = 'opencode'
-    'kilo'     = 'kilo'
-    'cline'    = 'cline'
-    'agy'      = 'agy'
-    'hermes'   = 'hermes'
-    'kiro-cli' = 'Kiro-Cli'
-    'copilot'  = 'copilot'
+    'opencode'  = 'opencode'
+    'kilo'      = 'kilo'
+    'cline'     = 'cline'
+    'agy'       = 'agy'
+    'hermes'    = 'hermes'
+    'kiro-cli'  = 'Kiro-Cli'
+    'copilot'   = 'copilot'
+    'qodercli'  = 'qodercli'
 }
 
 $faltan = 0
@@ -99,6 +101,10 @@ foreach ($herramienta in $nombres.Keys) {
     # Copilot CLI se instala por winget, que no usa `%LOCALAPPDATA%\<tool>\bin`
     # sino su carpeta Links. Ahí está aunque el PATH de esta sesión no lo tenga.
     if (Test-Path (Join-Path $env:LOCALAPPDATA "Microsoft\WinGet\Links\$herramienta.exe")) { continue }
+    # Qoder CLI deja el ejecutable bajo `%USERPROFILE%\.qoder` (y configura el
+    # PATH para terminales nuevas, no para la que ejecuta `install.bat`).
+    if ($herramienta -eq 'qodercli' -and
+        (Test-Path (Join-Path $env:USERPROFILE '.qoder\bin\qodercli\qodercli.exe'))) { continue }
     $carpeta = $nombres[$herramienta]
     if (Test-Path (Join-Path $env:LOCALAPPDATA "$carpeta\bin\$herramienta.exe")) { continue }
     if (Test-Path (Join-Path $env:LOCALAPPDATA "$carpeta\$herramienta.exe")) { continue }
