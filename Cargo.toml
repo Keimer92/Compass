@@ -14,3 +14,6 @@ ratatui = "0.29"
 crossterm = "0.28"
 serde_json = "1"
 regex = "1"
+
+[build-dependencies]
+embed-resource = "3"

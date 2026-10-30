@@ -394,7 +394,19 @@ módulo recalcula estas rutas (antes estaban copiadas en cuatro sitios).
 
 | Entrada | Comando | Clave Registro |
 |---------|---------|----------------|
-| **Compass** | `"<exe_path>" "%1"` | `HKCR\Directory\shell\zz_Compass` |
+| **Compass** | `"<pwsh>" -NoLogo -NoProfile -Command "& '<exe>' -p '%1'"` | `HKCR\Directory\shell\zz_Compass` |
+
+La TUI también se aloja en PowerShell: Windows atribuye la consola al perfil de
+`pwsh` (icono de PowerShell 7 en Windows Terminal) en vez del icono genérico de
+consola que muestra un `.exe` lanzado directo. El título lo sigue fijando
+Compass con el nombre del proyecto. El comando lo construye
+`compass_context_command()`; `%1` (carpeta) y `%W` (fondo) van entre comillas
+simples por la misma razón que en Vibe Coding.
+
+`compass.exe` **incrusta** `assets/icon/Icon.ico` y un bloque `VERSIONINFO`
+(`FileDescription`/`ProductName` = "Compass") vía `build.rs` + `embed-resource`.
+Sin esos recursos Explorer y Windows Terminal enseñan el icono genérico de
+consola (idéntico al de cmd) y el perfil de la pestaña queda sin nombre.
 
 ### Vibe Coding (menú cascada: 8 agentes)
 
@@ -1135,11 +1147,12 @@ Microsoft Store es un stub de 0 bytes que `where` encuentra y que no arranca.
 La sonda también considera incompleto el menú de Compass si falta la acción `.gitignore` en el clic derecho sobre una carpeta o sobre el fondo. Así `install.bat` migra instalaciones anteriores que ya tenían Compass, pero no esa acción.
 
 ⚠️ **Migración de cmd a PowerShell**: la sonda fuerza la reinstalación si el
-comando de `zz_VibeGitignore` o el de `01OpenCode` todavía contiene `cmd.exe`.
-La marca `CompassStamp` sola no basta: instalar pwsh *después* de Compass no
-cambia el mtime de `compass.exe`, así que la marca coincidiría y el menú viejo
-(con el icono de cmd) se quedaría para siempre. Cubierto por
-`probe_forces_migration_of_cmd_based_entries`.
+comando de `zz_VibeGitignore` o el de `01OpenCode` todavía contiene `cmd.exe`,
+y también si `zz_Compass` no pasa por `pwsh`/`powershell` (antes lanzaba el
+`.exe` directo, con el icono genérico de consola). La marca `CompassStamp` sola
+no basta: instalar pwsh *después* de Compass no cambia el mtime de
+`compass.exe`, así que la marca coincidiría y el menú viejo se quedaría para
+siempre. Cubierto por `probe_forces_migration_of_cmd_based_entries`.
 
 ⚠️ `install.bat` usa `setlocal EnableDelayedExpansion` y `!errorlevel!` dentro de los bloques: con `%errorlevel%` se evalúa al parsear el `if`, antes de que `cargo` corra, y siempre da 0.
 
@@ -1154,8 +1167,9 @@ borde e interior, y recorrido del perímetro) y la paleta/mezcla de colores de
 `theme.rs`. De `context_menu.rs` se verifican las partes puras: orden y
 prefijos del submenú, comandos de instalación de cada herramienta, nombre del
 binario, shell de instalación, fallbacks fuera del PATH (incluido `HOME/` de
-Qoder), la marca `CompassStamp` y el detector de `cmd.exe` que comparte con la
-sonda del instalador. De `cmd.rs` se cubren `ps_quote`, el script y los
+Qoder), la marca `CompassStamp`, el comando que aloja la TUI en PowerShell y el
+detector de `cmd.exe`/`pwsh` que comparte con la sonda del instalador. De
+`cmd.rs` se cubren `ps_quote`, el script y los
 argumentos de las ventanas (`&`, `Read-Host`, `-NoProfile`, sin sintaxis de
 cmd), la resolución del shell y `newest_artifact`. De `terminal.rs`, la carpeta
 de perfil de cada shell además de la versión y el BOM. De `tauri.rs`, el

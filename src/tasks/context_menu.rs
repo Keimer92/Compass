@@ -49,8 +49,11 @@ fn exe_path() -> String {
 /// Instala las entradas del menú contextual de Windows.
 pub fn install() -> Result<()> {
     let exe = exe_path();
+    let shell = cmd::shell_path();
+    let folder_command = compass_context_command(shell, &exe, "%1");
+    let background_command = compass_context_command(shell, &exe, "%W");
 
-    if command_is_current("zz_Compass", &exe) && label_is("zz_Compass", "Compass") {
+    if command_is_current("zz_Compass", &[shell, &exe]) && label_is("zz_Compass", "Compass") {
         println!("[SKIP] Menú contextual Compass ya está instalado.");
         println!("  Ruta: {exe}");
         install_gitignore_action_windows()?;
@@ -85,8 +88,8 @@ pub fn install() -> Result<()> {
          New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_Compass\\command' -Force | Out-Null; \
          Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_Compass\\command' -Name '(default)' -Value {background} -Force",
         icon = cmd::ps_quote(&icon),
-        folder = cmd::ps_quote(&format!("\"{exe}\" -p \"%1\"")),
-        background = cmd::ps_quote(&format!("\"{exe}\" -p \"%W\"")),
+        folder = cmd::ps_quote(&folder_command),
+        background = cmd::ps_quote(&background_command),
     );
 
     let output = cmd::run_ps(&ps)?;
@@ -156,6 +159,20 @@ fn install_gitignore_action_windows() -> Result<()> {
         );
     }
     Ok(())
+}
+
+/// Valor del registro que abre la TUI de Compass.
+///
+/// La ventana la crea PowerShell, igual que las tareas: Windows la atribuye al
+/// perfil de `pwsh` (icono de PowerShell 7) en vez del icono genérico de consola
+/// que muestra un `.exe` lanzado directo. El título lo sigue fijando Compass con
+/// el nombre del proyecto.
+fn compass_context_command(shell: &str, exe: &str, placeholder: &str) -> String {
+    format!(
+        "\"{shell}\" -NoLogo -NoProfile -Command \"& {} -p '{}'\"",
+        cmd::ps_quote(exe),
+        placeholder
+    )
 }
 
 /// Valor del registro que abre Compass en PowerShell y ejecuta la tarea.
@@ -732,6 +749,22 @@ mod tests {
         assert!(!folder.contains("cmd.exe"));
     }
 
+    /// La TUI también se aloja en PowerShell: la consola pertenece a `pwsh` y
+    /// Windows usa el perfil de PowerShell 7 (icono incluido) en la pestaña, en
+    /// vez del icono genérico de un exe lanzado directo.
+    #[test]
+    fn compass_entry_hosts_the_tui_in_powershell() {
+        let shell = r"C:\Program Files\PowerShell\7\pwsh.exe";
+        let exe = r"C:\Program Files\Compass\compass.exe";
+        let folder = compass_context_command(shell, exe, "%1");
+        let background = compass_context_command(shell, exe, "%W");
+        assert!(folder.starts_with(r#""C:\Program Files\PowerShell\7\pwsh.exe""#));
+        assert!(folder.contains("-NoLogo -NoProfile -Command"));
+        assert!(folder.contains(r#"& 'C:\Program Files\Compass\compass.exe' -p '%1'"#));
+        assert!(background.contains(r#"-p '%W'"#));
+        assert!(!folder.contains("cmd.exe"));
+    }
+
     /// La sub-entrada de Vibe Coding tiene que abrir una ventana de PowerShell,
     /// cambiar al directorio seleccionado y ejecutar la CLI con `&`. Sin el
     /// operador de llamada, un comando que empieza por ruta entre comillas se
@@ -902,6 +935,10 @@ mod tests {
         assert!(
             probe.contains("'*cmd.exe*'"),
             "la sonda tiene que reconocer entradas escritas para cmd"
+        );
+        assert!(
+            probe.contains("-notlike '*pwsh*'"),
+            "la sonda tiene que rehacer un `zz_Compass` que no pase por PowerShell"
         );
     }
 
@@ -1290,10 +1327,15 @@ fn is_installed(name: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn command_is_current(name: &str, needle: &str) -> bool {
+fn command_is_current(name: &str, needles: &[&str]) -> bool {
+    let checks: Vec<String> = needles
+        .iter()
+        .map(|n| format!("$v.Contains({})", cmd::ps_quote(n)))
+        .collect();
     let ps = format!(
         "$v = (Get-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{name}\\command' -ErrorAction SilentlyContinue).'(default)'; \
-         if ($null -eq $v) {{ 'false' }} else {{ $v.Contains('{needle}') }}"
+         if ($null -eq $v) {{ 'false' }} else {{ {} }}",
+        checks.join(" -and ")
     );
     let output = cmd::run_ps(&ps);
     output

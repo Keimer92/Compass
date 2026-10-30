@@ -47,6 +47,12 @@ $comandoCr = (Get-ItemProperty `
 if ($comandoCr -like '*compass.exe*') {
     $menuCompass = 0
 }
+# Migración: antes se lanzaba `compass.exe` directo y la ventana mostraba el
+# icono genérico de consola. Ahora la TUI también se aloja en PowerShell, así
+# que una entrada sin `pwsh`/`powershell` se rehace.
+if ($comandoCr -and $comandoCr -notlike '*pwsh*' -and $comandoCr -notlike '*powershell*') {
+    $menuCompass = 1
+}
 
 # La acción .gitignore se agregó después de la instalación del menú base.
 # También debe activar la reinstalación para migrar instalaciones existentes.
