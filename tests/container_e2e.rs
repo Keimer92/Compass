@@ -83,6 +83,7 @@ fn card_opens_a_session_tab_and_f12_switches_between_menu_and_tab() {
     // El proceso raíz no debe creerse dentro de una pestaña.
     command.env_remove("COMPASS_EMBEDDED");
     command.env_remove("COMPASS_EXTERNAL_WINDOWS");
+    command.env("RUST_BACKTRACE", "1");
 
     let child = pair
         .slave
