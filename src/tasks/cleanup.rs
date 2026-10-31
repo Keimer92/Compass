@@ -30,8 +30,11 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use indicatif::{ProgressBar, ProgressStyle};
-use inquire::{MultiSelect, Select};
+use inquire::MultiSelect;
 
+use crate::menu;
+use crate::tasks::submenu::{Submenu, SubmenuAction, SubmenuItem};
+use crate::theme;
 use crate::utils::{
     cmd,
     context::{kotlin_android_dir, ProjectContext, ProjectType},
@@ -431,7 +434,7 @@ fn report_sizes(ctx: &ProjectContext) -> Result<()> {
     println!();
     println!("Nada se borra aquí: sólo se mide.\n");
 
-    println!("── Rápida (opción 1) ──────────────────────────────");
+    println!("── Rápida ─────────────────────────────────────────");
     let mut quick_total = 0u64;
     for (label, path) in quick_targets(ctx) {
         let size = dir_size(&path);
@@ -445,7 +448,7 @@ fn report_sizes(ctx: &ProjectContext) -> Result<()> {
     println!("  {:<26} {:>10}", "SUBTOTAL", format_size(quick_total));
 
     println!();
-    println!("── Completa (opción 2) ────────────────────────────");
+    println!("── Completa ───────────────────────────────────────");
     let mut full_total = 0u64;
     for (label, path) in full_targets(ctx) {
         let size = dir_size(&path);
@@ -554,33 +557,120 @@ fn choose_and_purge(ctx: &ProjectContext) -> Result<()> {
     Ok(())
 }
 
-/// Menú de limpieza unificado (absorbe las antiguas tarjetas Clean Cache y
-/// Clean Project).
-pub fn manage(ctx: &ProjectContext) -> Result<()> {
-    loop {
-        cmd::clear_screen();
-        ui::box_banner("LIMPIEZA");
-        println!();
-        let options = vec![
-            "1. Rápida — borra builds y caches (conserva dependencias)",
-            "2. Completa — borra además dependencias (venv, node_modules, target)",
-            "3. Elegir qué borrar (lista y marca)",
-            "4. Ver tamaños (sin borrar nada)",
-            "5. Volver al menú principal",
-        ];
-        let choice = Select::new("Selecciona tipo de limpieza:", options)
-            .with_vim_mode(true)
-            .prompt()?;
+/// Acción del submenú de limpieza.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CleanupItem {
+    Quick,
+    Full,
+    Choose,
+    Sizes,
+    Back,
+}
 
-        match choice {
-            s if s.starts_with("1.") => quick_clean(ctx)?,
-            s if s.starts_with("2.") => full_clean(ctx)?,
-            s if s.starts_with("3.") => choose_and_purge(ctx)?,
-            s if s.starts_with("4.") => report_sizes(ctx)?,
-            _ => break,
+/// Entradas del submenú, en el orden en que se pintan las cards.
+fn cleanup_entries() -> Vec<(CleanupItem, SubmenuItem)> {
+    let item = |icon: &'static str,
+                label: &'static str,
+                description: &'static str,
+                color_key: &'static str| SubmenuItem {
+        icon,
+        label,
+        description,
+        color_key,
+    };
+
+    vec![
+        (
+            CleanupItem::Quick,
+            item(
+                "\u{26a1}",
+                "Rápida",
+                "Builds y caches · conserva deps",
+                "clean",
+            ),
+        ),
+        (
+            CleanupItem::Full,
+            item(
+                "\u{1f5d1}",
+                "Completa",
+                "Borra también dependencias",
+                "build",
+            ),
+        ),
+        (
+            CleanupItem::Choose,
+            item(
+                "\u{1f3af}",
+                "Elegir qué borrar",
+                "Lista y marca qué borrar",
+                "debug",
+            ),
+        ),
+        (
+            CleanupItem::Sizes,
+            item(
+                "\u{1f4ca}",
+                "Ver tamaños",
+                "Mide sin borrar nada",
+                "profile",
+            ),
+        ),
+        (
+            CleanupItem::Back,
+            item(
+                "\u{21a9}",
+                "Volver al menu principal",
+                "Regresa al menu principal",
+                "git",
+            ),
+        ),
+    ]
+}
+
+/// Submenú de limpieza unificado (absorbe las antiguas tarjetas Clean Cache y
+/// Clean Project) con el mismo aspecto y navegación que el menú principal.
+pub fn manage(ctx: &ProjectContext) -> Result<()> {
+    let theme = theme::load();
+    let mut menu = Submenu::new("LIMPIEZA", "MNT", cleanup_entries()).with_android_warning(false);
+
+    let mut terminal = menu::setup_terminal()?;
+    cmd::set_console_title(&ctx.window_title());
+
+    let result = (|| -> Result<()> {
+        loop {
+            terminal.draw(|f| menu.draw(f, f.area(), ctx, theme))?;
+            match menu.handle_event()? {
+                SubmenuAction::Back => return Ok(()),
+                SubmenuAction::Continue => {}
+                SubmenuAction::Run(item) => {
+                    if item == CleanupItem::Back {
+                        return Ok(());
+                    }
+                    // La acción imprime y pide Enter: se devuelve la consola
+                    // normal y se vuelve a montar el TUI al terminar.
+                    menu::restore_terminal(&mut terminal)?;
+                    let action_result = run_cleanup_action(item, ctx);
+                    terminal = menu::setup_terminal()?;
+                    cmd::set_console_title(&ctx.window_title());
+                    action_result?;
+                }
+            }
         }
+    })();
+
+    let _ = menu::restore_terminal(&mut terminal);
+    result
+}
+
+fn run_cleanup_action(item: CleanupItem, ctx: &ProjectContext) -> Result<()> {
+    match item {
+        CleanupItem::Quick => quick_clean(ctx),
+        CleanupItem::Full => full_clean(ctx),
+        CleanupItem::Choose => choose_and_purge(ctx),
+        CleanupItem::Sizes => report_sizes(ctx),
+        CleanupItem::Back => Ok(()),
     }
-    Ok(())
 }
 
 /// Limpieza completa de un proyecto Tauri, pensada para **portabilidad**: deja
@@ -867,5 +957,47 @@ mod tests {
             rust.iter().all(|c| c.deps),
             "en Rust target/ es la dependencia"
         );
+    }
+
+    /// El submenú debe ofrecer cada acción una sola vez, con `Volver` al final.
+    #[test]
+    fn submenu_lists_each_action_once_with_back_last() {
+        let entries = cleanup_entries();
+        let actions: Vec<CleanupItem> = entries.iter().map(|(item, _)| *item).collect();
+        assert_eq!(
+            actions,
+            vec![
+                CleanupItem::Quick,
+                CleanupItem::Full,
+                CleanupItem::Choose,
+                CleanupItem::Sizes,
+                CleanupItem::Back,
+            ]
+        );
+
+        let labels: Vec<&str> = entries.iter().map(|(_, item)| item.label).collect();
+        let mut unique = labels.clone();
+        unique.sort_unstable();
+        unique.dedup();
+        assert_eq!(unique.len(), labels.len(), "etiquetas repetidas: {labels:?}");
+    }
+
+    /// Los acentos salen de `theme::CARD_KEYS` y no se repiten entre cards.
+    #[test]
+    fn submenu_colors_are_valid_and_distinct() {
+        let keys: Vec<&'static str> = cleanup_entries()
+            .iter()
+            .map(|(_, item)| item.color_key)
+            .collect();
+        for key in &keys {
+            assert!(
+                theme::CARD_KEYS.contains(key),
+                "clave de paleta desconocida: {key}"
+            );
+        }
+        let mut sorted = keys.clone();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(sorted.len(), keys.len(), "claves repetidas: {keys:?}");
     }
 }

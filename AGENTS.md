@@ -361,7 +361,7 @@ tasks/
   ├─ go.rs      — run(), build(), build_arch() [GOARCH + CGO_ENABLED=0, icono sólo amd64], test(), clean()  [Go puro]
   ├─ rust.rs    — run(), build(), build_arch() [target triple], clean()  [Rust only]
   ├─ release.rs — manage_windows()/manage_android() [submenús TUI de release por arquitectura: cards x86/x64/ARM64 y arm64/armv7/universal + Todos, con `tasks/submenu.rs`; ver "Release por arquitectura"]
-  ├─ cleanup.rs — manage() [submenú unificado: rápida / completa / reporte de tamaños], quick_targets()/full_targets(), clean_project() [Tauri: portabilidad]
+  ├─ cleanup.rs — manage() [submenú TUI con `tasks/submenu.rs`: rápida / completa / elegir qué borrar / ver tamaños / volver], quick_targets()/full_targets(), selectable_targets(), clean_project() [Tauri: portabilidad]
   ├─ git.rs     — manage() [submenú unificado: init / .gitignore / conectar con remoto / estado, con `tasks/submenu.rs`]; templates de .gitignore por tipo
   ├─ signer.rs  — dominio único de firmas: manage() [submenú con `tasks/submenu.rs`], android_layout(), detect()/SigningInfo [autodetección], Props (parseo de properties), crear/importar/manual, patch_build_gradle(), huellas (keytool), respaldos, base64 + secretos de GitHub Actions, verify_apk() [apksigner]
   ├─ submenu.rs — TUI compartida de los submenús (Firmas, Git, Entorno, Release): reutiliza la cabecera, la fila de sección, la rejilla adaptativa de cards de 3 líneas, el halo de hover y el pie del menú principal; `Submenu<T>` devuelve `SubmenuAction::{Run(T), Back, Continue}` y `with_android_warning(false)` omite la fila de aviso del SDK
@@ -1094,14 +1094,17 @@ auditarlas aparecieron fallos de verdad:
 - `remove_dir(...).ok()` se tragaba los errores: un `target/` en uso (típico en
   Windows) salía como `[OK]` sin haber borrado nada.
 
-Ahora hay **una tarjeta Clean** con un submenú:
+Ahora hay **una tarjeta Clean** que abre un **submenú TUI** con
+`tasks/submenu.rs` (título `LIMPIEZA`, sección `MNT`, mismo estilo y halo de
+hover que el menú padre; sin fila de aviso Android):
 
-| Opción | Qué hace |
-|--------|----------|
-| 1. Rápida | Borra builds y caches baratos (`quick_targets`); **conserva** `node_modules/` y el `target/` completo |
-| 2. Completa | Delega en el clean por tipo (`clean_project` / `flutter::clean` / `kotlin::clean` / `rust::clean`); borra dependencias |
-| 3. Elegir qué borrar | **Dry-run interactivo**: lista lo que existe y deja marcar con `MultiSelect`; pide confirmación extra si hay dependencias |
-| 4. Ver tamaños | Mide lo que liberaría cada opción sin borrar nada |
+| Card | Qué hace |
+|------|----------|
+| ⚡ Rápida | Borra builds y caches baratos (`quick_targets`); **conserva** `node_modules/` y el `target/` completo |
+| 🗑 Completa | Delega en el clean por tipo (`clean_project` / `flutter::clean` / `kotlin::clean` / `rust::clean`); borra dependencias |
+| 🎯 Elegir qué borrar | **Dry-run interactivo**: lista lo que existe y deja marcar con `MultiSelect`; pide confirmación extra si hay dependencias |
+| 📊 Ver tamaños | Mide lo que liberaría cada opción sin borrar nada |
+| ↩ Volver | Regresa al menú principal |
 
 - `quick_targets(ctx)` / `full_targets(ctx)` son la **única** lista de "qué se
   borra"; el reporte y la rápida salen de ahí, así que no se desincronizan.
@@ -1162,15 +1165,19 @@ Detalles:
 
 CLI: `--task git` (y los alias `git-init`/`gitignore`) abren el mismo submenú.
 
-### Submenús Firmas/Git — mismo estilo que el menú principal (`tasks/submenu.rs`)
+### Submenús de cards — mismo estilo que el menú principal (`tasks/submenu.rs`)
 
-Los submenús de **Signing** y **Git** corren en una pestaña del contenedor y usan
+**Todos** los submenús de cards (**Signing**, **Git**, **Entorno**, **Limpieza**
+y **Release** Windows/Android) corren en una pestaña del contenedor y usan
 `tasks/submenu.rs`, que **reutiliza las piezas del menú principal** en vez de
 tener su propia estética: `menu::render_header` (emoji, `Compass v<versión>` y
 `Proyecto: … [BADGE]`), una fila de sección con la forma de las pestañas
 (`" GIT 5 "` en el acento de la sección), la **misma rejilla adaptativa** de
 cards de 3 líneas (`menu::card_widget` + `layout`/`grid_*`/`visible_rows`), el
 **halo de hover** (`render_hover_glow`) y el pie con atajos + ruta completa.
+Ningún submenú usa ya `inquire::Select` como menú principal: los `Select` /
+`Confirm` que quedan son preguntas **dentro** de una acción (visibilidad del
+repo, respaldo a restaurar, confirmación de borrado).
 
 - Cada entrada es un `SubmenuItem { icon, label, description, color_key }`; el
   acento sale de `theme::CARD_KEYS` (`card_accent`/`card_bg`), así que un
@@ -1183,16 +1190,21 @@ cards de 3 líneas (`menu::card_widget` + `layout`/`grid_*`/`visible_rows`), el
   `Enter` ejecuta, rueda del ratón por filas, clic ejecuta. El **hover** llega
   porque el contenedor reenvía el ratón a la pestaña activa (ver "Contenedor de
   terminal").
-- Título y sección: Firmas → `FIRMAS · KEYSTORE` / `"MNT"`; Git → `GIT` /
-  `"CFG"` (la misma pestaña en la que vive su card en el menú principal).
+- Título y sección (la misma pestaña en la que vive su card en el menú
+  principal): Firmas → `FIRMAS · KEYSTORE` / `"MNT"`; Limpieza → `LIMPIEZA` /
+  `"MNT"`; Git → `GIT` / `"CFG"`; Entorno → `ENTORNO · RESPALDO` / `"CFG"`;
+  Release → `RELEASE · WINDOWS` / `RELEASE · ANDROID` / `"DEV"`.
+- `with_android_warning(false)` omite la fila de aviso del SDK Android en los
+  submenús que no compilan Android (Limpieza y Release de Windows).
 - El grid ya no es fijo de 26 columnas: en una pestaña de 120 columnas caben 4
   cards adaptadas, y la descripción se recorta con `…` igual que en el menú.
 
 Cubierto por `tasks::submenu::tests` (cada centro de card resuelve a su índice,
 huecos y cabecera no son cards, cabecera con la versión real, scroll y Enter) y
-por los tests de `signer.rs` sobre las entradas (todas las opciones una sola vez,
-`Back` al final, claves de paleta distintas). El e2e comprueba que el submenú de
-Git se pinta con `GIT 5` y `volver` dentro de la pestaña.
+por los tests de cada dueño sobre sus entradas (`signer.rs`, `git.rs`,
+`environment.rs`, `cleanup.rs` y `release.rs`: todas las opciones una sola vez,
+`Back` al final, claves de paleta válidas y distintas). El e2e comprueba que el
+submenú de Git se pinta con `GIT 5` y `volver` dentro de la pestaña.
 
 ### PowerShell registry
 - Todo el registro se toca con `cmd::run_ps()` (pwsh si está, si no 5.1).
@@ -1663,7 +1675,8 @@ De `tasks/submenu.rs` se cubren la rejilla compartida (cada centro de card
 resuelve a su índice, huecos y cabecera no son cards), la cabecera con la versión
 real, el scroll en terminales cortas y que `Enter` devuelve la entrada
 seleccionada; `signer.rs` verifica que sus 11 entradas aparecen una sola vez, con
-`Back` al final y con claves de paleta distintas. `container.rs` cubre además el
+`Back` al final y con claves de paleta distintas; `cleanup.rs` comprueba lo mismo
+para sus cinco cards (Rápida, Completa, Elegir, Tamaños, Volver). `container.rs` cubre además el
 reenvío del ratón (`mouse_is_forwarded_relative_to_the_body`,
 `mouse_drag_and_wheel_use_the_extended_codes`, `mouse_on_the_bar_is_not_forwarded`).
 
