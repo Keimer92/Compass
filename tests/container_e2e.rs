@@ -34,7 +34,7 @@ impl Harness {
         parser.screen().contents()
     }
 
-    fn wait_until(&self, what: &str, pred: impl Fn(&str) -> bool) -> bool {
+    fn wait_until(&mut self, what: &str, pred: impl Fn(&str) -> bool) -> bool {
         let deadline = Instant::now() + Duration::from_secs(40);
         while Instant::now() < deadline {
             if pred(&self.contents()) {
@@ -42,8 +42,12 @@ impl Harness {
             }
             std::thread::sleep(Duration::from_millis(150));
         }
+        let status = self.child.try_wait();
+        let pid = self.child.process_id();
+        let trace = std::fs::read_to_string(std::env::temp_dir().join("compass-tui.log"))
+            .unwrap_or_else(|e| format!("<sin log: {e}>"));
         panic!(
-            "tiempo agotado esperando {what}.\n--- pantalla ---\n{}\n--- fin ---",
+            "tiempo agotado esperando {what}.\npid={pid:?} status={status:?}\n--- traza ---\n{trace}\n--- pantalla ---\n{}\n--- fin ---",
             self.contents()
         );
     }
@@ -60,18 +64,8 @@ impl Drop for Harness {
     }
 }
 
-#[test]
-#[ignore = "abre la TUI real en una ConPTY y la maneja con teclas"]
-fn card_opens_a_session_tab_and_f12_switches_between_menu_and_tab() {
-    // Proyecto de prueba mínimo: un Cargo.toml basta para detectar Rust.
-    let project = std::env::temp_dir().join(format!("compass-e2e-{}", std::process::id()));
-    std::fs::create_dir_all(&project).expect("crear proyecto temporal");
-    std::fs::write(
-        project.join("Cargo.toml"),
-        "[package]\nname = \"e2e-fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
-    )
-    .expect("Cargo.toml de prueba");
-
+/// Lanza `compass.exe` sobre `project` dentro de una ConPTY de 120×35.
+fn spawn_compass(project: &std::path::Path) -> Harness {
     let (rows, cols) = (35, 120);
     let pair = native_pty_system()
         .openpty(PtySize {
@@ -83,7 +77,8 @@ fn card_opens_a_session_tab_and_f12_switches_between_menu_and_tab() {
         .expect("abrir ConPTY");
 
     let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_compass"));
-    command.cwd(&project);
+    command.arg("--trace");
+    command.cwd(project);
     // El proceso raíz no debe creerse dentro de una pestaña.
     command.env_remove("COMPASS_EMBEDDED");
     command.env_remove("COMPASS_EXTERNAL_WINDOWS");
@@ -110,11 +105,26 @@ fn card_opens_a_session_tab_and_f12_switches_between_menu_and_tab() {
         });
     }
 
-    let mut h = Harness {
+    Harness {
         writer,
         child,
         parser,
-    };
+    }
+}
+
+#[test]
+#[ignore = "abre la TUI real en una ConPTY y la maneja con teclas"]
+fn card_opens_a_session_tab_and_f12_switches_between_menu_and_tab() {
+    // Proyecto de prueba mínimo: un Cargo.toml basta para detectar Rust.
+    let project = std::env::temp_dir().join(format!("compass-e2e-{}", std::process::id()));
+    std::fs::create_dir_all(&project).expect("crear proyecto temporal");
+    std::fs::write(
+        project.join("Cargo.toml"),
+        "[package]\nname = \"e2e-fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .expect("Cargo.toml de prueba");
+
+    let mut h = spawn_compass(&project);
 
     // 1. Menú principal visible.
     h.wait_until("el menú principal", |s| s.contains("Proyecto:"));
@@ -185,6 +195,79 @@ fn card_opens_a_session_tab_and_f12_switches_between_menu_and_tab() {
     // El cierre con el botón `×` del ratón no se prueba aquí: crossterm lee
     // los eventos de ratón de los registros de consola de Windows, y una
     // ConPTY no los genera a partir de las secuencias VT que escribe el padre.
+    h.send(b"\x1b");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if let Ok(Some(_)) = h.child.try_wait() {
+            break;
+        }
+        if Instant::now() > deadline {
+            panic!("compass no terminó tras Esc");
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+
+    let _ = std::fs::remove_dir_all(&project);
+}
+
+/// Regresión: dentro de una pestaña los prompts de línea (`ui::ask_text`)
+/// tienen que recibir Enter. En Windows `DisableMouseCapture` restauraba el
+/// modo de consola guardado al habilitar el ratón (ya raw) y deshacía el
+/// `disable_raw_mode` de `restore_terminal`, dejando `read_line` colgado.
+#[test]
+#[ignore = "abre la TUI real en una ConPTY y maneja el submenú de entorno"]
+fn environment_backup_prompts_accept_enter_inside_a_tab() {
+    let project = std::env::temp_dir().join(format!("compass-e2e-env-{}", std::process::id()));
+    std::fs::create_dir_all(&project).expect("crear proyecto temporal");
+    std::fs::write(
+        project.join("Cargo.toml"),
+        "[package]\nname = \"e2e-env\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .expect("Cargo.toml de prueba");
+
+    let mut h = spawn_compass(&project);
+    h.wait_until("el menú principal", |s| s.contains("Proyecto:"));
+    h.send(b"\t");
+    h.wait_until("la pestaña CONFIGURACIÓN", |s| {
+        s.contains("CONFIGURACION")
+    });
+
+    // Entorno es la cuarta card de CONFIGURACIÓN.
+    for _ in 0..3 {
+        h.send(b"\x1b[C");
+        std::thread::sleep(Duration::from_millis(120));
+    }
+    h.send(b"\r");
+    h.wait_until("el submenú de entorno", |s| s.contains("Backup completo"));
+    h.send(b"\r");
+    h.wait_until("el prompt de destino", |s| {
+        s.contains("Destino de los respaldos")
+    });
+
+    // Unidad inexistente: el script falla sin copiar nada, así que la prueba no
+    // toca respaldos reales ni depende de la unidad del perfil.
+    h.send(b"Q:\\compass-e2e-missing\r");
+    h.wait_until("el prompt de conservar", |s| {
+        s.contains("Respaldos a conservar")
+    });
+    h.send(b"\r");
+    h.wait_until("el fallo de unidad del script", |s| s.contains("NO existe"));
+
+    // El `ui::pause()` final del script también es una lectura de línea.
+    h.send(b"\r");
+    h.wait_until("el submenú tras el fallo", |s| {
+        s.contains("Backup completo") && !s.contains("NO existe")
+    });
+
+    // Esc vuelve del submenú al menú y la tarea deja la pestaña terminada.
+    h.send(b"\x1b");
+    h.wait_until("la pestaña terminada", |s| {
+        s.contains("proceso finalizado")
+    });
+    h.send(b"\x17");
+
+    // Salir con Esc (ya sin pestañas) deja que Compass libere su lock de
+    // instancia; matar el proceso lo dejaría huérfano en `locks/`.
     h.send(b"\x1b");
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {

@@ -979,7 +979,11 @@ mod tests {
         let mut unique = labels.clone();
         unique.sort_unstable();
         unique.dedup();
-        assert_eq!(unique.len(), labels.len(), "etiquetas repetidas: {labels:?}");
+        assert_eq!(
+            unique.len(),
+            labels.len(),
+            "etiquetas repetidas: {labels:?}"
+        );
     }
 
     /// Los acentos salen de `theme::CARD_KEYS` y no se repiten entre cards.

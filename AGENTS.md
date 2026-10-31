@@ -185,18 +185,31 @@ fila muestra el nombre y tres muestras de color de su propia paleta
 izquierda (`Ctrl+T temas: <nombre>`, en color `brand`); a la derecha va la
 **ruta completa** del proyecto (ver "Título de ventana y pie").
 
-### Título de ventana y rutas
+### Título de ventana, color de pestaña y rutas
 
 - **Barra de título**: cada proyecto arranca su **propio** `compass.exe` y por
-  tanto su propia ventana; el título las distingue con
-  `ProjectContext::window_title()` = **nombre del directorio + tipo de
-  proyecto** (`School Tracker · Tauri`), no la ruta. Lo fija el propio proceso
-  al arrancar con `cmd::set_console_title()` (crossterm `SetTitle` →
+  tanto su propia pestaña; el título es **sólo el nombre del directorio**
+  (`ProjectContext::window_title()` = `platform::dir_display_name`), no la ruta
+  ni el tipo de proyecto (éste va en el badge de la cabecera). Lo fija el propio
+  proceso al arrancar con `cmd::set_console_title()` (crossterm `SetTitle` →
   `SetConsoleTitleW` en Windows) desde la TUI (`menu::run`), las tareas
-  (`run_task_direct`) y los submenús (`git`, `signer`). Las ventanas de
-  PowerShell fijan además el título del script (`[Console]::Title = …`) para
-  que se vea bien durante el arranque, pero el valor definitivo lo pone el
-  proceso hijo.
+  (`run_task_direct`) y los submenús (`git`, `signer`, `cleanup`, `release`,
+  `environment`). Las ventanas de PowerShell fijan además el título del script
+  (`[Console]::Title = …`) para que se vea bien durante el arranque, pero el
+  valor definitivo lo pone el proceso hijo. Si el host antepone un prefijo
+  propio (p. ej. `Administrator - ` en una terminal elevada) no se puede quitar
+  desde la aplicación: Compass sólo controla lo que hay a la derecha.
+- **Color de acento de la pestaña (Windows Terminal)**: al arrancar, `menu::run`
+  y `run_task_direct` llaman a `cmd::set_tab_color(platform::tab_accent(path))`.
+  WT pinta el fondo de la pestaña con el índice de paleta **264** (texto: 263),
+  así que se emite primero `DECAC` (`ESC[2;263;264,|`) para mapear esos índices
+  y después `OSC 4` (`ESC]4;264;rgb:rr/gg/bb ESC\`) para asignar sólo el de
+  fondo. El color sale de un **hash FNV-1a del path canónico en minúsculas**
+  → tono HSL (S 0.65, L 0.45): el mismo proyecto conserva su color al reabrirse
+  y dos instancias abiertas a la vez reciben acentos distintos. Conhost y las
+  ConPTY ignoran ambas secuencias, así que emitirlas siempre es seguro.
+  Cubierto por `platform::tests` (estabilidad, distinción y saturación) y
+  `cmd::tests::tab_color_sequence_maps_the_tab_index_before_setting_it`.
 - **Encabezado del TUI** (`render_header`): `emoji  Compass  v<versión>` en
   `brand` + BOLD y, debajo, `Proyecto: <directorio>` con el badge del tipo
   (`TAURI`, `FLUTTER`, …). La versión sale de `env!("CARGO_PKG_VERSION")` —no
@@ -345,8 +358,8 @@ menu.rs
 
 utils/
   ├─ context.rs — detect(), ProjectType, ProjectContext, whatsapp_path()
-  ├─ platform.rs — helpers de portabilidad: IS_WINDOWS, exe_name(), gradlew_name(), home_dir(), data_dir(), find_gradlew(), NDK_VERSION, tauri_native_pkg()
-  ├─ cmd.rs — shell()/shell_path()/ps_quote/embedded(), run*, run_ps*, run_ps_file_status, set_console_title, spawn_new_window_autoexit, spawn_new_window_interactive [en modo embebido ejecutan en la consola actual], run_build_and_reveal, run_in_current_window, run_shell_status, run_npm_install, clear_screen, remove_dir
+  ├─ platform.rs — helpers de portabilidad: IS_WINDOWS, exe_name(), gradlew_name(), home_dir(), data_dir(), find_gradlew(), dir_display_name(), tab_accent() [hash del path → acento de pestaña], NDK_VERSION, tauri_native_pkg()
+  ├─ cmd.rs — shell()/shell_path()/ps_quote/embedded(), run*, run_ps*, run_ps_file_status, set_console_title, set_tab_color [DECAC + OSC 4 del índice 264], spawn_new_window_autoexit, spawn_new_window_interactive [en modo embebido ejecutan en la consola actual], run_build_and_reveal, run_in_current_window, run_shell_status, run_npm_install, clear_screen, remove_dir
   ├─ tauri.rs — command(), ensure(), cli_entry() [CLI sin shim de .bin + reinstalación si falta el binding nativo]
   ├─ ui.rs — ask_text(), ask_password(), success_banner(), info_banner(), pause()
   ├─ console_guard.rs — guarda del cierre de la ventana anfitriona: install() [SetConsoleCtrlHandler], set_open_tabs(), register_pane()/unregister_pane(); en conhost deshabilita SC_CLOSE con pestañas abiertas y en el cierre mata los árboles + aviso nativo
@@ -1629,7 +1642,11 @@ Qoder), la marca `CompassStamp`, el comando que aloja la TUI en PowerShell y el
 detector de `cmd.exe`/`pwsh` que comparte con la sonda del instalador. De
 `cmd.rs` se cubren `ps_quote`, el script y los
 argumentos de las ventanas (`&`, `Read-Host`, `-NoProfile`, sin sintaxis de
-cmd), la resolución del shell y `newest_artifact`. De `terminal.rs`, la carpeta
+cmd), la resolución del shell, `newest_artifact` y la secuencia de color de
+pestaña (`DECAC` antes del `OSC 4` del índice 264). De `platform.rs`, que el
+acento de pestaña es estable por proyecto (path en minúsculas), distinto entre
+proyectos y con saturación visible. De `context.rs`, que `window_title()` es
+sólo el nombre del directorio (sin el tipo). De `terminal.rs`, la carpeta
 de perfil de cada shell además de la versión y el BOM. De `tauri.rs`, el
 fallback a `npx.cmd`. De `container.rs`, la codificación de teclas a xterm
 (texto, control, flechas, Alt y F1–F12), el recorte de títulos largos de la

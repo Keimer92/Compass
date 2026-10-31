@@ -161,10 +161,11 @@ fn run_global_task(task: &str) -> Result<()> {
 
 fn run_task_direct(ctx: &crate::utils::context::ProjectContext, task: &str) -> Result<()> {
     // Cmd muestra en el título el command line del hijo mientras corre; al
-    // fijarlo aquí con el nombre del directorio y el tipo de proyecto, la
-    // ventana de la tarea muestra "School Tracker · Tauri" en vez de la ruta
-    // del binario.
+    // fijarlo aquí con el nombre del directorio, la pestaña muestra el
+    // proyecto en vez de la ruta del binario. El acento de pestaña (Windows
+    // Terminal) se deriva del path para distinguir instancias concurrentes.
     crate::utils::cmd::set_console_title(&ctx.window_title());
+    crate::utils::cmd::set_tab_color(crate::utils::platform::tab_accent(&ctx.script_dir));
     match task {
         "windows-dev" => match ctx.project_type {
             crate::utils::context::ProjectType::Tauri => tasks::windows::dev(ctx),
@@ -334,9 +335,7 @@ fn run_task_direct(ctx: &crate::utils::context::ProjectContext, task: &str) -> R
         "terminal" => tasks::terminal::configure(ctx),
         // Respaldo y restauración del entorno de desarrollo (scripts embebidos
         // del proyecto Variables Backupper). Alias por comodidad en la CLI.
-        "environment" | "env" | "env-backup" | "env-restore" => {
-            tasks::environment::manage(ctx)
-        }
+        "environment" | "env" | "env-backup" | "env-restore" => tasks::environment::manage(ctx),
         "flutter-profile" => {
             println!("\n[INFO] Selecciona la plataforma para Profile:\n");
             println!("  1. Windows");

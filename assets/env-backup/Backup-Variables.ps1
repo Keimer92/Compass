@@ -262,7 +262,9 @@ if ([string]::IsNullOrWhiteSpace($Destino)) {
 }
 
 $timestamp  = Get-Date -Format "yyyy-MM-dd_HHmmss"
-$carpetaOut = Join-Path $Destino "EnvBackup_$timestamp"
+# Concatenación y no `Join-Path`: con una unidad inexistente `Join-Path` lanza
+# "Cannot find drive" y el aviso de abajo ('NO existe') nunca se mostraba.
+$carpetaOut = "$($Destino.TrimEnd('\'))\EnvBackup_$timestamp"
 
 Write-Host ""
 Write-Host "============================================================" -ForegroundColor DarkCyan
@@ -275,7 +277,7 @@ Write-Host "  Modo    : $(if ($SoloInventario) { 'solo inventario (no copia arch
 # Verifica que la unidad del destino exista
 $unidadDestino = (Split-Path -Path $carpetaOut -Qualifier)
 if ($unidadDestino) {
-    $raizDestino = Join-Path $unidadDestino "\"
+    $raizDestino = "$unidadDestino\"
     if (-not (Test-Path -LiteralPath $raizDestino)) {
         Write-Host ""
         Write-Host "[FALLO] La unidad '$unidadDestino' del destino NO existe." -ForegroundColor Red

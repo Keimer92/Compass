@@ -180,10 +180,7 @@ impl MenuItem {
             | Self::FlutterProfile
             | Self::Tests => "DEV",
             Self::Clean | Self::DebugAndroid | Self::Signing | Self::Version => "MNT",
-            Self::Git
-            | Self::BuildWhatsApp
-            | Self::ConfigureTerminal
-            | Self::Environment => "CFG",
+            Self::Git | Self::BuildWhatsApp | Self::ConfigureTerminal | Self::Environment => "CFG",
         }
     }
 
@@ -239,10 +236,9 @@ impl MenuItem {
             }
             Self::WindowsBuild => match project_type {
                 // Los tipos con builds por arquitectura abren el submenú.
-                ProjectType::Tauri
-                | ProjectType::Rust
-                | ProjectType::Go
-                | ProjectType::GoWails => "Win Release",
+                ProjectType::Tauri | ProjectType::Rust | ProjectType::Go | ProjectType::GoWails => {
+                    "Win Release"
+                }
                 ProjectType::Python => "Package",
                 _ => "Win Build",
             },
@@ -839,12 +835,14 @@ pub(crate) fn setup_terminal() -> io::Result<Terminal<CrosstermBackend<io::Stdou
 pub(crate) fn restore_terminal(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
 ) -> io::Result<()> {
+    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    // En Windows `DisableMouseCapture` restaura el modo de consola guardado al
+    // habilitar el ratón, que ya era raw (se guardó después de
+    // `enable_raw_mode`). Si se llama después de `disable_raw_mode` lo deshace
+    // y los `read_line` de las tareas (destino del backup, etc.) se cuelgan por
+    // falta de modo cocinado: primero el ratón y al final la entrada de línea.
+    let _ = execute!(terminal.backend_mut(), DisableMouseCapture);
     disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )?;
     terminal.show_cursor()?;
     Ok(())
 }
@@ -1877,9 +1875,11 @@ pub fn run(ctx: &ProjectContext) -> anyhow::Result<()> {
     let mut terminal = setup_terminal()?;
     let mut state = MenuState::new(ctx.project_type, theme::load());
 
-    // Cada proyecto abre su propia ventana; el título lleva el directorio y el
-    // tipo para distinguirlas de un vistazo.
+    // Cada proyecto abre su propia pestaña: el título es sólo el directorio y
+    // el acento de la pestaña sale del path, así dos instancias abiertas a la
+    // vez se distinguen de un vistazo.
     cmd::set_console_title(&ctx.window_title());
+    cmd::set_tab_color(platform::tab_accent(&ctx.script_dir));
 
     // Con pestañas internas, el cierre de la ventana anfitriona no debe
     // llevarse por delante sus procesos (ver `utils::console_guard`).
@@ -2080,7 +2080,11 @@ mod tests {
                 "{pt:?}"
             );
         }
-        for pt in [ProjectType::Flutter, ProjectType::Kotlin, ProjectType::Python] {
+        for pt in [
+            ProjectType::Flutter,
+            ProjectType::Kotlin,
+            ProjectType::Python,
+        ] {
             assert_eq!(
                 menu_item_to_task(MenuItem::WindowsBuild, pt),
                 "windows-build",
@@ -2129,7 +2133,10 @@ mod tests {
 
     #[test]
     fn release_cards_show_architecture_hints() {
-        assert_eq!(MenuItem::WindowsBuild.label(ProjectType::Tauri), "Win Release");
+        assert_eq!(
+            MenuItem::WindowsBuild.label(ProjectType::Tauri),
+            "Win Release"
+        );
         assert_eq!(
             MenuItem::WindowsBuild.description(ProjectType::Tauri),
             "x86 · x64 · ARM64"

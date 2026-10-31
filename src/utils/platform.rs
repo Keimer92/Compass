@@ -75,3 +75,86 @@ pub fn find_gradlew(dir: &Path) -> Option<PathBuf> {
     let wrapper = dir.join("gradlew.bat");
     wrapper.exists().then_some(wrapper)
 }
+
+/// Color de acento de la pestaña para un proyecto.
+///
+/// Sale del **path canónico y en minúsculas** (Windows no distingue
+/// mayúsculas), así que el mismo proyecto conserva su color al reabrirse y dos
+/// proyectos distintos abiertos a la vez reciben tonos separados por el hash.
+/// La saturación y la luminosidad son fijas para que el texto de la pestaña
+/// siga legible en cualquier tema.
+pub fn tab_accent(project: &Path) -> [u8; 3] {
+    let canonical = project
+        .canonicalize()
+        .unwrap_or_else(|_| project.to_path_buf());
+    let key = canonical.display().to_string().to_lowercase();
+    // Décimas de grado: 3600 cubos reparten mejor que 360 tonos enteros.
+    let hue = (fnv1a(key.as_bytes()) % 3600) as f32 / 3600.0;
+    hsl_to_rgb(hue, 0.65, 0.45)
+}
+
+fn fnv1a(bytes: &[u8]) -> u64 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in bytes {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
+}
+
+fn hsl_to_rgb(h: f32, s: f32, l: f32) -> [u8; 3] {
+    let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
+    let x = c * (1.0 - ((h * 6.0) % 2.0 - 1.0).abs());
+    let m = l - c / 2.0;
+    let (r, g, b) = match (h * 6.0) as u32 {
+        0 => (c, x, 0.0),
+        1 => (x, c, 0.0),
+        2 => (0.0, c, x),
+        3 => (0.0, x, c),
+        4 => (x, 0.0, c),
+        _ => (c, 0.0, x),
+    };
+    [
+        ((r + m) * 255.0).round() as u8,
+        ((g + m) * 255.0).round() as u8,
+        ((b + m) * 255.0).round() as u8,
+    ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tab_accent_is_stable_per_project() {
+        let a = Path::new(r"D:\Proyectos\School Tracker");
+        assert_eq!(tab_accent(a), tab_accent(a));
+        // En Windows el path no distingue mayúsculas.
+        let b = Path::new(r"d:\proyectos\school tracker");
+        assert_eq!(tab_accent(a), tab_accent(b));
+    }
+
+    #[test]
+    fn tab_accent_differs_between_projects() {
+        let a = tab_accent(Path::new(r"D:\Proyectos\School Tracker"));
+        let b = tab_accent(Path::new(r"D:\Proyectos\SongSync"));
+        let c = tab_accent(Path::new(r"D:\Proyectos\Compass"));
+        assert_ne!(a, b);
+        assert_ne!(a, c);
+        assert_ne!(b, c);
+    }
+
+    #[test]
+    fn tab_accent_has_visible_saturation() {
+        for name in ["School Tracker", "SongSync", "Compass", "Go + Wails v3"] {
+            let [r, g, b] = tab_accent(Path::new(name));
+            let max = r.max(g).max(b);
+            let min = r.min(g).min(b);
+            // Un gris no se distinguiría de otra pestaña.
+            assert!(
+                (max - min) as u32 > 60,
+                "color plano para {name}: {r},{g},{b}"
+            );
+        }
+    }
+}

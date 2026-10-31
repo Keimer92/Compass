@@ -665,6 +665,32 @@ pub fn set_console_title(title: &str) {
     );
 }
 
+/// Tiñe la pestaña de **Windows Terminal** con `rgb`.
+///
+/// WT pinta el fondo de la pestaña con el índice de paleta 264 (y su texto con
+/// el 263). `DECAC` saca ambos índices fuera de la paleta normal y `OSC 4` fija
+/// sólo el de fondo, así la pestaña adopta el acento sin tocar el texto:
+///
+/// - `ESC [ 2 ; 263 ; 264 , |` — DECAC: mapea fg/bg de pestaña a 263/264.
+/// - `ESC ] 4 ; 264 ; rgb:rr/gg/bb ESC \` — OSC 4: asigna ese índice.
+///
+/// Conhost y las ConPTY (pestañas internas) ignoran ambas secuencias, así que
+/// es seguro emitirlas siempre.
+pub fn set_tab_color(rgb: [u8; 3]) {
+    use std::io::Write;
+
+    let mut out = std::io::stdout();
+    let _ = out.write_all(tab_color_sequence(rgb).as_bytes());
+    let _ = out.flush();
+}
+
+fn tab_color_sequence(rgb: [u8; 3]) -> String {
+    format!(
+        "\x1b[2;263;264,|\x1b]4;264;rgb:{:02x}/{:02x}/{:02x}\x1b\\",
+        rgb[0], rgb[1], rgb[2]
+    )
+}
+
 /// Elimina un directorio recursivamente manejando rutas largas en Windows.
 ///
 /// `std::fs::remove_dir_all` es instantáneo y cubre la inmensa mayoría de los
@@ -807,6 +833,17 @@ mod tests {
             "'C:\\Proyectos\\Compass'"
         );
         assert_eq!(ps_quote("O'Brien"), "'O''Brien'");
+    }
+
+    /// Windows Terminal pinta el fondo de la pestaña con el índice 264 cuando
+    /// `DECAC` lo mapea; sin el DECAC previo, el OSC 4 solo no la tiñe.
+    #[test]
+    fn tab_color_sequence_maps_the_tab_index_before_setting_it() {
+        let seq = tab_color_sequence([0x12, 0xab, 0x7f]);
+        assert_eq!(seq, "\x1b[2;263;264,|\x1b]4;264;rgb:12/ab/7f\x1b\\");
+        let decac = seq.find("\x1b[2;263;264,|").unwrap();
+        let osc = seq.find("\x1b]4;264;").unwrap();
+        assert!(decac < osc, "DECAC tiene que ir antes del OSC 4");
     }
 
     /// El `&` es lo que permite ejecutar comandos que empiezan por una ruta

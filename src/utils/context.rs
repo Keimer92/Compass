@@ -63,16 +63,15 @@ pub struct ProjectContext {
 }
 
 impl ProjectContext {
-    /// Título de la ventana: nombre del directorio + tipo de proyecto.
+    /// Título de la ventana: **sólo** el nombre del directorio del proyecto.
     ///
     /// Cada proyecto arranca su propio `compass.exe` y por tanto su propia
-    /// ventana; el título tiene que identificar cuál es sin abrirla.
+    /// pestaña. No se añade el tipo de proyecto: el host ya antepone su propio
+    /// prefijo (p. ej. `Administrator - `) y el resto del título debe quedar
+    /// limpio para reconocer el proyecto de un vistazo. El tipo va en el badge
+    /// de la cabecera del TUI y el color de la pestaña distingue instancias.
     pub fn window_title(&self) -> String {
-        format!(
-            "{} \u{b7} {}",
-            platform::dir_display_name(&self.script_dir),
-            self.project_type.label()
-        )
+        platform::dir_display_name(&self.script_dir)
     }
 
     pub fn assert_android_sdk(&self) -> Result<()> {
@@ -441,6 +440,24 @@ mod tests {
         .unwrap();
         assert_eq!(classify_dir(&root), Some(ProjectType::Python));
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn window_title_is_only_the_project_directory() {
+        let ctx = ProjectContext {
+            script_dir: PathBuf::from(r"D:\Proyectos\School Tracker"),
+            project_type: ProjectType::Tauri,
+            android_home: None,
+            ndk_home: None,
+            adb_path: None,
+            sdk_manager: None,
+            has_node_modules: false,
+            has_android_project: false,
+            has_whatsapp_engine: false,
+        };
+        assert_eq!(ctx.window_title(), "School Tracker");
+        // El tipo de proyecto no se repite en la pestaña (va en el badge).
+        assert!(!ctx.window_title().contains("Tauri"));
     }
 
     #[test]
