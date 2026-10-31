@@ -687,10 +687,11 @@ pub fn set_console_title(title: &str) {
 /// consola legible (tareas con stdout redirigido, tests), no hay nada que
 /// arreglar.
 pub fn reclaim_console_title(wanted: &str) {
-    if let Some(actual) = crate::utils::platform::console_title() {
-        if actual != wanted && !embedded() {
-            set_console_title(wanted);
-        }
+    if embedded() {
+        return;
+    }
+    if crate::utils::platform::console_title().is_some_and(|actual| actual != wanted) {
+        set_console_title(wanted);
     }
 }
 

@@ -196,20 +196,38 @@ izquierda (`Ctrl+T temas: <nombre>`, en color `brand`); a la derecha va la
   (`run_task_direct`) y los submenús (`git`, `signer`, `cleanup`, `release`,
   `environment`). Las ventanas de PowerShell fijan además el título del script
   (`[Console]::Title = …`) para que se vea bien durante el arranque, pero el
-  valor definitivo lo pone el proceso hijo. Si el host antepone un prefijo
-  propio (p. ej. `Administrator - ` en una terminal elevada) no se puede quitar
-  desde la aplicación: Compass sólo controla lo que hay a la derecha (véase
-  "El prefijo `Administrator: ` de la pestaña").
+  valor definitivo lo pone el proceso hijo. **Dentro de una pestaña del contenedor
+  no se escribe nada** (`cmd::embedded()` corta la llamada): el título de una
+  ConPTY anidada no se queda en su pseudoconsola, el `OpenConsole` del host lo
+  reenvía a la consola raíz como `OSC 0` —y si ese proceso va elevado, conhost le
+  antepone `Administrator: `—, así que la pestaña de Windows Terminal acababa con
+  el prefijo en cuanto se abría una pestaña de tarea. El menú lo **reclama**:
+  `menu::run` compara una vez por segundo `platform::console_title()`
+  (`GetConsoleTitleW`) con el título del proyecto y, si difiere, lo reescribe
+  (`cmd::reclaim_console_title`). Cubierto por
+  `container_e2e::opened_tab_does_not_keep_the_administrator_title`; véase
+  también "El prefijo `Administrator: ` de la pestaña".
 - **Color de acento de la pestaña (Windows Terminal)**: al arrancar, `menu::run`
   y `run_task_direct` llaman a `cmd::set_tab_color(platform::tab_accent(path))`.
   WT pinta el fondo de la pestaña con el índice de paleta **264** (texto: 263),
   así que se emite primero `DECAC` (`ESC[2;263;264,|`) para mapear esos índices
   y después `OSC 4` (`ESC]4;264;rgb:rr/gg/bb ESC\`) para asignar sólo el de
-  fondo. El color sale de un **hash FNV-1a del path canónico en minúsculas**
-  → tono HSL (S 0.65, L 0.45): el mismo proyecto conserva su color al reabrirse
-  y dos instancias abiertas a la vez reciben acentos distintos. Conhost y las
-  ConPTY ignoran ambas secuencias, así que emitirlas siempre es seguro.
-  Cubierto por `platform::tests` (estabilidad, distinción y saturación) y
+  fondo. El tono sale de un **hash FNV-1a del path canónico en minúsculas**,
+  cuantizado a `TONES = 12` posiciones de la rueda (30° de separación; S 0.65 y
+  L 0.45 fijos para que el texto siga legible) y **girado el ángulo áureo
+  (137,508°) por cada instancia de Compass viva**: `platform::instance_index()`
+  enumera con un snapshot de Toolhelp32 los `compass.exe` cuyo PID es menor que
+  el suyo, así que el primero de la sesión devuelve 0 y conserva el tono de su
+  proyecto. Con esto se arregla el «todas van en verde»: antes el hash continuo
+  podía dar `#28bd2b` y `#49bd28` (indistinguibles) para dos proyectos, y dos
+  instancias del *mismo* proyecto compartían color exacto. Ahora dos Compass
+  abiertos a la vez **nunca** coinciden (índices distintos ⇒ giro distinto), y
+  secuencias de proyectos distintas caen como mínimo a 30°.
+  **Las escrituras de paleta no viajan desde una pestaña anidada** (a diferencia
+  del título), así que `set_tab_color` se corta con `cmd::embedded()` para que la
+  tarea de la pestaña no reindexe las instancias ni pelee con el color ya fijado.
+  Cubierto por `platform::tests` (rejilla de 12, estabilidad por proyecto,
+  instancias vivas con acentos distintos y saturación visible) y
   `cmd::tests::tab_color_sequence_maps_the_tab_index_before_setting_it`.
 - **Encabezado del TUI** (`render_header`): `emoji  Compass  v<versión>` en
   `brand` + BOLD y, debajo, `Proyecto: <directorio>` con el badge del tipo
@@ -228,11 +246,25 @@ Cuando la ventana se ve como `Administrator: <carpeta>`, **no lo pone Compass**:
 el ejecutable no lleva `RT_MANIFEST` —`build.rs` sólo embebe icono y `VERSIONINFO`
 en un `.syso` con `embed_resource` y no emite `/MANIFESTUAC`, así que rige el
 `asInvoker` implícito y el proceso nunca pide elevación—; y `window_title()` ya es
-sólo el nombre del directorio. El prefijo lo antepone el
-**host de terminal** (Windows Terminal, y también conhost) porque su proceso tiene
-token de administrador; desde la aplicación no se puede quitar ni sobrescribir con
-`SetConsoleTitleW`, y WT no ofrece ningún ajuste para ocultarlo
-(microsoft/terminal#984 se cerró como respondido, no implementado).
+sólo el nombre del directorio. El prefijo lo antepone un **proceso elevado**
+(con `EnableLUA` a `0`, todo shell del administrador va elevado): el
+`pwsh`/`cmd` que vive dentro de una pestaña del contenedor, y su `OpenConsole`
+reenvía ese título al de la consola raíz. WT no ofrece ningún ajuste para
+ocultarlo (microsoft/terminal#984 se cerró como respondido, no implementado),
+pero **sí se puede sobrescribir**: el prefijo viaja dentro del texto del título,
+no lo pinta el host al dibujar la pestaña.
+
+Medido en una ConPTY real, al abrir una pestaña de tarea salen
+`ESC ]0;Administrator: <carpeta>` y, un segundo después, `ESC ]0;<carpeta>`
+limpio. Eso da el arreglo, en dos partes:
+
+- **Dentro de una pestaña no se escribe nada**: `cmd::embedded()` corta
+  `set_console_title` y `set_tab_color`, así la tarea de la pestaña no es quien
+  pone el prefijo ni reindexa las instancias del color.
+- **El menú reclama su título**: `cmd::reclaim_console_title()` lee
+  `platform::console_title()` (`GetConsoleTitleW`) y sólo reescribe si difiere de
+  `window_title()`; `menu::run` lo llama una vez por segundo. Cubierto por
+  `container_e2e::opened_tab_does_not_keep_the_administrator_title`.
 
 Lo decisivo es el valor `EnableLUA` de `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System`:
 con `0` (UAC apagado) **todas** las ventanas del administrador salen elevadas y el
@@ -409,8 +441,8 @@ menu.rs
 
 utils/
   ├─ context.rs — detect(), ProjectType, ProjectContext, whatsapp_path()
-  ├─ platform.rs — helpers de portabilidad: IS_WINDOWS, exe_name(), gradlew_name(), home_dir(), data_dir(), find_gradlew(), dir_display_name(), tab_accent() [hash del path → acento de pestaña], NDK_VERSION, tauri_native_pkg()
-  ├─ cmd.rs — shell()/shell_path()/ps_quote/embedded(), run*, run_ps*, run_ps_file_status, set_console_title, set_tab_color [DECAC + OSC 4 del índice 264], spawn_new_window_autoexit, spawn_new_window_interactive [en modo embebido ejecutan en la consola actual], run_build_and_reveal, run_in_current_window, run_shell_status, run_npm_install, clear_screen, remove_dir
+  ├─ platform.rs — helpers de portabilidad: IS_WINDOWS, exe_name(), gradlew_name(), home_dir(), data_dir(), find_gradlew(), dir_display_name(), console_title() [GetConsoleTitleW], tab_accent() [hash del path → tono de 12 posiciones, girado por instancia viva], NDK_VERSION, tauri_native_pkg()
+  ├─ cmd.rs — shell()/shell_path()/ps_quote/embedded(), run*, run_ps*, run_ps_file_status, set_console_title, reclaim_console_title [reintegra el título si otra consola lo pisó], set_tab_color [DECAC + OSC 4 del índice 264], spawn_new_window_autoexit, spawn_new_window_interactive [en modo embebido ejecutan en la consola actual], run_build_and_reveal, run_in_current_window, run_shell_status, run_npm_install, clear_screen, remove_dir
   ├─ tauri.rs — command(), ensure(), cli_entry() [CLI sin shim de .bin + reinstalación si falta el binding nativo]
   ├─ ui.rs — ask_text(), ask_password(), success_banner(), info_banner(), pause()
   ├─ console_guard.rs — guarda del cierre de la ventana anfitriona: install() [SetConsoleCtrlHandler], set_open_tabs(), register_pane()/unregister_pane(); en conhost deshabilita SC_CLOSE con pestañas abiertas y en el cierre mata los árboles + aviso nativo
@@ -746,6 +778,10 @@ Detalles que importan:
     pestaña). Al recibir `CTRL_CLOSE_EVENT` el manejador mata los árboles de las
     pestañas (`taskkill /T`) y muestra un aviso nativo (`MessageBoxW`) con la
     cuenta; el cierre sigue adelante. Es lo máximo que permite el host.
+    ⚠️ Por eso, con la `×` de WT **no** aparece el modal de `MenuState::quit_confirm`
+    (ese lo pinta la TUI, y la TUI ya está muriendo): lo que se ve es el aviso
+    nativo, y la pestaña se cierra igualmente. La salida que sí pregunta antes de
+    perder nada es `Esc` → modal → `Enter`.
   - `CTRL_LOGOFF_EVENT`/`CTRL_SHUTDOWN_EVENT` solo matan los árboles, sin
     diálogo (no se debe bloquear un apagado).
   - Sin `install()` (tests, tareas CLI) el módulo es inerte: `set_open_tabs()`
@@ -1709,8 +1745,9 @@ detector de `cmd.exe`/`pwsh` que comparte con la sonda del instalador. De
 argumentos de las ventanas (`&`, `Read-Host`, `-NoProfile`, sin sintaxis de
 cmd), la resolución del shell, `newest_artifact` y la secuencia de color de
 pestaña (`DECAC` antes del `OSC 4` del índice 264). De `platform.rs`, que el
-acento de pestaña es estable por proyecto (path en minúsculas), distinto entre
-proyectos y con saturación visible. De `context.rs`, que `window_title()` es
+acento de pestaña es estable por proyecto (path en minúsculas), que sus tonos
+caen en la rejilla de 12, que dos instancias vivas nunca comparten acento y que
+el color tiene saturación visible. De `context.rs`, que `window_title()` es
 sólo el nombre del directorio (sin el tipo). De `terminal.rs`, la carpeta
 de perfil de cada shell además de la versión y el BOM. De `tauri.rs`, el
 fallback a `npx.cmd`. De `container.rs`, la codificación de teclas a xterm
@@ -1733,7 +1770,7 @@ sobrescribe un destino existente; de `submenu.rs`, el flag `warn_android`; y de
 `menu.rs`, el routing de las cards de release y que `AndroidBuildArmv7` queda
 oculta en todos los tipos.
 
-Tres pruebas abren una **ConPTY real** y están `#[ignore]` porque dependen del
+Cuatro pruebas abren una **ConPTY real** y están `#[ignore]` porque dependen del
 sistema y tardan unos segundos:
 
 ```text
@@ -1742,7 +1779,7 @@ cargo test --test container_e2e -- --ignored --nocapture
 ```
 
 La primera comprueba que una sesión pinta su salida (`hola contenedor`). Las
-otras dos (`tests/container_e2e.rs`) arrancan el `compass.exe` real en una ConPTY
+otras tres (`tests/container_e2e.rs`) arrancan el `compass.exe` real en una ConPTY
 de 120×35 con el helper `spawn_compass`:
 
 - `card_opens_a_session_tab_and_f12_switches_between_menu_and_tab` entra en
@@ -1760,6 +1797,12 @@ de 120×35 con el helper `spawn_compass`:
   se marca `proceso finalizado`. Como destino usa una unidad inexistente
   (`Q:\…`), así el script falla antes de copiar nada: la prueba nunca toca
   respaldos reales.
+- `opened_tab_does_not_keep_the_administrator_title` es la regresión del prefijo:
+  abre la card Git dentro de una pestaña y espera que el **título de la consola
+  exterior** (`vt100::screen().title()`, alimentado por los `OSC 0` que salen por
+  la ConPTY) sea el nombre del directorio del proyecto; después de 3 s comprueba
+  que sigue limpio. Sin el reclamador de `menu::run`, en una máquina con el shell
+  elevado el título se queda en `Administrator: <carpeta>` y la prueba caduca.
 
 ⚠️ El `Harness` guarda el `master` de la ConPTY (`_master`): soltarlo justo
 después del `spawn` cierra el pseudoconsola mientras el hijo aún inicializa su
