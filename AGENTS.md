@@ -445,7 +445,7 @@ utils/
   ├─ cmd.rs — shell()/shell_path()/ps_quote/embedded(), run*, run_ps*, run_ps_file_status, set_console_title, reclaim_console_title [reintegra el título si otra consola lo pisó], set_tab_color [DECAC + OSC 4 del índice 264], spawn_new_window_autoexit, spawn_new_window_interactive [en modo embebido ejecutan en la consola actual], run_build_and_reveal, run_in_current_window, run_shell_status, run_npm_install, clear_screen, remove_dir
   ├─ tauri.rs — command(), ensure(), cli_entry() [CLI sin shim de .bin + reinstalación si falta el binding nativo]
   ├─ ui.rs — ask_text(), ask_password(), success_banner(), info_banner(), pause()
-  ├─ console_guard.rs — guarda del cierre de la ventana anfitriona: install() [SetConsoleCtrlHandler], set_open_tabs(), register_pane()/unregister_pane(); en conhost deshabilita SC_CLOSE con pestañas abiertas y en el cierre mata los árboles + aviso nativo
+  ├─ console_guard.rs — guarda del cierre de la ventana anfitriona: install() [SetConsoleCtrlHandler], set_open_tabs(), register_pane()/unregister_pane(); en conhost deshabilita SC_CLOSE con pestañas abiertas y en el cierre mata los árboles (sin aviso: el host no se puede vetar)
   └─ android.rs — select_device(), wait_for_device_boot(), list_physical_devices() [sólo dispositivos físicos]
 
 tasks/
@@ -776,14 +776,15 @@ Detalles que importan:
   - **Windows Terminal**: el host cierra la ConPTY y la app **no puede vetarlo**
     (microsoft/terminal#6549; `EnableMenuItem` no afecta a la `×` de su
     pestaña). Al recibir `CTRL_CLOSE_EVENT` el manejador mata los árboles de las
-    pestañas (`taskkill /T`) y muestra un aviso nativo (`MessageBoxW`) con la
-    cuenta; el cierre sigue adelante. Es lo máximo que permite el host.
-    ⚠️ Por eso, con la `×` de WT **no** aparece el modal de `MenuState::quit_confirm`
-    (ese lo pinta la TUI, y la TUI ya está muriendo): lo que se ve es el aviso
-    nativo, y la pestaña se cierra igualmente. La salida que sí pregunta antes de
-    perder nada es `Esc` → modal → `Enter`.
-  - `CTRL_LOGOFF_EVENT`/`CTRL_SHUTDOWN_EVENT` solo matan los árboles, sin
-    diálogo (no se debe bloquear un apagado).
+    pestañas (`taskkill /T`) y **nada más**: no hay aviso nativo. Preguntar ahí
+    era ruido —el cierre sigue adelante sea cual sea la respuesta— y bloqueaba el
+    manejador hasta el timeout de 5 s que concede Windows antes de terminar el
+    proceso. Es lo máximo que permite el host.
+    ⚠️ Con la `×` de WT **no** aparece el modal de `MenuState::quit_confirm` (ese
+    lo pinta la TUI, y la TUI ya está muriendo) y la pestaña se cierra igualmente.
+    La única salida que pregunta antes de perder nada es `Esc` → modal → `Enter`.
+  - `CTRL_LOGOFF_EVENT`/`CTRL_SHUTDOWN_EVENT` hacen lo mismo: solo matan los
+    árboles (no se debe bloquear un apagado).
   - Sin `install()` (tests, tareas CLI) el módulo es inerte: `set_open_tabs()`
     solo guarda el contador y no toca Win32.
 - **El ratón se reenvía a la pestaña activa**: un clic en la barra lo consume el
@@ -1754,9 +1755,8 @@ fallback a `npx.cmd`. De `container.rs`, la codificación de teclas a xterm
 (texto, control, flechas, Alt y F1–F12), el recorte de títulos largos de la
 barra y el que la zona clicable del `×` cubra la celda donde el `Paragraph`
 pinta el glifo (sin ConPTY: dibuja la barra en un `TestBackend` y busca el `×`
-en el buffer). De `console_guard.rs`, el texto del aviso (singular/plural y la
-indicación de usar `Esc`) y que sin `install()` el contador no toca Win32. De
-`environment.rs`, los marcadores de los scripts embebidos (que sean los reales),
+en el buffer). De `console_guard.rs`, que sin `install()` el contador no toca
+Win32. De `environment.rs`, los marcadores de los scripts embebidos (que sean los reales),
 la idempotencia de `materialize()`, la elección del respaldo más reciente, las
 entradas del submenú y el parseo de respuestas afirmativas. De `gowails.rs` se
 cubren `version_code` (semver → entero monótono de Play), los nombres

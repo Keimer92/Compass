@@ -11,8 +11,10 @@
 //!   del menú (`Esc` → aviso → `Enter`).
 //! - **Windows Terminal**: no hay forma de vetar el cierre de una pestaña desde
 //!   la app (microsoft/terminal#6549); el host cierra la ConPTY igual. Aquí el
-//!   manejador de consola mata los árboles de las pestañas y muestra un aviso
-//!   nativo con la cuenta antes de que el sistema termine el proceso.
+//!   manejador de consola mata los árboles de las pestañas antes de que el
+//!   sistema termine el proceso, **sin aviso**: el cierre sigue adelante sea cual
+//!   sea la respuesta, así que preguntar solo añadía ruido. La salida que sí
+//!   pregunta antes de perder nada es la del menú (`Esc` → aviso → `Enter`).
 //!
 //! Todo es best-effort: si no hay ventana de consola (`GetConsoleWindow`
 //! devuelve NULL) o el cierre lo inicia el sistema, no se hace nada raro.
@@ -72,22 +74,6 @@ pub fn unregister_pane(pid: u32) {
     }
 }
 
-/// Texto del aviso nativo. Separado para poder verificarlo sin Win32.
-fn warning_text(tabs: usize) -> String {
-    let (sustantivo, plural) = if tabs == 1 {
-        ("pestaña", "")
-    } else {
-        ("pestañas", "s")
-    };
-    format!(
-        "Se está cerrando la ventana de Compass.\n\n\
-         Hay {tabs} {sustantivo} de tarea abierta{plural} dentro de Compass.\n\
-         Al cerrar esta ventana se terminarán sus procesos.\n\n\
-         Para cerrar Compass de forma segura, usa Esc dentro de la app: \
-         te avisa y puedes confirmar antes de cerrar las pestañas."
-    )
-}
-
 #[cfg(windows)]
 fn kill_pane_trees() {
     let Ok(pids) = PANE_PIDS.try_lock() else {
@@ -134,42 +120,14 @@ unsafe extern "system" fn on_ctrl(ctrl_type: u32) -> i32 {
     if !closing && !session_end {
         return 0;
     }
-    let tabs = OPEN_TABS.load(Ordering::Relaxed);
-    if tabs == 0 {
+    if OPEN_TABS.load(Ordering::Relaxed) == 0 {
         return 0;
     }
 
     // El host va a terminar este proceso: sin esto, cargo/gradlew/flutter
     // quedarían vivos escribiendo en una ConPTY que ya no existe.
     kill_pane_trees();
-    if closing {
-        show_warning(tabs);
-    }
     1
-}
-
-#[cfg(windows)]
-fn show_warning(tabs: usize) {
-    use std::ffi::OsStr;
-    use std::os::windows::ffi::OsStrExt;
-
-    let title: Vec<u16> = OsStr::new("Compass - Pestañas abiertas")
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect();
-    let msg: Vec<u16> = OsStr::new(&warning_text(tabs))
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect();
-
-    unsafe {
-        win::MessageBoxW(
-            std::ptr::null_mut(),
-            msg.as_ptr(),
-            title.as_ptr(),
-            win::MB_OK | win::MB_ICONWARNING | win::MB_TOPMOST | win::MB_SETFOREGROUND,
-        );
-    }
 }
 
 #[cfg(windows)]
@@ -185,11 +143,6 @@ mod win {
     pub const MF_ENABLED: u32 = 0x0000_0000;
     pub const MF_GRAYED: u32 = 0x0000_0001;
 
-    pub const MB_OK: u32 = 0x0000_0000;
-    pub const MB_ICONWARNING: u32 = 0x0000_0030;
-    pub const MB_TOPMOST: u32 = 0x0004_0000;
-    pub const MB_SETFOREGROUND: u32 = 0x0001_0000;
-
     #[link(name = "kernel32")]
     extern "system" {
         pub fn SetConsoleCtrlHandler(
@@ -201,12 +154,6 @@ mod win {
 
     #[link(name = "user32")]
     extern "system" {
-        pub fn MessageBoxW(
-            hwnd: *mut c_void,
-            text: *const u16,
-            caption: *const u16,
-            type_: u32,
-        ) -> i32;
         pub fn GetSystemMenu(hwnd: *mut c_void, revert: i32) -> *mut c_void;
         pub fn EnableMenuItem(menu: *mut c_void, id: u32, enable: u32) -> i32;
         pub fn DrawMenuBar(hwnd: *mut c_void) -> i32;
@@ -216,17 +163,6 @@ mod win {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn warning_text_counts_tabs_and_points_to_esc() {
-        let one = warning_text(1);
-        assert!(one.contains("1 pestaña de tarea abierta "), "{one}");
-        assert!(one.contains("usa Esc dentro de la app"), "{one}");
-
-        let many = warning_text(3);
-        assert!(many.contains("3 pestañas de tarea abiertas "), "{many}");
-        assert!(many.contains("se terminarán sus procesos"), "{many}");
-    }
 
     /// Sin instalar la guarda (como en los tests) el contador no toca Win32.
     #[test]
