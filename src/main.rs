@@ -237,9 +237,7 @@ fn run_task_direct(ctx: &crate::utils::context::ProjectContext, task: &str) -> R
             crate::utils::context::ProjectType::Go => {
                 anyhow::bail!("Los proyectos Go puros no tienen compilación Android")
             }
-            crate::utils::context::ProjectType::GoWails => {
-                anyhow::bail!("No aplicable a proyectos Go + Wails (Wails v3 sólo compila arm64)")
-            }
+            crate::utils::context::ProjectType::GoWails => tasks::gowails::build_apk_armv7(ctx),
             crate::utils::context::ProjectType::Python => {
                 anyhow::bail!("Python no tiene compilación Android")
             }

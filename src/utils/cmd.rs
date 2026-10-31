@@ -308,52 +308,12 @@ pub fn run_build_and_reveal_with_env_outcome(
     rename_to: Option<&str>,
     envs: &[(String, String)],
 ) -> Result<BuildOutcome> {
-    run_build_and_reveal_filtered(command, dir, folder, exts, rename_to, envs, None)
-}
-
-/// Igual que [`run_build_and_reveal`] pero sólo acepta artefactos cuyo nombre
-/// contenga alguno de `name_contains`.
-///
-/// Hace falta cuando el build deja **varios** ejecutables en la misma carpeta y
-/// el "más reciente" no es el entregable: `wails3 task package` deja en `bin/`
-/// tanto `<app>.exe` (el portable, que compila como dependencia) como
-/// `<app>-amd64-installer.exe` (el instalador de NSIS). Sin el filtro se
-/// revelaba el portable y el instalador quedaba escondido al lado.
-pub fn run_build_and_reveal_named(
-    command: &str,
-    dir: &std::path::Path,
-    folder: &std::path::Path,
-    exts: &[&str],
-    name_contains: &[&str],
-    rename_to: Option<&str>,
-) -> Result<()> {
-    let _ = run_build_and_reveal_filtered(
-        command,
-        dir,
-        folder,
-        exts,
-        rename_to,
-        &[],
-        Some(name_contains),
-    )?;
-    Ok(())
-}
-
-fn run_build_and_reveal_filtered(
-    command: &str,
-    dir: &std::path::Path,
-    folder: &std::path::Path,
-    exts: &[&str],
-    rename_to: Option<&str>,
-    envs: &[(String, String)],
-    name_contains: Option<&[&str]>,
-) -> Result<BuildOutcome> {
     println!();
     println!("[INFO] Ejecutando: {command}");
     println!();
     let success = run_shell_status(command, dir, envs)?;
     let artifact = if success {
-        reveal_artifact_filtered(folder, exts, rename_to, name_contains)
+        reveal_artifact(folder, exts, rename_to)
     } else {
         println!();
         println!("[ERROR] El build fallo.");
@@ -476,10 +436,16 @@ pub fn run_ps_file_status(
     envs: &[(String, String)],
 ) -> Result<bool> {
     let mut c = Command::new(shell());
-    c.args(["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
-        .arg(script)
-        .args(args)
-        .current_dir(dir);
+    c.args([
+        "-NoLogo",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+    ])
+    .arg(script)
+    .args(args)
+    .current_dir(dir);
     for (k, v) in envs {
         c.env(k, v);
     }
@@ -539,35 +505,15 @@ pub fn spawn_new_window_interactive(
 
 /// Busca el archivo más reciente dentro de `folder` (recursivo) cuya extensión
 /// esté en `exts`. `exts` vacío significa "cualquier archivo".
-///
-/// Sólo lo usan los tests: el resto del código pasa por
-/// [`newest_artifact_filtered`], que además puede filtrar por nombre.
-#[cfg(test)]
 fn newest_artifact(folder: &Path, exts: &[&str]) -> Option<PathBuf> {
-    newest_artifact_filtered(folder, exts, None)
-}
-
-/// Igual que [`newest_artifact`] pero, si `name_contains` viene, el nombre del
-/// archivo tiene que contener **alguno** de esos fragmentos (sin distinguir
-/// mayúsculas).
-fn newest_artifact_filtered(
-    folder: &Path,
-    exts: &[&str],
-    name_contains: Option<&[&str]>,
-) -> Option<PathBuf> {
-    fn walk(
-        dir: &Path,
-        exts: &[&str],
-        name_contains: Option<&[&str]>,
-        best: &mut Option<(SystemTime, PathBuf)>,
-    ) {
+    fn walk(dir: &Path, exts: &[&str], best: &mut Option<(SystemTime, PathBuf)>) {
         let Ok(entries) = std::fs::read_dir(dir) else {
             return;
         };
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
-                walk(&path, exts, name_contains, best);
+                walk(&path, exts, best);
                 continue;
             }
             if !exts.is_empty() {
@@ -576,15 +522,6 @@ fn newest_artifact_filtered(
                     .map(|ext| exts.iter().any(|e| ext.eq_ignore_ascii_case(e)))
                     .unwrap_or(false);
                 if !matches {
-                    continue;
-                }
-            }
-            if let Some(fragments) = name_contains {
-                let name = path
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_lowercase())
-                    .unwrap_or_default();
-                if !fragments.iter().any(|f| name.contains(&f.to_lowercase())) {
                     continue;
                 }
             }
@@ -602,7 +539,7 @@ fn newest_artifact_filtered(
         return None;
     }
     let mut best = None;
-    walk(folder, exts, name_contains, &mut best);
+    walk(folder, exts, &mut best);
     best.map(|(_, p)| p)
 }
 
@@ -622,15 +559,8 @@ fn rename_artifact(path: &Path, base: &str) -> Option<PathBuf> {
 /// artefacto más reciente de `folder` (o sobre la carpeta si no encuentra nada).
 ///
 /// Devuelve el path del artefacto (ya renombrado), si lo hubo.
-///
-/// `name_contains` filtra por fragmentos del nombre; `None` acepta cualquiera.
-fn reveal_artifact_filtered(
-    folder: &Path,
-    exts: &[&str],
-    rename_to: Option<&str>,
-    name_contains: Option<&[&str]>,
-) -> Option<PathBuf> {
-    let artifact = newest_artifact_filtered(folder, exts, name_contains);
+fn reveal_artifact(folder: &Path, exts: &[&str], rename_to: Option<&str>) -> Option<PathBuf> {
+    let artifact = newest_artifact(folder, exts);
     match artifact {
         Some(path) => {
             let path = rename_to
@@ -676,7 +606,7 @@ fn open_in_explorer(path: &Path) {
 }
 
 /// Abre una carpeta en el explorador.
-fn open_folder(folder: &Path) {
+pub fn open_folder(folder: &Path) {
     let p = windows_path_for_explorer(folder);
     let _ = Command::new("explorer").arg(&p).spawn();
 }
@@ -770,35 +700,6 @@ mod tests {
         assert_eq!(newest_artifact(&dir, &["msi"]), None);
         // Sin filtro: el más reciente entre todos los archivos (incluido el .txt).
         assert_eq!(newest_artifact(&dir, &[]), Some(txt.clone()));
-
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    /// El build del instalador de Wails deja en `bin/` el binario portable y el
-    /// instalador. El filtro por nombre tiene que quedarse con el instalador
-    /// aunque el portable sea más reciente.
-    #[test]
-    fn newest_artifact_filter_by_name_ignores_the_portable_binary() {
-        let dir = temp_dir("installer");
-        let now = SystemTime::now();
-        let portable = dir.join("school-tracker.exe");
-        let installer = dir.join("school-tracker-amd64-installer.exe");
-        touch(&portable, now);
-        touch(&installer, now - Duration::from_secs(60));
-
-        assert_eq!(
-            newest_artifact_filtered(&dir, &["exe", "msix"], Some(&["installer"])),
-            Some(installer.clone()),
-            "sin el filtro se revelaría el portable"
-        );
-
-        let msix = dir.join("school-tracker-amd64.msix");
-        touch(&msix, now + Duration::from_secs(10));
-        assert_eq!(
-            newest_artifact_filtered(&dir, &["exe", "msix"], Some(&["installer", "msix"])),
-            Some(msix.clone()),
-            "los formatos empaquetados se aceptan por extensión"
-        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }

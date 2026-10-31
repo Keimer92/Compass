@@ -1160,32 +1160,44 @@ usaba `wails.json` y otro CLI, así que no se mezcla (`context::is_wails_v3`).
 | Tarjeta | Qué hace |
 |---------|----------|
 | Windows | `wails3 task dev` en ventana interactiva (Vite en modo dev + hot reload) |
-| Windows Build | `wails3 task package` → **instalador**: `bin/<APP>-<arch>-installer.exe` (NSIS) o `bin/<APP>-<arch>.msix`. Revelado en el explorador |
-| APK (release) | Pipeline Android propio → `build/android/app/build/outputs/apk/release/`, copiada a `bin/<APP>.apk` y **opción de instalarla en el teléfono** |
-| AAB (release) | Lo mismo + `bundleRelease` → `bin/<APP>.aab` |
-| Install (debug) | APK debug + `adb install` + `am start`; la ventana se cierra sola a los 10 s tras compilar bien |
+| Windows Build | `build_desktop`: **x86 portable** (`wails3 task build ARCH=386`) + **x64/ARM64 portable e instalador NSIS** (`wails3 task package ARCH=…`). Todo se copia a `bin/` con el nombre del producto y la versión |
+| APK x3 (release) | Pipeline Android propio con **dos ABIs y ABI splits** → tres APK: arm64, armv7 y universal. Copiadas a `bin/` y **opción de instalar la universal en el teléfono** |
+| AAB (release) | El mismo pipeline (arm64 + armv7, sin splits) + `bundleRelease` → `bin/<Product>-v<ver>.aab` |
+| Install (debug) | APK debug (arm64) + `adb install` + `am start`; la ventana se cierra sola a los 10 s tras compilar bien |
 | Debug Andr | `adb logcat --pid=<pid de la app>` (sin `grep`, así que funciona en Windows) |
 | Version | Bump de `version:` en `build/config.yml` (formato YAML, conserva indentación y comentario) |
 | Clean | `bin/`, `frontend/dist`, `frontend/bindings`, `build/android/app/build`, `build/android/.gradle`, `jniLibs/` |
 
-**El build de escritorio produce un instalador, no el portable.** `build_desktop()`
-emite `wails3 task package` (que despacha a `windows:package`), no
-`wails3 task build`. Detalles que importan:
+El menú oculta la card **APK armv7** para Go+Wails (la release normal ya genera
+las tres APK), pero la tarea `--task android-armv7` existe y compila sólo esa
+ABI (`gowails::build_apk_armv7`) para equipos antiguos.
+
+**El build de escritorio produce los paquetes de x86, x64 y ARM64.** `build_desktop()`
+encadena tres pasos y copia cada artefacto en cuanto termina:
+
+| Arquitectura | Comando | Artefactos en `bin/` |
+|---|---|---|
+| x86 | `wails3 task build ARCH=386` | `<Product> v<ver> x86.exe` |
+| x64 | `wails3 task package ARCH=amd64` | `<Product> v<ver>.exe` + `<Product> v<ver> x64 installer.exe` |
+| ARM64 | `wails3 task package ARCH=arm64` | `<Product> v<ver> arm64.exe` + `<Product> v<ver> arm64 installer.exe` |
 
 - **Windows/NSIS es el formato por defecto** del Taskfile (`FORMAT` default
-  `nsis`). El instalador sale como `bin/<APP>-<arch>-installer.exe`.
-  `FORMAT=msix` produce `bin/<APP>-<arch>.msix`, pero Compass no lo expone en el
-  menú: para eso está la tarea del proyecto con su variable.
+  `nsis`). `FORMAT=msix` produce `bin/<APP>-<arch>.msix`, pero Compass no lo
+  expone en el menú: para eso está la tarea del proyecto con su variable.
+- ⚠️ **x86 no tiene instalador NSIS**: `wails_tools.nsh` sólo define
+  `ARG_WAILS_AMD64_BINARY` / `ARG_WAILS_ARM64_BINARY`, y el Taskfile mapea
+  cualquier `ARCH` que no sea `amd64` a ARM64. Empaquetar 386 con NSIS
+  etiquetaría el binario equivocado, así que x86 se entrega **sólo como
+  portable**. x64 y ARM64 llevan portable **e** instalador.
+- **`package` recompila el portable como dependencia** en la misma ruta
+  `bin/<APP_NAME>.exe`, sobrescribiéndolo. Por eso se copia a su nombre final
+  **inmediatamente después de cada paso**: si se copiara al final, las tres
+  arquitecturas acabarían siendo el mismo binario. Ya no hace falta filtrar
+  "el artefacto más reciente": se conocen las rutas exactas del Taskfile.
 - **`makensis` no suele estar en el PATH.** `winget install NSIS.NSIS` lo deja en
   `C:\Program Files (x86)\NSIS\` y **sin** tocar el PATH, así que `makensis` a
   secas falla. El Taskfile de Wails ya lo resuelve con un `MAKENSIS` que prueba
   `command -v`, `Program Files (x86)` y `Program Files`; no hay que parchear nada.
-- ⚠️ **El filtro por nombre al revelar es load-bearing**: `package` compila el
-  binario como *dependencia* y lo deja en la misma carpeta `bin/`, así que "el
-  archivo más reciente" puede ser el portable (`<APP>.exe`). `build_desktop` usa
-  `cmd::run_build_and_reveal_named(..., &["installer", "msix", "msi"])` y así
-  revela el instalador incluso si el portable tuviera mtime posterior. Cubierto
-  por `utils::cmd::tests::newest_artifact_filter_by_name_ignores_the_portable_binary`.
 - **El binario de dev lleva el icono de la app.** `wails3 dev` no genera el
   `.syso` (icono/version de Windows) por defecto, así que el `.exe` salía con el
   icono genérico de Go. `gowails::dev()` ejecuta antes `wails3 generate syso`
@@ -1201,8 +1213,8 @@ compilador correctos:
 1. `wails3 android overlay:gen -out build/android/overlay.json -config build/config.yml`
 2. `wails3 generate bindings -f "-tags android,debug" -clean=true -ts -i`
 3. Frontend: `npm install` (si falta `node_modules/`) + `npm run build` en `frontend/`
-4. `go build -buildmode=c-shared -overlay build/android/overlay.json -tags android,debug -o build/android/app/src/main/jniLibs/arm64-v8a/libwails.so`
-5. Gradle: `gradlew.bat assembleDebug` / `assembleRelease` en `build/android/`
+4. `go build -buildmode=c-shared -overlay build/android/overlay.json … -o build/android/app/src/main/jniLibs/<abi>/libwails.so`, **una vez por ABI** (arm64-v8a y armeabi-v7a)
+5. Gradle en `build/android/`: `assembleDebug` (debug, sin init script) o `--init-script <tmp> assembleRelease` / `bundleRelease` (versión + ABIs)
 
 ⚠️ **Los bindings se generan en el HOST, sin `GOOS=android`.** Es el punto
 más fácil de romper: el generador de bindings **carga los paquetes de Go** para
@@ -1238,6 +1250,54 @@ Compass pasa `-tags production,android` (release) o `-tags android,debug`
 (debug) y nada más. Los flags deStripping (`-trimpath`, `-ldflags`) son para
 el binario final, y ahí sí se pasan como argumentos sueltos a `go build`.
 
+#### Versión, ABIs y APK por ABI (`write_init_script`)
+
+La versión del APK/AAB sale de **`build/config.yml`** (`info.productName` +
+`info.version`), la misma fuente con la que se nombra el `.exe`. El Gradle de
+la plantilla tiene su propia `versionName`/`versionCode` fijas, así que Compass
+las inyecta con un **init script** (`gradlew --init-script`) **sin editar**
+`build/android/` (esa carpeta la regenera `wails3 update build-assets`):
+
+- `versionName = <info.version>` y `versionCode = major*1_000_000 + minor*1_000 + patch`
+  (Play exige un entero monótono; se ignoran sufijos `-beta`/`+build` y, si no
+  cabe en el límite de Play, no se inyecta el código).
+- `defaultConfig.ndk.abiFilters` se **vacía** y se rellena con las ABIs
+  realmente compiladas (arm64-v8a y/o armeabi-v7a), así no se empaqueta la
+  `x86_64` que trae la plantilla.
+- `packagingOptions.doNotStrip '*/armeabi-v7a/libwails.so'`: la plantilla sólo
+  protege arm64/x86_64 del *strip*, y el `.so` de Go de 32 bits no debe
+  recortarse.
+- Con **ABI splits** (`splits.abi.enable/reset/include` + `universalApk = true`)
+  una sola pasada de `assembleRelease` deja **tres** APK:
+  `app-arm64-v8a-release.apk`, `app-armeabi-v7a-release.apk` y
+  `app-universal-release.apk`.
+
+⚠️ **El init script modifica el DSL en el `afterEvaluate` registrado desde
+`beforeProject`, no en `projectsEvaluated`.** AGP crea las variantes (y lee
+versión, `abiFilters` y splits) en su **propio** `afterEvaluate`, que registra
+al aplicar el plugin. `beforeProject` corre antes de evaluar el script, así que
+nuestro callback queda primero en la cola: se ejecuta después del DSL del
+proyecto pero **antes** que el de AGP. Con `projectsEvaluated` ya sería tarde y
+el build saldría con la versión y las ABIs de la plantilla (era justo el bug:
+el APK no tomaba la versión del código). Verificado con AGP 8.7.3 / Gradle
+9.2.1: las tres APK salen con `versionName='1.0.1'`,
+`versionCode='1000001'` y la universal con `arm64-v8a` **y** `armeabi-v7a`.
+
+Los artefactos se copian a `bin/` con el nombre del producto:
+
+| Archivo | Origen |
+|---|---|
+| `<Product>-v<ver>-arm64.apk` | split `app-arm64-v8a-release.apk` |
+| `<Product>-v<ver>-armv7.apk` | split `app-armeabi-v7a-release.apk` |
+| `<Product>-v<ver>-universal.apk` | `app-universal-release.apk` (el que se instala) |
+| `<APP_NAME>.apk` | copia del universal, por compatibilidad con el Taskfile |
+| `<Product>-v<ver>.aab` | `bundleRelease` (arm64 + armv7, sin splits) |
+
+`build_release_apks()` elige cada split por **nombre** (`newest_matching` con
+los fragmentos `arm64-v8a`, `armeabi-v7a` y `universal`): "la APK más reciente"
+no sirve, porque las tres están en la misma carpeta. También ignora una
+`app-release.apk` vieja de builds sin splits.
+
 Detalles que importan:
 
 - ⚠️ **La ventana del menú se cierra al terminar el proceso.** La tarea se
@@ -1265,12 +1325,13 @@ Detalles que importan:
   `Command::new(program).args(args)` cada argumento llega intacto.
 - **Compilador de la NDK**: en Windows el NDK trae un wrapper `.cmd` (y un
   script bash sin extensión, que no es ejecutable ahí), así que se llama a
-  **`clang.exe` con `--target=aarch64-linux-android21` explícito**, que es
-  justo lo que hace el wrapper. El `minSdk` (21) sale de
-  `build/android/app/build.gradle`.
-- **Variables de entorno**: `GOOS=android`, `GOARCH=arm64`, `CGO_ENABLED=1`,
-  `CC` y `CXX` se inyectan con `Command::env` (vía `cmd::run_program`),
-  nunca prefijando el comando.
+  **`clang.exe` con `--target` explícito**, que es justo lo que hace el wrapper:
+  `aarch64-linux-android21` (arm64) o `armv7a-linux-androideabi21` (armv7). El
+  `minSdk` (21) sale de `build/android/app/build.gradle`.
+- **Variables de entorno por ABI**: `GOOS=android`, `GOARCH=arm64` (o `arm` +
+  `GOARM=7`), `CGO_ENABLED=1`, `CC` y `CXX` se inyectan con `Command::env` (vía
+  `cmd::run_program`), nunca prefijando el comando. Se compila `libwails.so` una
+  vez por ABI antes de llamar a Gradle.
 - **`local.properties`**: si ni `ANDROID_HOME` ni `ANDROID_SDK_ROOT` están
   definidas, Compass escribe `build/android/local.properties` con `sdk.dir`.
 - **`applicationId` ≠ `namespace`**: el `applicationId` (`com.wails.app` por
@@ -1303,11 +1364,17 @@ Detalles que importan:
 - `APP_NAME` y `BIN_DIR` se leen del bloque `vars:` del `Taskfile.yml` de la
   raíz (sólo literales; los valores con plantilla `{{...}}` se ignoran).
 
-**Verificado** en `school-tracker` (Windows): la APK release sale en
-`build/android/app/build/outputs/apk/release/app-release.apk` y se copia a
-`bin/school-tracker.apk`. Con `ANDROID_KEYSTORE_*` exportadas, `apksigner
-verify --print-certs` muestra el certificado del keystore configurado; sin
-ellas, el de debug (`CN=Android Debug`).
+**Verificado** en `school-tracker` (Windows): `assembleRelease` con el init
+script genera `app-arm64-v8a-release.apk`, `app-armeabi-v7a-release.apk` y
+`app-universal-release.apk`, todas con `versionName='1.0.1'` /
+`versionCode='1000001'`; la universal contiene los dos `libwails.so` (20 MB
+cada uno, sin *strip*) y la `x86_64` de la plantilla queda fuera. El `.so` de
+armv7 se compiló con `GOARCH=arm GOARM=7` y `clang --target=armv7a-linux-androideabi21`.
+En escritorio, `wails3 task build ARCH=386` produce un `PE32 i386` y
+`wails3 task package ARCH=arm64` deja `bin/school-tracker-arm64-installer.exe`.
+Con `ANDROID_KEYSTORE_*` exportadas, `apksigner verify --print-certs` muestra
+el certificado del keystore configurado; sin ellas, el de debug
+(`CN=Android Debug`).
 
 ### Tauri Android package consistency (`ensure_package_consistent`)
 Detecta el error típico "Project directory ... does not exist" que ocurre cuando se cambia el `identifier` en `tauri.conf.json` sin regenerar el proyecto Android. Lee el identifier, calcula la ruta esperada del paquete Java (`app/src/main/java/<pkg_path>`) y si no existe:
@@ -1450,7 +1517,12 @@ en el buffer). De `console_guard.rs`, el texto del aviso (singular/plural y la
 indicación de usar `Esc`) y que sin `install()` el contador no toca Win32. De
 `environment.rs`, los marcadores de los scripts embebidos (que sean los reales),
 la idempotencia de `materialize()`, la elección del respaldo más reciente, las
-entradas del submenú y el parseo de respuestas afirmativas.
+entradas del submenú y el parseo de respuestas afirmativas. De `gowails.rs` se
+cubren `version_code` (semver → entero monótono de Play), los nombres
+versionados de APK/AAB y escritorio, el contenido del init script (versión,
+ABIs, splits, `doNotStrip` y que use `beforeProject`/`afterEvaluate` y no
+`projectsEvaluated`), `release_meta` contra `build/config.yml` y la selección
+de cada split por nombre (`newest_matching`).
 
 Dos pruebas abren una **ConPTY real** y están `#[ignore]` porque dependen del
 sistema y tardan unos segundos:

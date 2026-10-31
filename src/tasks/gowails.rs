@@ -13,9 +13,9 @@
 //! compilador correctos para Windows:
 //!
 //! 1. `wails3 android overlay:gen` → `build/android/overlay.json`
-//! 2. `wails3 generate bindings` (con `GOOS=android`, `CGO_ENABLED=0`)
+//! 2. `wails3 generate bindings` (en el **host**, sin `GOOS=android`)
 //! 3. Frontend: `npm install` + `npm run build` en `frontend/`
-//! 4. `go build -buildmode=c-shared` → `libwails.so` con la NDK
+//! 4. `go build -buildmode=c-shared` → `libwails.so` con la NDK (una por ABI)
 //! 5. Gradle: `assembleDebug` / `assembleRelease` en `build/android/`
 //!
 //! El **escritorio** sí delega en el Taskfile (`wails3 task build`), porque sus
@@ -32,12 +32,39 @@ use crate::utils::{cmd, context::ProjectContext, platform, ui};
 /// De ahí sale el sufijo del compilador de la NDK: `aarch64-linux-android21-clang`.
 const MIN_SDK: u32 = 21;
 
-/// Arquitectura de la APK que se compila: `arm64` cubre el 99% de los
-/// teléfonos reales (`x86_64` es sólo para emuladores).
-const ARCH: &str = "arm64";
+/// ABI de Android que Compass compila con la NDK.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Abi {
+    /// Carpeta `jniLibs` que recibe `libwails.so`.
+    jni_dir: &'static str,
+    /// `GOARCH` de Go.
+    goarch: &'static str,
+    /// `GOARM` (sólo ARM de 32 bits).
+    goarm: Option<&'static str>,
+    /// Prefijo del target de la NDK (`<triple><minSdk>`).
+    clang_triple: &'static str,
+    /// Sufijo del APK generado (`arm64`, `armv7`).
+    artifact: &'static str,
+}
 
-/// Carpeta ABI de la NDK para `arm64`.
-const JNI_DIR: &str = "arm64-v8a";
+const ABI_ARM64: Abi = Abi {
+    jni_dir: "arm64-v8a",
+    goarch: "arm64",
+    goarm: None,
+    clang_triple: "aarch64-linux-android",
+    artifact: "arm64",
+};
+
+const ABI_ARMV7: Abi = Abi {
+    jni_dir: "armeabi-v7a",
+    goarch: "arm",
+    goarm: Some("7"),
+    clang_triple: "armv7a-linux-androideabi",
+    artifact: "armv7",
+};
+
+/// ABIs que lleva el APK universal y el AAB.
+const RELEASE_ABIS: [Abi; 2] = [ABI_ARM64, ABI_ARMV7];
 
 // ───────────────────────────────────────────────────────────────────────────
 // Configuración del proyecto
@@ -122,6 +149,88 @@ fn read_wails_app_meta(ctx: &ProjectContext) -> Option<(String, String)> {
         }
     }
     Some((name?, version?))
+}
+
+/// Nombre y versión con los que se nombran los artefactos, igual que el `.exe`
+/// de escritorio: `info.productName` + `info.version` de `build/config.yml`.
+///
+/// Si falta el bloque `info:`, cae al nombre de la carpeta y a la versión que
+/// tenga el Gradle del proyecto (no se inyecta ninguna).
+fn release_meta(ctx: &ProjectContext) -> (String, String) {
+    match read_wails_app_meta(ctx) {
+        Some(meta) => meta,
+        None => {
+            println!(
+                "[WARN] build/config.yml no define info.productName/info.version; \
+                 se usa el nombre de la carpeta y la version de Gradle."
+            );
+            (app_name(ctx), String::new())
+        }
+    }
+}
+
+/// `versionCode` de Android derivado de una versión semántica `X.Y.Z`.
+///
+/// Play Store exige un entero monótono, así que se empaqueta como
+/// `major*1_000_000 + minor*1_000 + patch` (`1.0.1` → `1000001`). Se ignoran
+/// los sufijos (`-beta.1`, `+build`) y se descarta lo que no quepa en el
+/// límite de Play (2.100.000.000) para no romper el build.
+fn version_code(version: &str) -> Option<i64> {
+    let core = version.split(['-', '+']).next()?.trim();
+    let mut parts = core.split('.');
+    let major: i64 = parts.next()?.parse().ok()?;
+    let minor: i64 = parts.next().unwrap_or("0").parse().ok()?;
+    let patch: i64 = parts.next().unwrap_or("0").parse().ok()?;
+    if parts.next().is_some() || minor > 999 || patch > 999 {
+        return None;
+    }
+    let code = major * 1_000_000 + minor * 1_000 + patch;
+    (0..=2_100_000_000).contains(&code).then_some(code)
+}
+
+/// Nombre de fichero seguro para Windows/Android (sin espacios).
+fn sanitize_app_name(name: &str) -> String {
+    name.chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>()
+        .trim_matches('_')
+        .to_string()
+}
+
+/// `<Nombre>-v<versión>-<sufijo>.<ext>`; sin versión, `<Nombre>-<sufijo>.<ext>`.
+fn versioned_artifact(name: &str, version: &str, suffix: &str, ext: &str) -> String {
+    let name = sanitize_app_name(name);
+    let suffix = if suffix.is_empty() {
+        String::new()
+    } else {
+        format!("-{suffix}")
+    };
+    if version.is_empty() {
+        format!("{name}{suffix}.{ext}")
+    } else {
+        format!("{name}-v{version}{suffix}.{ext}")
+    }
+}
+
+/// `<Nombre> v<versión> <sufijo>.<ext>`, la convención de los artefactos de
+/// escritorio (con espacios, sin sanitizar).
+fn desktop_artifact(name: &str, version: &str, suffix: &str, ext: &str) -> String {
+    let base = if version.is_empty() {
+        name.to_string()
+    } else {
+        format!("{name} v{version}")
+    };
+    if suffix.is_empty() {
+        format!("{base}.{ext}")
+    } else {
+        format!("{base} {suffix}.{ext}")
+    }
 }
 
 /// Carpeta del proyecto Android de Wails (`build/android`).
@@ -251,10 +360,10 @@ fn ndk_toolchain(ndk: &Path) -> Option<PathBuf> {
 /// En Windows el NDK trae un wrapper `.cmd` (y un script bash sin extensión,
 /// que no es ejecutable ahí): se llama a `clang.exe` **con el `--target`
 /// explícito**, que es lo que hace el wrapper.
-fn ndk_compilers(bin: &Path) -> Option<(String, String)> {
+fn ndk_compilers(bin: &Path, triple: &str) -> Option<(String, String)> {
     let clang = bin.join("clang.exe");
     if clang.is_file() {
-        let target = format!("aarch64-linux-android{MIN_SDK}");
+        let target = format!("{triple}{MIN_SDK}");
         return Some((
             format!("{} --target={}", clang.display(), target),
             format!("{} --target={}", bin.join("clang++.exe").display(), target),
@@ -324,47 +433,87 @@ pub fn dev(ctx: &ProjectContext) -> Result<()> {
     Ok(())
 }
 
-/// Compila el **instalador** de escritorio (`wails3 task package`) y lo revela.
+/// Compila el escritorio para **x86, x64 y ARM64** y deja los paquetes en `bin/`.
 ///
-/// Antes esta tarjeta emitía `wails3 task build`, que sólo dejaba el `.exe`
-/// portable. Para un release lo que se distribuye es el instalador:
+/// | Arquitectura | Comando | Artefactos |
+/// |--------------|---------|------------|
+/// | x86 (32 bits) | `wails3 task build ARCH=386` | `<App> v<ver> x86.exe` |
+/// | x64 | `wails3 task package ARCH=amd64` | `<App> v<ver>.exe` + `<App> v<ver> x64 installer.exe` |
+/// | ARM64 | `wails3 task package ARCH=arm64` | `<App> v<ver> arm64.exe` + `<App> v<ver> arm64 installer.exe` |
 ///
-/// | Host | Tarea | Artefacto en `bin/` |
-/// |------|-------|---------------------|
-/// | Windows | `windows:package` → NSIS (o MSIX con `FORMAT=msix`) | `<app>-<arch>-installer.exe` / `<app>-<arch>.msix` |
+/// El nombre y la versión salen de `build/config.yml` (`info.productName` +
+/// `info.version`), igual que el `.exe` que se revelaba antes.
 ///
-/// El Taskfile de la raíz despacha a `windows:package`.
-///
-/// ⚠️ **El filtro por nombre no es cosmético**: `package` compila primero el
-/// binario (es una dependencia de la tarea) y lo deja en la misma carpeta
-/// `bin/`, así que revelar "el archivo más reciente" podía enseñar el portable
-/// en vez del instalador. Con `-installer` / `.msix` sólo entra el entregable.
+/// ⚠️ **x86 no tiene instalador NSIS**: la plantilla de Wails sólo define
+/// `ARG_WAILS_AMD64_BINARY` / `ARG_WAILS_ARM64_BINARY` (`wails_tools.nsh`), y
+/// con otro `ARCH` empaquetaría el binario equivocado. Por eso x86 se entrega
+/// como portable; x64 y ARM64 llevan portable **e** instalador.
 pub fn build_desktop(ctx: &ProjectContext) -> Result<()> {
     ensure_wails_cli()?;
 
-    println!("\n[INFO] Compilando instalador de escritorio con Wails...\n");
-    println!("[INFO] Windows usa NSIS (`makensis` en el PATH). Para MSIX:");
-    println!("[INFO]   wails3 task package FORMAT=msix");
-    println!("[INFO]   (requiere `wails3 tool msix-install-tools`)");
+    let (name, version) = release_meta(ctx);
+    let bin = bin_dir(ctx);
+    std::fs::create_dir_all(&bin).ok();
+
+    println!("\n[INFO] Compilando escritorio para x86, x64 y ARM64...\n");
+    println!("[INFO] x86: binario portable (`wails3 task build ARCH=386`).");
+    println!("[INFO] x64 y ARM64: portable + instalador NSIS (`wails3 task package`).");
+    println!(
+        "[INFO] El instalador usa NSIS (`makensis`); para MSIX: wails3 task package FORMAT=msix"
+    );
     println!();
 
-    let bin = bin_dir(ctx);
+    let mut artifacts: Vec<PathBuf> = Vec::new();
 
-    // El instalador NSIS es un `.exe` más, así que se distingue del binario
-    // portable por el nombre; `.msix`/`.msi` se reconocen por extensión.
-    let rename = read_wails_app_meta(ctx).map(|(name, ver)| format!("{} v{}", name, ver));
+    // ── 1. x86: sólo portable (NSIS no soporta 386) ──
+    println!("[1/3] Windows x86...");
+    if !cmd::run_shell_status("wails3 task build ARCH=386", &ctx.script_dir, &[])? {
+        anyhow::bail!("[ERROR] Fallo el build x86 (`wails3 task build ARCH=386`).");
+    }
+    let portable = bin.join(format!("{}.exe", app_name(ctx)));
+    artifacts.push(copy_artifact(
+        &portable,
+        &bin.join(desktop_artifact(&name, &version, "x86", "exe")),
+    ));
 
-    let exts: &[&str] = &["exe", "msix", "msi"];
-    let names: &[&str] = &["installer", "msix", "msi"];
-    cmd::run_build_and_reveal_named(
-        "wails3 task package",
-        &ctx.script_dir,
-        &bin,
-        exts,
-        names,
-        rename.as_deref(),
-    )?;
+    // ── 2 y 3. x64 / ARM64: package compila el portable y el instalador ──
+    for (step, arch, label) in [("2/3", "amd64", "x64"), ("3/3", "arm64", "ARM64")] {
+        println!("[{step}] Windows {label}...");
+        if !cmd::run_shell_status(
+            &format!("wails3 task package ARCH={arch}"),
+            &ctx.script_dir,
+            &[],
+        )? {
+            anyhow::bail!("[ERROR] Fallo el paquete {label} (`wails3 task package ARCH={arch}`).");
+        }
 
+        let portable = bin.join(format!("{}.exe", app_name(ctx)));
+        // x64 conserva el nombre clásico `<App> v<ver>.exe`; el resto lleva sufijo.
+        let portable_suffix = if arch == "amd64" { "" } else { label };
+        artifacts.push(copy_artifact(
+            &portable,
+            &bin.join(desktop_artifact(&name, &version, portable_suffix, "exe")),
+        ));
+
+        let installer = bin.join(format!("{}-{arch}-installer.exe", app_name(ctx)));
+        artifacts.push(copy_artifact(
+            &installer,
+            &bin.join(desktop_artifact(
+                &name,
+                &version,
+                &format!("{label} installer"),
+                "exe",
+            )),
+        ));
+    }
+
+    println!();
+    println!("[OK] Paquetes generados:");
+    for artifact in &artifacts {
+        println!("  - {}", artifact.display());
+    }
+    cmd::open_folder(&bin);
+    ui::pause_for(10);
     Ok(())
 }
 
@@ -382,10 +531,16 @@ pub fn package_desktop(ctx: &ProjectContext) -> Result<()> {
 // Android
 // ───────────────────────────────────────────────────────────────────────────
 
-/// Compila el APK (dev o release) con el pipeline nativo de Compass.
+/// Deja el proyecto Android listo para Gradle: overlay, bindings, frontend y un
+/// `libwails.so` por cada ABI pedida.
 ///
-/// Devuelve la ruta del APK generado.
-fn build_android_apk(ctx: &ProjectContext, release: bool) -> Result<PathBuf> {
+/// Es la parte común de APK, AAB y debug. Devuelve el entorno de firma (o
+/// `None` si no hay keystore configurado).
+fn prepare_android(
+    ctx: &ProjectContext,
+    release: bool,
+    abis: &[Abi],
+) -> Result<Option<Vec<(String, String)>>> {
     ensure_wails_cli()?;
 
     let android = android_dir(ctx);
@@ -409,13 +564,6 @@ fn build_android_apk(ctx: &ProjectContext, release: bool) -> Result<PathBuf> {
         anyhow::anyhow!(
             "[ERROR] La NDK de {} no tiene la toolchain LLVM para este host.",
             ndk.display()
-        )
-    })?;
-    let (cc, cxx) = ndk_compilers(&toolchain).ok_or_else(|| {
-        anyhow::anyhow!(
-            "[ERROR] No se encontro el compilador aarch64-linux-android{} en: {}",
-            MIN_SDK,
-            toolchain.display()
         )
     })?;
 
@@ -503,18 +651,8 @@ fn build_android_apk(ctx: &ProjectContext, release: bool) -> Result<PathBuf> {
         println!("[WARN] No hay frontend/ con package.json; se sigue sin frontend.");
     }
 
-    // ── 4. La librería compartida de Go (libwails.so) ──
+    // ── 4. La librería compartida de Go (libwails.so), una por ABI ──
     println!("[4/5] Compilando libwails.so con Go + NDK...");
-    let jni_dir = android
-        .join("app")
-        .join("src")
-        .join("main")
-        .join("jniLibs")
-        .join(JNI_DIR);
-    std::fs::create_dir_all(&jni_dir)
-        .with_context(|| format!("No se pudo crear: {}", jni_dir.display()))?;
-    let so_path = jni_dir.join("libwails.so");
-    let so_arg = so_path.display().to_string();
 
     // Los flags van como argumentos sueltos: sin shell, `-ldflags=-w -s`
     // llega a Go como un único argumento, que es lo que espera.
@@ -535,24 +673,51 @@ fn build_android_apk(ctx: &ProjectContext, release: bool) -> Result<PathBuf> {
             "-gcflags=all=-l",
         ]);
     }
-    go_args.extend_from_slice(&["-o", &so_arg]);
 
-    let envs = vec![
-        ("GOOS".to_string(), "android".to_string()),
-        ("GOARCH".to_string(), ARCH.to_string()),
-        ("CGO_ENABLED".to_string(), "1".to_string()),
-        ("CC".to_string(), cc.clone()),
-        ("CXX".to_string(), cxx.clone()),
-    ];
-    if !cmd::run_program("go", &go_args, root, &envs)? {
-        anyhow::bail!(
-            "[ERROR] Fallo la compilacion de libwails.so.\n\
-             Revisa que la NDK sea compatible y que GOOS/GOARCH/CGO_ENABLED sean correctos."
-        );
+    for abi in abis {
+        let (cc, cxx) = ndk_compilers(&toolchain, abi.clang_triple).ok_or_else(|| {
+            anyhow::anyhow!(
+                "[ERROR] No se encontro el compilador {}{} en: {}",
+                abi.clang_triple,
+                MIN_SDK,
+                toolchain.display()
+            )
+        })?;
+        let jni_dir = android
+            .join("app")
+            .join("src")
+            .join("main")
+            .join("jniLibs")
+            .join(abi.jni_dir);
+        std::fs::create_dir_all(&jni_dir)
+            .with_context(|| format!("No se pudo crear: {}", jni_dir.display()))?;
+        let so_path = jni_dir.join("libwails.so");
+        let so_arg = so_path.display().to_string();
+
+        let mut args = go_args.clone();
+        args.extend_from_slice(&["-o", &so_arg]);
+
+        let mut envs = vec![
+            ("GOOS".to_string(), "android".to_string()),
+            ("GOARCH".to_string(), abi.goarch.to_string()),
+            ("CGO_ENABLED".to_string(), "1".to_string()),
+            ("CC".to_string(), cc),
+            ("CXX".to_string(), cxx),
+        ];
+        if let Some(goarm) = abi.goarm {
+            envs.push(("GOARM".to_string(), goarm.to_string()));
+        }
+
+        println!("      → {} (GOARCH={})", abi.jni_dir, abi.goarch);
+        if !cmd::run_program("go", &args, root, &envs)? {
+            anyhow::bail!(
+                "[ERROR] Fallo la compilacion de libwails.so para {}.\n\
+                 Revisa que la NDK sea compatible y que GOOS/GOARCH/CGO_ENABLED sean correctos.",
+                abi.jni_dir
+            );
+        }
     }
 
-    // ── 5. Gradle ──
-    println!("[5/5] Ensamblando la APK con Gradle...");
     ensure_sdk_properties(ctx, &android)?;
 
     // La firma release llega al Gradle por variables de entorno. Sin ellas,
@@ -565,43 +730,180 @@ fn build_android_apk(ctx: &ProjectContext, release: bool) -> Result<PathBuf> {
         println!("       Configúralo en la tarjeta Signing (o con --task sign).");
     }
 
-    let gradle_task = if release {
-        "assembleRelease"
-    } else {
-        "assembleDebug"
-    };
-    if !gradle(&android, gradle_task, signing.as_deref().unwrap_or(&[]))? {
-        anyhow::bail!("[ERROR] Gradle falló en `{}`.", gradle_task);
+    Ok(signing)
+}
+
+/// Escribe un init script de Gradle que inyecta en el proyecto Android:
+///
+/// - `versionName` y `versionCode` (a partir de `build/config.yml`);
+/// - los `abiFilters` de las ABIs realmente compiladas;
+/// - `splits.abi` + `universalApk` cuando se generan las tres APK.
+///
+/// Se aplica con `gradlew --init-script`, **sin editar** `build/android/`:
+/// esa carpeta la regenera `wails3 update build-assets`.
+///
+/// ⚠️ **El cambio va en el `afterEvaluate` registrado desde `beforeProject`**, no
+/// en `projectsEvaluated`: AGP crea las variantes (y lee versión, `abiFilters` y
+/// splits) en su **propio** `afterEvaluate`, que se registra al aplicar el
+/// plugin. Como `beforeProject` corre antes de evaluar el script, nuestro
+/// callback queda primero en la cola y se ejecuta justo después del DSL del
+/// proyecto pero antes que el de AGP. Con `projectsEvaluated` ya sería tarde y
+/// el build saldría con la versión/ABIs de la plantilla.
+fn write_init_script(version: Option<&str>, abis: &[Abi], splits: bool) -> Result<PathBuf> {
+    let abi_list = abis
+        .iter()
+        .map(|abi| format!("'{}'", abi.jni_dir))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let mut script = String::new();
+    script.push_str(
+        "// Generado por Compass: version y ABI del build (build/android/ se regenera).\n",
+    );
+    script.push_str("gradle.beforeProject { p ->\n");
+    script.push_str("    p.afterEvaluate {\n");
+    script.push_str("        def android = p.extensions.findByName('android')\n");
+    script.push_str("        if (android == null) { return }\n");
+    if let Some(version) = version {
+        let escaped = version.replace('\\', "\\\\").replace('\'', "\\'");
+        script.push_str(&format!(
+            "        android.defaultConfig.versionName = '{escaped}'\n"
+        ));
+        if let Some(code) = version_code(version) {
+            script.push_str(&format!(
+                "        android.defaultConfig.versionCode = {code}\n"
+            ));
+        }
+    }
+    script.push_str("        android.defaultConfig.ndk.abiFilters.clear()\n");
+    script.push_str(&format!(
+        "        android.defaultConfig.ndk.abiFilters.addAll([{abi_list}])\n"
+    ));
+    if abis.iter().any(|abi| abi.jni_dir == "armeabi-v7a") {
+        // El Gradle de la plantilla sólo protege arm64/x86_64 del strip.
+        script
+            .push_str("        android.packagingOptions.doNotStrip '*/armeabi-v7a/libwails.so'\n");
+    }
+    if splits {
+        script.push_str("        android.splits.abi.enable = true\n");
+        script.push_str("        android.splits.abi.reset()\n");
+        script.push_str(&format!("        android.splits.abi.include {abi_list}\n"));
+        script.push_str("        android.splits.abi.universalApk = true\n");
+    }
+    script.push_str("    }\n}\n");
+
+    // Nombre único por invocación: dos builds (o dos tests en paralelo) no
+    // pueden pisarse el script mientras Gradle lo está leyendo.
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let path =
+        std::env::temp_dir().join(format!("compass-wails-{}-{seq}.gradle", std::process::id()));
+    std::fs::write(&path, script)
+        .with_context(|| format!("No se pudo escribir: {}", path.display()))?;
+    Ok(path)
+}
+
+/// Compila las **tres APK release**: arm64, armv7 y universal.
+///
+/// Gradle las separa con ABI splits (un `apk` por ABI + el universal), así que
+/// una sola pasada produce los tres entregables. Devuelve sus rutas en `bin/`.
+fn build_release_apks(ctx: &ProjectContext) -> Result<Vec<PathBuf>> {
+    let signing = prepare_android(ctx, true, &RELEASE_ABIS)?;
+    let android = android_dir(ctx);
+    let (name, version) = release_meta(ctx);
+
+    println!("[5/5] Ensamblando las APK con Gradle (splits por ABI + universal)...");
+    let init = write_init_script(
+        (!version.is_empty()).then_some(version.as_str()),
+        &RELEASE_ABIS,
+        true,
+    )?;
+    let args = format!(
+        "--init-script {} assembleRelease",
+        cmd::ps_quote(&init.display().to_string())
+    );
+    let built = gradle(&android, &args, signing.as_deref().unwrap_or(&[]));
+    let _ = std::fs::remove_file(&init);
+    if !built? {
+        anyhow::bail!("[ERROR] Gradle fallo en `assembleRelease`.");
     }
 
-    // La APK vive en `app/build/outputs/apk/<variante>/`.
-    let variant = if release { "release" } else { "debug" };
-    let apk = android
+    // La APK vive en `app/build/outputs/apk/<variante>/`; con splits, el nombre
+    // lleva el ABI (`app-arm64-v8a-release.apk`) o `universal`.
+    let out = android
         .join("app")
         .join("build")
         .join("outputs")
         .join("apk")
-        .join(variant);
-    let apk_file = newest_in(&apk, "apk").ok_or_else(|| {
-        anyhow::anyhow!(
-            "[ERROR] Gradle terminó bien pero no se encontró la APK en: {}",
-            apk.display()
-        )
-    })?;
+        .join("release");
+    let find = |needle: &str| {
+        newest_matching(&out, "apk", needle).ok_or_else(|| {
+            anyhow::anyhow!(
+                "[ERROR] Gradle termino bien pero no se encontro la APK '{needle}' en: {}",
+                out.display()
+            )
+        })
+    };
 
-    // Copia a `bin/`, como hace el Taskfile del proyecto.
     let bin = bin_dir(ctx);
     std::fs::create_dir_all(&bin).ok();
-    let dest = bin.join(format!("{}.apk", app_name(ctx)));
-    if let Err(e) = std::fs::copy(&apk_file, &dest) {
-        println!(
-            "[WARN] No se pudo copiar la APK a {}: {}",
-            dest.display(),
-            e
-        );
+    let mut artifacts = Vec::new();
+    for abi in RELEASE_ABIS {
+        // El nombre del split contiene la carpeta ABI (`app-arm64-v8a-release.apk`).
+        let src = find(abi.jni_dir)?;
+        let dest = bin.join(versioned_artifact(&name, &version, abi.artifact, "apk"));
+        artifacts.push(copy_artifact(&src, &dest));
+    }
+    // El universal va al final: `build_apk` instala `apks.last()`.
+    let universal = find("universal")?;
+    artifacts.push(copy_artifact(
+        &universal,
+        &bin.join(versioned_artifact(&name, &version, "universal", "apk")),
+    ));
+    // El Taskfile del proyecto escribe `bin/<APP_NAME>.apk`: se mantiene como
+    // copia del universal (el que vale para cualquier teléfono).
+    let _ = std::fs::copy(&universal, bin.join(format!("{}.apk", app_name(ctx))));
+
+    Ok(artifacts)
+}
+
+/// APK de **debug** (arm64) para instalar en el teléfono.
+fn build_debug_apk(ctx: &ProjectContext) -> Result<PathBuf> {
+    let _ = prepare_android(ctx, false, &[ABI_ARM64])?;
+    let android = android_dir(ctx);
+
+    println!("[5/5] Ensamblando la APK de debug con Gradle...");
+    if !gradle(&android, "assembleDebug", &[])? {
+        anyhow::bail!("[ERROR] Gradle fallo en `assembleDebug`.");
     }
 
-    Ok(apk_file)
+    let out = android
+        .join("app")
+        .join("build")
+        .join("outputs")
+        .join("apk")
+        .join("debug");
+    newest_in(&out, "apk").ok_or_else(|| {
+        anyhow::anyhow!(
+            "[ERROR] Gradle termino bien pero no se encontro la APK en: {}",
+            out.display()
+        )
+    })
+}
+
+/// Copia un artefacto a su destino final y lo anuncia. Si la copia falla, el
+/// build sigue (el artefacto original sigue siendo válido).
+fn copy_artifact(src: &Path, dest: &Path) -> PathBuf {
+    match std::fs::copy(src, dest) {
+        Ok(_) => {
+            println!("[OK] {}", dest.display());
+            dest.to_path_buf()
+        }
+        Err(e) => {
+            println!("[WARN] No se pudo copiar a {}: {}", dest.display(), e);
+            src.to_path_buf()
+        }
+    }
 }
 
 /// Variables de entorno de firma que espera el Gradle de Wails.
@@ -678,15 +980,30 @@ fn ensure_sdk_properties(ctx: &ProjectContext, android: &Path) -> Result<()> {
 
 /// APK más reciente de una carpeta (recursivo).
 fn newest_in(dir: &Path, ext: &str) -> Option<PathBuf> {
+    newest_matching(dir, ext, "")
+}
+
+/// Artefacto más reciente cuya **extensión** coincide y cuyo nombre contiene
+/// `needle` (vacío = cualquiera).
+///
+/// Con los ABI splits de Gradle, la carpeta de salida tiene varias APK
+/// (`app-arm64-v8a-release.apk`, `app-universal-release.apk`…), así que hay
+/// que elegir por nombre, no sólo por extensión.
+fn newest_matching(dir: &Path, ext: &str, needle: &str) -> Option<PathBuf> {
     let mut best: Option<(std::time::SystemTime, PathBuf)> = None;
-    fn walk(dir: &Path, ext: &str, best: &mut Option<(std::time::SystemTime, PathBuf)>) {
+    fn walk(
+        dir: &Path,
+        ext: &str,
+        needle: &str,
+        best: &mut Option<(std::time::SystemTime, PathBuf)>,
+    ) {
         let Ok(entries) = std::fs::read_dir(dir) else {
             return;
         };
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
-                walk(&path, ext, best);
+                walk(&path, ext, needle, best);
                 continue;
             }
             let matches = path
@@ -696,6 +1013,15 @@ fn newest_in(dir: &Path, ext: &str) -> Option<PathBuf> {
             if !matches {
                 continue;
             }
+            if !needle.is_empty() {
+                let name = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy())
+                    .unwrap_or_default();
+                if !name.contains(needle) {
+                    continue;
+                }
+            }
             if let Ok(mtime) = entry.metadata().and_then(|m| m.modified()) {
                 if best.as_ref().map_or(true, |(t, _)| mtime > *t) {
                     *best = Some((mtime, path));
@@ -704,18 +1030,88 @@ fn newest_in(dir: &Path, ext: &str) -> Option<PathBuf> {
         }
     }
     if dir.is_dir() {
-        walk(dir, ext, &mut best);
+        walk(dir, ext, needle, &mut best);
     }
     best.map(|(_, p)| p)
 }
 
-/// APK **release** + instalación automática si hay un móvil conectado.
+/// APK **release** (arm64, armv7 y universal) + instalación automática del
+/// universal si hay un móvil conectado.
 pub fn build_apk(ctx: &ProjectContext) -> Result<()> {
-    println!("\n[INFO] Compilando Android APK (Release) con Wails...\n");
+    println!("\n[INFO] Compilando Android (Release) con Wails...\n");
+    println!("[INFO] Se generan tres APK: arm64, armv7 y universal.\n");
+    let result = (|| -> Result<Vec<PathBuf>> {
+        let apks = build_release_apks(ctx)?;
+        // El universal instala en cualquier teléfono (arm64 o armv7).
+        if let Some(universal) = apks.last() {
+            install_apk(ctx, universal)?;
+        }
+        Ok(apks)
+    })();
+    match result {
+        Ok(_) => {
+            ui::pause_for(10);
+            Ok(())
+        }
+        Err(e) => {
+            println!();
+            println!("{}", e);
+            println!();
+            ui::pause();
+            Err(e)
+        }
+    }
+}
+
+/// APK **release sólo armv7** (para equipos antiguos de 32 bits).
+pub fn build_apk_armv7(ctx: &ProjectContext) -> Result<()> {
+    println!("\n[INFO] Compilando Android APK armv7 (Release) con Wails...\n");
     let result = (|| -> Result<PathBuf> {
-        let apk = build_android_apk(ctx, true)?;
-        install_apk(ctx, &apk)?;
-        Ok(apk)
+        let abis = [ABI_ARMV7];
+        let signing = prepare_android(ctx, true, &abis)?;
+        let android = android_dir(ctx);
+        let (name, version) = release_meta(ctx);
+
+        println!("[5/5] Ensamblando la APK armv7 con Gradle...");
+        let init = write_init_script(
+            (!version.is_empty()).then_some(version.as_str()),
+            &abis,
+            false,
+        )?;
+        let args = format!(
+            "--init-script {} assembleRelease",
+            cmd::ps_quote(&init.display().to_string())
+        );
+        let built = gradle(&android, &args, signing.as_deref().unwrap_or(&[]));
+        let _ = std::fs::remove_file(&init);
+        if !built? {
+            anyhow::bail!("[ERROR] Gradle fallo en `assembleRelease`.");
+        }
+
+        let out = android
+            .join("app")
+            .join("build")
+            .join("outputs")
+            .join("apk")
+            .join("release");
+        let apk = newest_in(&out, "apk").ok_or_else(|| {
+            anyhow::anyhow!(
+                "[ERROR] Gradle termino bien pero no se encontro la APK en: {}",
+                out.display()
+            )
+        })?;
+
+        let bin = bin_dir(ctx);
+        std::fs::create_dir_all(&bin).ok();
+        Ok(copy_artifact(
+            &apk,
+            &bin.join(versioned_artifact(
+                &name,
+                &version,
+                ABI_ARMV7.artifact,
+                "apk",
+            )),
+        ))
     })();
     match result {
         Ok(_) => {
@@ -736,7 +1132,7 @@ pub fn build_apk(ctx: &ProjectContext) -> Result<()> {
 pub fn install_debug(ctx: &ProjectContext) -> Result<()> {
     println!("\n[INFO] Compilando Android APK (Dev) con Wails...\n");
     let result = (|| -> Result<PathBuf> {
-        let apk = build_android_apk(ctx, false)?;
+        let apk = build_debug_apk(ctx)?;
         install_apk(ctx, &apk)?;
         Ok(apk)
     })();
@@ -755,27 +1151,28 @@ pub fn install_debug(ctx: &ProjectContext) -> Result<()> {
     }
 }
 
-/// AAB **release** para Play Store.
+/// AAB **release** para Play Store (con las dos ABIs y la versión del proyecto).
 pub fn build_aab(ctx: &ProjectContext) -> Result<()> {
-    ensure_wails_cli()?;
-
     println!("\n[INFO] Compilando Android AAB (Release) con Wails...\n");
 
-    // El AAB es el mismo paquete que la APK, pero en formato bundle: se
-    // compila la APK (que genera `libwails.so` y el frontend) y luego Gradle
-    // empaqueta el bundle.
-    let android = android_dir(ctx);
-    ensure_sdk_properties(ctx, &android)?;
-
-    // Reutiliza el pipeline de la APK para tener `libwails.so` y el overlay.
     let result = (|| -> Result<PathBuf> {
-        build_android_apk(ctx, true)?;
+        let signing = prepare_android(ctx, true, &RELEASE_ABIS)?;
+        let android = android_dir(ctx);
+        let (name, version) = release_meta(ctx);
 
-        if !gradle(
-            &android,
-            "bundleRelease",
-            signing_env(ctx).as_deref().unwrap_or(&[]),
-        )? {
+        println!("[5/5] Empaquetando el AAB con Gradle...");
+        let init = write_init_script(
+            (!version.is_empty()).then_some(version.as_str()),
+            &RELEASE_ABIS,
+            false,
+        )?;
+        let args = format!(
+            "--init-script {} bundleRelease",
+            cmd::ps_quote(&init.display().to_string())
+        );
+        let built = gradle(&android, &args, signing.as_deref().unwrap_or(&[]));
+        let _ = std::fs::remove_file(&init);
+        if !built? {
             anyhow::bail!("[ERROR] Gradle fallo en `bundleRelease`.");
         }
 
@@ -794,16 +1191,12 @@ pub fn build_aab(ctx: &ProjectContext) -> Result<()> {
 
         let bin = bin_dir(ctx);
         std::fs::create_dir_all(&bin).ok();
-        let dest = bin.join(format!("{}.aab", app_name(ctx)));
-        if let Err(e) = std::fs::copy(&aab, &dest) {
-            println!(
-                "[WARN] No se pudo copiar el AAB a {}: {}",
-                dest.display(),
-                e
-            );
-        }
+        let dest = bin.join(versioned_artifact(&name, &version, "", "aab"));
+        let dest = copy_artifact(&aab, &dest);
+        // Copia compatible con `bin/<APP_NAME>.aab` del Taskfile del proyecto.
+        let _ = std::fs::copy(&aab, bin.join(format!("{}.aab", app_name(ctx))));
 
-        Ok(aab)
+        Ok(dest)
     })();
     match result {
         Ok(_) => {
@@ -1181,6 +1574,144 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         assert!(signing_env(&ctx(&dir)).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// `versionCode` es el entero monótono que exige Play Store, derivado de la
+    /// versión de `build/config.yml`.
+    #[test]
+    fn version_code_bundles_semver() {
+        assert_eq!(version_code("1.0.1"), Some(1_000_001));
+        assert_eq!(version_code("2.3.4"), Some(2_003_004));
+        assert_eq!(version_code("1.0"), Some(1_000_000));
+        assert_eq!(version_code("1.0.0-beta.1"), Some(1_000_000));
+        assert_eq!(version_code("1.0.0+build.7"), Some(1_000_000));
+        assert_eq!(version_code("1.0.1000"), None, "patch fuera de rango");
+        assert_eq!(version_code("2100.0.1"), None, "supera el límite de Play");
+        assert_eq!(version_code("v1.0.0"), None);
+    }
+
+    /// Los artefactos llevan el nombre y la versión del proyecto, igual que el
+    /// `.exe` de escritorio.
+    #[test]
+    fn artifact_names_carry_product_and_version() {
+        assert_eq!(
+            versioned_artifact("School Tracker", "1.0.1", "arm64", "apk"),
+            "School_Tracker-v1.0.1-arm64.apk"
+        );
+        assert_eq!(
+            versioned_artifact("School Tracker", "1.0.1", "", "aab"),
+            "School_Tracker-v1.0.1.aab"
+        );
+        assert_eq!(
+            versioned_artifact("School Tracker", "", "armv7", "apk"),
+            "School_Tracker-armv7.apk"
+        );
+        assert_eq!(
+            desktop_artifact("School Tracker", "1.0.1", "", "exe"),
+            "School Tracker v1.0.1.exe"
+        );
+        assert_eq!(
+            desktop_artifact("School Tracker", "1.0.1", "x64 installer", "exe"),
+            "School Tracker v1.0.1 x64 installer.exe"
+        );
+    }
+
+    fn read_script(version: Option<&str>, abis: &[Abi], splits: bool) -> String {
+        let path = write_init_script(version, abis, splits).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        text
+    }
+
+    /// El init script inyecta versión, ABIs y splits **antes** de que AGP cree
+    /// las variantes (`afterEvaluate` registrado desde `beforeProject`).
+    #[test]
+    fn init_script_injects_version_abis_and_splits() {
+        let script = read_script(Some("1.0.1"), &RELEASE_ABIS, true);
+
+        assert!(script.contains("gradle.beforeProject"));
+        assert!(script.contains("p.afterEvaluate"));
+        assert!(
+            !script.contains("projectsEvaluated"),
+            "projectsEvaluated corre después de que AGP cree las variantes"
+        );
+        assert!(script.contains("versionName = '1.0.1'"));
+        assert!(script.contains("versionCode = 1000001"));
+        assert!(script.contains("'arm64-v8a'"));
+        assert!(script.contains("'armeabi-v7a'"));
+        assert!(script.contains("doNotStrip '*/armeabi-v7a/libwails.so'"));
+        assert!(script.contains("splits.abi.enable = true"));
+        assert!(script.contains("splits.abi.universalApk = true"));
+    }
+
+    /// Un AAB (o un APK de una sola ABI) no activa splits y, sin versión, deja
+    /// la que tenga el Gradle del proyecto.
+    #[test]
+    fn init_script_without_splits_or_version() {
+        let script = read_script(None, &[ABI_ARM64], false);
+
+        assert!(!script.contains("versionName"));
+        assert!(!script.contains("versionCode"));
+        assert!(!script.contains("splits.abi"));
+        assert!(!script.contains("doNotStrip"), "arm64 ya viene protegida");
+        assert!(script.contains("'arm64-v8a'"));
+        assert!(!script.contains("'armeabi-v7a'"));
+    }
+
+    /// La versión sale de `info.productName`/`info.version`, la misma fuente
+    /// que ya usaba el `.exe`.
+    #[test]
+    fn release_meta_reads_product_and_version() {
+        let dir = std::env::temp_dir().join("compass-wails-meta-test");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("build")).unwrap();
+        std::fs::write(
+            dir.join("build").join("config.yml"),
+            "version: '3'\ninfo:\n  productName: \"School Tracker\"\n  version: \"1.0.1\"\n",
+        )
+        .unwrap();
+
+        assert_eq!(
+            release_meta(&ctx(&dir)),
+            ("School Tracker".to_string(), "1.0.1".to_string())
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Con ABI splits, Gradle deja varias APK en la misma carpeta: hay que
+    /// elegir por nombre, no por "el más reciente".
+    #[test]
+    fn newest_matching_picks_the_split_apk_by_name() {
+        let dir = std::env::temp_dir().join("compass-wails-splits-test");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let now = std::time::SystemTime::now();
+        let write = |name: &str, when: std::time::SystemTime| {
+            let path = dir.join(name);
+            std::fs::write(&path, b"x").unwrap();
+            std::fs::File::options()
+                .write(true)
+                .open(&path)
+                .unwrap()
+                .set_modified(when)
+                .unwrap();
+            path
+        };
+        let arm64 = write(
+            "app-arm64-v8a-release.apk",
+            now - std::time::Duration::from_secs(20),
+        );
+        let armv7 = write(
+            "app-armeabi-v7a-release.apk",
+            now - std::time::Duration::from_secs(10),
+        );
+        let universal = write("app-universal-release.apk", now);
+
+        assert_eq!(newest_matching(&dir, "apk", "arm64-v8a"), Some(arm64));
+        assert_eq!(newest_matching(&dir, "apk", "armeabi-v7a"), Some(armv7));
+        assert_eq!(newest_matching(&dir, "apk", "universal"), Some(universal));
+
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
