@@ -20,12 +20,16 @@ use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 
 struct Harness {
     writer: Box<dyn Write + Send>,
     child: Box<dyn portable_pty::Child + Send + Sync>,
     parser: Arc<Mutex<vt100::Parser>>,
+    /// Dueña de la ConPTY. Soltarla justo después del `spawn` cierra el
+    /// pseudoconsola mientras el hijo aún inicializa su consola, y entonces
+    /// muere con `STATUS_DLL_INIT_FAILED` (0xC0000142) de forma intermitente.
+    _master: Box<dyn MasterPty + Send>,
 }
 
 impl Harness {
@@ -44,10 +48,8 @@ impl Harness {
         }
         let status = self.child.try_wait();
         let pid = self.child.process_id();
-        let trace = std::fs::read_to_string(std::env::temp_dir().join("compass-tui.log"))
-            .unwrap_or_else(|e| format!("<sin log: {e}>"));
         panic!(
-            "tiempo agotado esperando {what}.\npid={pid:?} status={status:?}\n--- traza ---\n{trace}\n--- pantalla ---\n{}\n--- fin ---",
+            "tiempo agotado esperando {what}.\npid={pid:?} status={status:?}\n--- pantalla ---\n{}\n--- fin ---",
             self.contents()
         );
     }
@@ -77,7 +79,6 @@ fn spawn_compass(project: &std::path::Path) -> Harness {
         .expect("abrir ConPTY");
 
     let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_compass"));
-    command.arg("--trace");
     command.cwd(project);
     // El proceso raíz no debe creerse dentro de una pestaña.
     command.env_remove("COMPASS_EMBEDDED");
@@ -87,8 +88,9 @@ fn spawn_compass(project: &std::path::Path) -> Harness {
     let child = pair.slave.spawn_command(command).expect("lanzar compass");
     drop(pair.slave);
 
-    let mut reader = pair.master.try_clone_reader().expect("lector");
-    let writer = pair.master.take_writer().expect("escritor");
+    let master = pair.master;
+    let mut reader = master.try_clone_reader().expect("lector");
+    let writer = master.take_writer().expect("escritor");
     let parser = Arc::new(Mutex::new(vt100::Parser::new(rows, cols, 2000)));
     {
         let parser = Arc::clone(&parser);
@@ -109,6 +111,7 @@ fn spawn_compass(project: &std::path::Path) -> Harness {
         writer,
         child,
         parser,
+        _master: master,
     }
 }
 
@@ -259,7 +262,9 @@ fn environment_backup_prompts_accept_enter_inside_a_tab() {
         s.contains("Backup completo") && !s.contains("NO existe")
     });
 
-    // Esc vuelve del submenú al menú y la tarea deja la pestaña terminada.
+    // Esc sale del submenú y termina la tarea: la pestaña queda marcada como
+    // terminada (el estado sale de `PtySession::is_exited`, no del EOF de la
+    // ConPTY, que no llega mientras el master siga abierto).
     h.send(b"\x1b");
     h.wait_until("la pestaña terminada", |s| {
         s.contains("proceso finalizado")

@@ -175,7 +175,21 @@ impl PtySession {
     }
 
     pub fn is_exited(&self) -> bool {
-        self.exited.load(Ordering::Relaxed)
+        if self.exited.load(Ordering::Relaxed) {
+            return true;
+        }
+        // La ConPTY no cierra el pipe de salida mientras el master siga
+        // abierto, así que el lector nunca ve EOF al terminar la tarea: sin
+        // preguntar al proceso, la pestaña jamás se marcaba como terminada.
+        let Ok(mut child) = self.child.lock() else {
+            return false;
+        };
+        if matches!(child.try_wait(), Ok(Some(_))) {
+            self.exited.store(true, Ordering::Relaxed);
+            true
+        } else {
+            false
+        }
     }
 
     /// PID del shell de la pestaña (`0` si el sistema no lo dio).

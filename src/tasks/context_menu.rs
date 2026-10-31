@@ -265,21 +265,22 @@ enum InstallVia {
 }
 
 /// Orden solicitado: OpenCode → Kilo Code → Cline → Antigravity → Copilot CLI
-/// → Kiro CLI → Freebuff → Qoder CLI → Hermes.
+/// → Kiro CLI → Freebuff → Command Code → Qoder CLI → Hermes.
 /// Los prefijos numéricos fuerzan ese orden porque Windows ordena las
-/// sub-claves de `shell` alfabéticamente (01 < 02 < … < 09).
+/// sub-claves de `shell` alfabéticamente (01 < 02 < … < 10).
 ///
 /// `cli` es lo que se ejecuta al elegir la entrada del menú; el primer token es
 /// el binario que [`resolve_tool_command`] busca en el PATH. Para Kiro CLI ese
-/// token es `kiro-cli`, que es como nombra el ejecutable el instalador, y para
-/// Qoder es `qodercli` (la documentación lo invoca como `qoder`, que es un
-/// dispatcher `.cmd` que delega en `qodercli`).
+/// token es `kiro-cli`, que es como nombra el ejecutable el instalador, para
+/// Command Code es `cmdc` (su alias corto en Windows nativo, porque `cmd` ya es
+/// el shell del sistema) y para Qoder es `qodercli` (la documentación lo invoca
+/// como `qoder`, que es un dispatcher `.cmd` que delega en `qodercli`).
 ///
 /// Comandos de instalación verificados en la documentación oficial de cada
 /// producto (opencode.ai/download, kilo.ai/docs, docs.cline.bot,
 /// antigravity.google/docs, kiro.dev, freebuff.com/cli,
-/// hermes-agent.nousresearch.com, qoder.com/cli y
-/// docs.github.com/copilot/how-tos/copilot-cli).
+/// commandcode.ai/docs/quickstart, hermes-agent.nousresearch.com, qoder.com/cli
+/// y docs.github.com/copilot/how-tos/copilot-cli).
 const VIBE_TOOLS: &[VibeTool] = &[
     VibeTool {
         key: "01OpenCode",
@@ -369,7 +370,20 @@ const VIBE_TOOLS: &[VibeTool] = &[
         install_via: InstallVia::Cmd,
     },
     VibeTool {
-        key: "08QoderCli",
+        key: "08CommandCode",
+        title: "Command Code",
+        // `--yolo` es alias de `--dangerously-skip-permissions`: arranca en
+        // bypass de permisos (docs.commandcode.ai/docs/permissions). En Windows
+        // nativo el alias corto es `cmdc`, porque `cmd` ya es el shell del
+        // sistema; el nombre completo `command-code` también funciona.
+        cli: "cmdc --yolo",
+        // Paquete npm global, que sí agrega el binario al PATH.
+        install: "npm install -g command-code",
+        fallback: &[],
+        install_via: InstallVia::Cmd,
+    },
+    VibeTool {
+        key: "09QoderCli",
         title: "Qoder CLI",
         // `--yolo` equivale a `--permission-mode bypass_permissions`: aprueba
         // todas las herramientas sin pedir confirmación (docs.qoder.com/cli/cli-reference).
@@ -390,7 +404,7 @@ const VIBE_TOOLS: &[VibeTool] = &[
         install_via: InstallVia::PowerShell,
     },
     VibeTool {
-        key: "09Hermes",
+        key: "10Hermes",
         title: "Hermes",
         cli: "hermes",
         // Hermes arranca su TUI a pelo, sin flags: `hermes` a secas.
@@ -826,8 +840,14 @@ mod tests {
             ),
             ("06KiroCli", "Kiro CLI", "", InstallVia::Cmd),
             ("07Freebuff", "Freebuff", "npm install -g freebuff", InstallVia::Cmd),
-            ("08QoderCli", "Qoder CLI", "irm https://qoder.com/install.ps1 | iex", InstallVia::PowerShell),
-            ("09Hermes", "Hermes", "iex (irm https://hermes-agent.nousresearch.com/install.ps1)", InstallVia::PowerShell),
+            (
+                "08CommandCode",
+                "Command Code",
+                "npm install -g command-code",
+                InstallVia::Cmd,
+            ),
+            ("09QoderCli", "Qoder CLI", "irm https://qoder.com/install.ps1 | iex", InstallVia::PowerShell),
+            ("10Hermes", "Hermes", "iex (irm https://hermes-agent.nousresearch.com/install.ps1)", InstallVia::PowerShell),
         ];
 
         assert_eq!(
@@ -891,33 +911,69 @@ mod tests {
         );
     }
 
-    /// Freebuff va justo después de Kiro y antes de Qoder, y arranca con su
-    /// TUI a pelo: `freebuff` sin flags.
+    /// Freebuff va justo después de Kiro y antes de Command Code, y arranca con
+    /// su TUI a pelo: `freebuff` sin flags.
     #[test]
-    fn freebuff_comes_after_kiro_and_before_qoder() {
+    fn freebuff_comes_after_kiro_and_before_command_code() {
         let posiciones: Vec<&str> = VIBE_TOOLS.iter().map(|t| t.key).collect();
         let kiro = posiciones.iter().position(|k| *k == "06KiroCli").unwrap();
         let freebuff = posiciones
             .iter()
             .position(|k| *k == "07Freebuff")
             .unwrap();
-        let qoder = posiciones.iter().position(|k| *k == "08QoderCli").unwrap();
+        let command = posiciones
+            .iter()
+            .position(|k| *k == "08CommandCode")
+            .unwrap();
+        let qoder = posiciones.iter().position(|k| *k == "09QoderCli").unwrap();
         assert_eq!(freebuff, kiro + 1, "Freebuff debe ir inmediatamente tras Kiro");
-        assert_eq!(qoder, freebuff + 1, "Qoder debe ir inmediatamente tras Freebuff");
+        assert_eq!(
+            command,
+            freebuff + 1,
+            "Command Code debe ir inmediatamente tras Freebuff"
+        );
+        assert_eq!(
+            qoder,
+            command + 1,
+            "Qoder debe ir inmediatamente tras Command Code"
+        );
 
         let tool = &VIBE_TOOLS[freebuff];
         assert_eq!(tool.title, "Freebuff");
         assert_eq!(tool.cli, "freebuff");
     }
 
-    /// Qoder CLI va después de Freebuff, arranca en YOLO (`--yolo` equivale a
-    /// `--permission-mode bypass_permissions`) y su ejecutable real es
+    /// Command Code se instala por npm y en Windows nativo su alias corto es
+    /// `cmdc` (no `cmd`, que ya ocupa el shell del sistema). Arranca en YOLO
+    /// con `--yolo`, alias de `--dangerously-skip-permissions`.
+    #[test]
+    fn command_code_uses_the_windows_alias_and_yolo_mode() {
+        let tool = VIBE_TOOLS
+            .iter()
+            .find(|t| t.key == "08CommandCode")
+            .unwrap();
+        assert_eq!(tool.title, "Command Code");
+        let palabras: Vec<&str> = tool.cli.split_whitespace().collect();
+        assert_eq!(palabras.first(), Some(&"cmdc"));
+        assert!(
+            palabras.contains(&"--yolo"),
+            "el menú tiene que abrir Command Code en modo YOLO: {}",
+            tool.cli
+        );
+        assert_eq!(tool.install, "npm install -g command-code");
+        assert_eq!(tool.install_via, InstallVia::Cmd);
+        // Es un npm global: no debe declarar fallback fuera del PATH.
+        assert!(tool.fallback.is_empty());
+    }
+
+    /// Qoder CLI va después de Command Code, arranca en YOLO (`--yolo` equivale
+    /// a `--permission-mode bypass_permissions`) y su ejecutable real es
     /// `qodercli`: `qoder` es el dispatcher que instala el script.
     #[test]
     fn qoder_runs_in_yolo_mode() {
         let tool = VIBE_TOOLS
             .iter()
-            .find(|t| t.key == "08QoderCli")
+            .find(|t| t.key == "09QoderCli")
             .unwrap();
         assert_eq!(tool.title, "Qoder CLI");
         let palabras: Vec<&str> = tool.cli.split_whitespace().collect();

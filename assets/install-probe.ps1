@@ -133,6 +133,7 @@ $nombres = @{
     'kiro-cli'  = 'Kiro-Cli'
     'copilot'   = 'copilot'
     'freebuff'  = 'freebuff'
+    'cmdc'      = 'cmdc'
     'qodercli'  = 'qodercli'
 }
 

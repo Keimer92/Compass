@@ -379,7 +379,7 @@ tasks/
   ├─ signer.rs  — dominio único de firmas: manage() [submenú con `tasks/submenu.rs`], android_layout(), detect()/SigningInfo [autodetección], Props (parseo de properties), crear/importar/manual, patch_build_gradle(), huellas (keytool), respaldos, base64 + secretos de GitHub Actions, verify_apk() [apksigner]
   ├─ submenu.rs — TUI compartida de los submenús (Firmas, Git, Entorno, Release): reutiliza la cabecera, la fila de sección, la rejilla adaptativa de cards de 3 líneas, el halo de hover y el pie del menú principal; `Submenu<T>` devuelve `SubmenuAction::{Run(T), Back, Continue}` y `with_android_warning(false)` omite la fila de aviso del SDK
   ├─ terminal.rs — configure() [perfil PSReadLine según la versión instalada]
-  ├─ context_menu.rs — install/uninstall/toggle para Compass + Vibe Coding (menú cascada con ExtendedSubCommandsKey: OpenCode, Kilo Code, Cline, Antigravity, Copilot CLI, Kiro CLI, Qoder CLI, Hermes)
+  ├─ context_menu.rs — install/uninstall/toggle para Compass + Vibe Coding (menú cascada con ExtendedSubCommandsKey: OpenCode, Kilo Code, Cline, Antigravity, Copilot CLI, Kiro CLI, Freebuff, Command Code, Qoder CLI, Hermes)
   ├─ environment.rs — manage() [submenú: backup completo / inventario / restaurar / validar / abrir respaldos]; scripts `Backup-Variables.ps1` y `Restore-Variables.ps1` embebidos con `include_str!` y materializados en `<data_dir>/compass/env-backup`
   ├─ whatsapp.rs — build()
   └─ version.rs — bump() [port de versionar.bat: Tauri/Rust, todo-o-nada]
@@ -498,7 +498,7 @@ simples por la misma razón que en Vibe Coding.
 Sin esos recursos Explorer y Windows Terminal enseñan el icono genérico de
 consola (idéntico al de cmd) y el perfil de la pestaña queda sin nombre.
 
-### Vibe Coding (menú cascada: 9 agentes)
+### Vibe Coding (menú cascada: 10 agentes)
 
 Usa el método **`ExtendedSubCommandsKey`** (el oficial de Windows para menús cascada, mismo que usa Command Prompt y PowerShell).
 
@@ -517,8 +517,9 @@ HKCU\Software\Classes\Directory\ContextMenus\VibeCoding\shell
   05Copilot      → command
   06KiroCli      → command
   07Freebuff     → command
-  08QoderCli     → command
-  09Hermes       → command
+  08CommandCode  → command
+  09QoderCli     → command
+  10Hermes       → command
 ```
 
 ⚠️ Las sub-entradas **no** cuelgan de `zz_VibeCoding\shell`: cuelgan de `Directory\ContextMenus\VibeCoding\shell` (ruta compartida con `Directory\Background`), y `zz_VibeCoding` sólo lleva el puntero `ExtendedSubCommandsKey`. Buscar en el sitio equivocado es lo que hacía que `install.bat` reinstallara el menú en cada ejecución.
@@ -532,8 +533,9 @@ HKCU\Software\Classes\Directory\ContextMenus\VibeCoding\shell
 | 05 | **Copilot CLI** | `… & copilot --yolo` | Abre GitHub Copilot CLI con todos los permisos (`--yolo` = `--allow-all-tools --allow-all-paths --allow-all-urls`) |
 | 06 | **Kiro CLI** | `… & kiro-cli chat --trust-all-tools` | Abre Kiro CLI con confianza total de sesión (YOLO mode). El binario es **`kiro-cli`**, no `kiro` |
 | 07 | **Freebuff** | `… & freebuff` | Abre Freebuff (Codebuff), sin flags: su TUI arranca a pelo en el directorio del proyecto |
-| 08 | **Qoder CLI** | `… & qodercli --yolo` | Abre Qoder CLI en YOLO mode (`--yolo` = `--permission-mode bypass_permissions`). El binario real es **`qodercli`**; `qoder` es el dispatcher que instala el script |
-| 09 | **Hermes** | `… & hermes` | Abre Hermes (Nous Research), sin flags: su TUI arranca a pelo |
+| 08 | **Command Code** | `… & cmdc --yolo` | Abre Command Code en YOLO mode (`--yolo` = alias de `--dangerously-skip-permissions`). En Windows nativo el alias corto es **`cmdc`**; `cmd` lo ocupa el shell del sistema y `command-code` es el nombre completo |
+| 09 | **Qoder CLI** | `… & qodercli --yolo` | Abre Qoder CLI en YOLO mode (`--yolo` = `--permission-mode bypass_permissions`). El binario real es **`qodercli`**; `qoder` es el dispatcher que instala el script |
+| 10 | **Hermes** | `… & hermes` | Abre Hermes (Nous Research), sin flags: su TUI arranca a pelo |
 
 `<pwsh>` es `cmd::shell_path()` (ruta completa, porque Explorer no hereda el
 PATH de la terminal). El valor se construye en `vibe_context_command()`:
@@ -559,7 +561,7 @@ La acción `.gitignore` usa la misma forma, con `-NoExit` en vez de `cmd /k`:
 
 ### Instalación de las herramientas (`vibe-setup`)
 
-`ensure_tools_installed()` detecta cuáles de las 9 faltan. **Sólo pregunta por las que tienen instalador**: Kiro CLI se avisa pero no se pregunta, porque va con `.exe`. El comando de instalación vive en `VibeTool::install`, verificado en la documentación oficial de cada producto:
+`ensure_tools_installed()` detecta cuáles de las 10 faltan. **Sólo pregunta por las que tienen instalador**: Kiro CLI se avisa pero no se pregunta, porque va con `.exe`. El comando de instalación vive en `VibeTool::install`, verificado en la documentación oficial de cada producto:
 
 | Herramienta | `install` | `install_via` |
 |---|---|---|
@@ -569,6 +571,7 @@ La acción `.gitignore` usa la misma forma, con `-NoExit` en vez de `cmd /k`:
 | Antigravity | `irm https://antigravity.google/cli/install.ps1 \| iex` | `PowerShell` |
 | Kiro CLI | *(ninguno: `.exe`)* | — |
 | Freebuff | `npm install -g freebuff` | `Cmd` |
+| Command Code | `npm install -g command-code` | `Cmd` |
 | Qoder CLI | `irm https://qoder.com/install.ps1 \| iex` | `PowerShell` |
 | Hermes | `iex (irm https://hermes-agent.nousresearch.com/install.ps1)` | `PowerShell` |
 | Copilot CLI | `winget install --id GitHub.Copilot --exact --accept-source-agreements --accept-package-agreements` | `Cmd` |
@@ -600,6 +603,7 @@ preguntar). Los `irm | iex` ya eran sintaxis de PowerShell. `InstallVia::Cmd`
 - **Antigravity CLI**: binario nativo (no npm) instalado por `irm https://antigravity.google/cli/install.ps1 | iex` → `%LOCALAPPDATA%\agy\bin\agy.exe`. No siempre está en PATH; `resolve_tool_command()` hace fallback a esa ruta si `Get-Command agy` falla.
 - **Hermes CLI** (Nous Research): instalador nativo `iex (irm https://hermes-agent.nousresearch.com/install.ps1)`. En Windows nativo vive bajo `%LOCALAPPDATA%\hermes\bin` (el README lo dice explícitamente). Mismo caso de fallback que Antigravity. `hermes` arranca su TUI sin flags; `hermes-acp` es el servidor ACP para editores y no va al menú.
 - **Kiro CLI** (AWS): se instala con su `.exe` (`winget install Kiro-CLI` o el instalador de kiro.dev), **no hay comando de terminal**. El ejecutable queda en `%LOCALAPPDATA%\Kiro-Cli\kiro-cli.exe` — nótese que **no** sigue el patrón `…\<tool>\bin` del resto, por eso la sonda de `install.bat` lo lleva en un mapa. El subcomando para chatear es `kiro-cli chat`; `--tui` fuerza la interfaz nueva y `--legacy-ui` la antigua. `install` va vacío en `VIBE_TOOLS`, que significa "detectar, nunca preguntar por instalarlo".
+- **Command Code** (commandcode.ai): npm global `npm install -g command-code`. Se expone como `command-code` y con alias corto `cmd`, pero **en Windows nativo el alias corto es `cmdc`** porque `cmd` lo ocupa el shell del sistema (en WSL sí es `cmd`). El menú usa `cmdc --yolo`: `--yolo` es alias de `--dangerously-skip-permissions` y arranca la sesión en bypass de permisos (docs.commandcode.ai/docs/permissions). Como npm sí agrega el binario al PATH, no declara fallback.
 - **Qoder CLI** (Qoder): instalador nativo recomendado `irm https://qoder.com/install.ps1 | iex`; existe un paquete npm de compatibilidad (`npm install -g @qoder-ai/qodercli`), pero la propia documentación lo desaconseja para instalaciones nuevas. `--yolo` equivale a `--permission-mode bypass_permissions` (aprueba todas las herramientas sin popups); es un flag oculto en `--help`, pero documentado en docs.qoder.com/cli/cli-reference. La documentación invoca `qoder --version`, pero ese `qoder` es un dispatcher `.cmd` que arranca PowerShell y delega en **`qodercli`** (el nombre del binario que descarga el instalador); el menú usa `qodercli --yolo` directo. El instalador delega en `qodercli install`, que coloca el ejecutable bajo `%USERPROFILE%\.qoder\bin\qodercli\` y configura el PATH para terminales nuevas, así que en el proceso actual hace falta el fallback `HOME/`.
 - **Copilot CLI** (GitHub): se instala con `winget install --id GitHub.Copilot --exact` (paquete `GitHub.Copilot`), **no por npm**. Con `--yolo` arranca con todos los permisos concedidos (`--allow-all` = `--allow-all-tools --allow-all-paths --allow-all-urls`); sin flags la TUI pide confirmación por herramienta. ⚠️ winget **no** sigue el patrón `%LOCALAPPDATA%\<tool>\bin`: crea el enlace en `%LOCALAPPDATA%\Microsoft\WinGet\Links\copilot.exe`, y ésa es la ruta que declara `VibeTool::fallback` y la que comprueba la sonda de `install.bat`. Ojo también con el shim que instala VS Code en `%ProgramFiles%\Microsoft VS Code\bin\copilot-shim\`, que está antes en el PATH y responde igual, así que `Get-Command copilot` puede acertar aunque winget aún no haya refrescado el PATH.
 - `install.bat` instala/actualiza Vibe Coding con detección de "ya instalado".
@@ -634,6 +638,11 @@ pwsh -NoLogo -NoProfile -Command "& 'C:\…\compass.exe' --task <task> --path '<
   resize del frame se propaga a la ConPTY (`master.resize` + `parser.set_size`).
 - El pie muestra los atajos y el shell activo; al terminar el proceso, la
   pestaña conserva su última pantalla y se marca con `✓` / "proceso finalizado".
+  ⚠️ Ese estado lo da `PtySession::is_exited()`, que **pregunta al hijo**
+  (`child.try_wait`) además del flag del lector: la ConPTY no cierra el pipe de
+  salida mientras el master siga abierto, así que el EOF nunca llega al terminar
+  la tarea y sin el `try_wait` la pestaña quedaría "en ejecución" para siempre
+  (y `running_count()` mentiría en el aviso de salida).
 - **Barra de pestañas** (`draw_bar`, 3 líneas: `BAR_HEIGHT`): una caja
   redondeada por pestaña (`Block` + `BorderType::Rounded`), separadas por una
   columna vacía. La activa va en `brand` + BOLD con `hover_bg` de fondo; las
@@ -1007,6 +1016,11 @@ versiones viejas.
   funcionando porque el proceso hereda stdio de la pestaña. Compass sólo
   adelanta **destino** (default `…\env-backup\Backup`) y **cuántos conservar**
   (default 1, acotado a `1..=99`) antes de lanzarlo.
+- ⚠️ `$carpetaOut` se construye por **concatenación**, no con `Join-Path`: con
+  una unidad inexistente `Join-Path` lanza `Cannot find drive` y el aviso
+  `[FALLO] La unidad 'Q:' del destino NO existe` del script quedaba
+  inalcanzable (el error crudo de PowerShell sustituía al mensaje). Lo mismo
+  para la raíz de la unidad al validarla.
 - La restauración propone como default **el respaldo más reciente** de
   `…\env-backup\Backup` (`latest_backup()`: orden lexicográfico, que sirve
   porque el sufijo es `_yyyy-MM-dd_HHmmss`); vacío = el script lista lo que
@@ -1668,7 +1682,7 @@ sobrescribe un destino existente; de `submenu.rs`, el flag `warn_android`; y de
 `menu.rs`, el routing de las cards de release y que `AndroidBuildArmv7` queda
 oculta en todos los tipos.
 
-Dos pruebas abren una **ConPTY real** y están `#[ignore]` porque dependen del
+Tres pruebas abren una **ConPTY real** y están `#[ignore]` porque dependen del
 sistema y tardan unos segundos:
 
 ```text
@@ -1676,17 +1690,34 @@ cargo test --bin compass session_renders_its_output -- --ignored
 cargo test --test container_e2e -- --ignored --nocapture
 ```
 
-La primera comprueba que una sesión pinta su salida (`hola contenedor`). La
-segunda (`tests/container_e2e.rs`) arranca el `compass.exe` real en una ConPTY
-de 120×35, entra en `CONFIGURACIÓN`, ejecuta la card Git y verifica la secuencia
-completa: primera fila con las cajas redondeadas `Compass` y `1 Git ×`, submenú
-de Git dentro de la pestaña (con el estilo del menú: `GIT 5` y `volver`), F12 al
-menú sin cerrar la pestaña, `Esc` con la pestaña abierta (aviso de salida, luego
-`Esc` para cancelarlo), F12 de vuelta, Ctrl+W para cerrarla y `Esc` para salir.
-La espera del menú no puede usar `Proyecto:`: el submenú reutiliza la cabecera y
-también lo pinta; se distingue por la fila `DESARROLLO · MNT`. El clic del `×` y
-el hover no se simulan: crossterm lee el ratón de los registros de consola y una
-ConPTY no los genera.
+La primera comprueba que una sesión pinta su salida (`hola contenedor`). Las
+otras dos (`tests/container_e2e.rs`) arrancan el `compass.exe` real en una ConPTY
+de 120×35 con el helper `spawn_compass`:
+
+- `card_opens_a_session_tab_and_f12_switches_between_menu_and_tab` entra en
+  `CONFIGURACIÓN`, ejecuta la card Git y verifica la secuencia completa: primera
+  fila con las cajas redondeadas `Compass` y `1 Git ×`, submenú de Git dentro de
+  la pestaña (con el estilo del menú: `GIT 5` y `volver`), F12 al menú sin cerrar
+  la pestaña, `Esc` con la pestaña abierta (aviso de salida, luego `Esc` para
+  cancelarlo), F12 de vuelta, Ctrl+W para cerrarla y `Esc` para salir. La espera
+  del menú no puede usar `Proyecto:`: el submenú reutiliza la cabecera y también
+  lo pinta; se distingue por la fila `DESARROLLO · MNT`.
+- `environment_backup_prompts_accept_enter_inside_a_tab` es la regresión del
+  backup de entorno: ejecuta la card Entorno → Backup completo dentro de la
+  pestaña y comprueba que los dos `ui::ask_text` (destino y conservar) reciben
+  eco y Enter, que el script llega a su `Read-Host`/`ui::pause` y que la pestaña
+  se marca `proceso finalizado`. Como destino usa una unidad inexistente
+  (`Q:\…`), así el script falla antes de copiar nada: la prueba nunca toca
+  respaldos reales.
+
+⚠️ El `Harness` guarda el `master` de la ConPTY (`_master`): soltarlo justo
+después del `spawn` cierra el pseudoconsola mientras el hijo aún inicializa su
+consola, y el proceso muere de forma intermitente con `STATUS_DLL_INIT_FAILED`
+(`0xC0000142`) sin pintar nada. Con el master vivo, las dos pruebas pasan también
+en paralelo.
+
+El clic del `×` y el hover no se simulan: crossterm lee el ratón de los
+registros de consola y una ConPTY no los genera.
 
 De `tasks/submenu.rs` se cubren la rejilla compartida (cada centro de card
 resuelve a su índice, huecos y cabecera no son cards), la cabecera con la versión
