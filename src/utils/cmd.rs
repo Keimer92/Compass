@@ -658,11 +658,40 @@ pub fn open_folder(folder: &Path) {
 /// Cmd cambia el título de la ventana al *command line* del hijo mientras corre
 /// (por eso la ventana mostraba `C:\Users\Admin\.cargo\bin\compass.exe …`); si es
 /// el propio proceso quien lo fija al arrancar, se sobreescribe al abrirse.
+///
+/// Dentro de una pestaña del contenedor **no** se escribe: el título de una
+/// ConPTY no se queda en la pseudoconsola, el `OpenConsole` del host lo reenvía
+/// a la consola real, y como el proceso va elevado conhost le antepone
+/// `Administrator: ` — la pestaña de Windows Terminal acababa con el prefijo en
+/// cuanto se abría una pestaña de tarea. El único dueño del título de la ventana
+/// es el Compass que la abrió.
 pub fn set_console_title(title: &str) {
+    if embedded() {
+        return;
+    }
     let _ = crossterm::execute!(
         std::io::stdout(),
         crossterm::terminal::SetTitle(title.to_string())
     );
+}
+
+/// Vuelve a fijar el título **sólo si otra consola lo ha cambiado**.
+///
+/// El título sí viaja desde una pestaña ConPTY a la consola real (a diferencia
+/// del color de paleta), así que el `pwsh` del contenedor lo pisa en cuanto se
+/// abre una pestaña de tarea y conhost le antepone su prefijo de elevación. El
+/// bucle del menú reclama aquí una vez por segundo.
+///
+/// Se compara con `platform::console_title()` en vez de reescribir a ciegas:
+/// emitir la secuencia en cada intento llenaría la salida de basura y, sin
+/// consola legible (tareas con stdout redirigido, tests), no hay nada que
+/// arreglar.
+pub fn reclaim_console_title(wanted: &str) {
+    if let Some(actual) = crate::utils::platform::console_title() {
+        if actual != wanted && !embedded() {
+            set_console_title(wanted);
+        }
+    }
 }
 
 /// Tiñe la pestaña de **Windows Terminal** con `rgb`.
@@ -675,10 +704,16 @@ pub fn set_console_title(title: &str) {
 /// - `ESC ] 4 ; 264 ; rgb:rr/gg/bb ESC \` — OSC 4: asigna ese índice.
 ///
 /// Conhost y las ConPTY (pestañas internas) ignoran ambas secuencias, así que
-/// es seguro emitirlas siempre.
+/// dentro de una pestaña no se emiten: el color de la ventana ya lo fijó el
+/// Compass que la abrió, y ahorrarse la escritura evita además la cuenta de
+/// instancias vivas que hace `platform::tab_accent`. El *título* sí se propaga
+/// desde la pestaña, por eso `set_console_title` se corta igual.
 pub fn set_tab_color(rgb: [u8; 3]) {
     use std::io::Write;
 
+    if embedded() {
+        return;
+    }
     let mut out = std::io::stdout();
     let _ = out.write_all(tab_color_sequence(rgb).as_bytes());
     let _ = out.flush();

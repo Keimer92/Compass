@@ -58,6 +58,25 @@ impl Harness {
         self.writer.write_all(bytes).expect("escribir en la ConPTY");
         self.writer.flush().expect("vaciar la ConPTY");
     }
+
+    /// Título que la consola exterior tiene ahora mismo (lo fija el `vt100` al
+    /// procesar los OSC 0/2 que salen por la ConPTY).
+    fn title(&self) -> String {
+        let parser = self.parser.lock().unwrap_or_else(|e| e.into_inner());
+        parser.screen().title().to_string()
+    }
+
+    fn wait_title(&mut self, what: &str, pred: impl Fn(&str) -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while Instant::now() < deadline {
+            let t = self.title();
+            if pred(&t) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(150));
+        }
+        panic!("tiempo agotado esperando {what}; título actual: {:?}", self.title());
+    }
 }
 
 impl Drop for Harness {
@@ -273,6 +292,63 @@ fn environment_backup_prompts_accept_enter_inside_a_tab() {
 
     // Salir con Esc (ya sin pestañas) deja que Compass libere su lock de
     // instancia; matar el proceso lo dejaría huérfano en `locks/`.
+    h.send(b"\x1b");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if let Ok(Some(_)) = h.child.try_wait() {
+            break;
+        }
+        if Instant::now() > deadline {
+            panic!("compass no terminó tras Esc");
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+
+    let _ = std::fs::remove_dir_all(&project);
+}
+
+/// Regresión del título: al abrir una pestaña interna, el shell de esa ConPTY
+/// reescribe el título y, si el proceso va elevado, conhost le antepone
+/// `Administrator: ` (el prefijo viaja con el título, Windows Terminal no lo
+/// añade). El menú lo reclama una vez por segundo, así que la pestaña vuelve a
+/// mostrar sólo el directorio del proyecto.
+#[test]
+#[ignore = "abre la TUI real en una ConPTY y mide el título de la consola"]
+fn opened_tab_does_not_keep_the_administrator_title() {
+    let project = std::env::temp_dir().join(format!("compass-e2e-title-{}", std::process::id()));
+    std::fs::create_dir_all(&project).expect("crear proyecto temporal");
+    std::fs::write(
+        project.join("Cargo.toml"),
+        "[package]\nname = \"e2e-title\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .expect("Cargo.toml de prueba");
+
+    let mut h = spawn_compass(&project);
+    let nombre = project.file_name().unwrap().to_string_lossy().to_string();
+
+    h.wait_until("el menú principal", |s| s.contains("Proyecto:"));
+    h.wait_title("el título del proyecto", |t| t == nombre);
+
+    // CONFIGURACIÓN → Git abre la pestaña que provocaba el prefijo.
+    h.send(b"\t");
+    h.wait_until("la pestaña CONFIGURACIÓN", |s| s.contains("CONFIGURACION"));
+    h.send(b"\r");
+    h.wait_until("la pestaña de tarea", |s| s.contains("1 Git"));
+
+    h.wait_title("el título recuperado", |t| t == nombre);
+    // Y se mantiene: si el shell lo reescribe, el reclamador lo arregla en el
+    // siguiente segundo.
+    std::thread::sleep(Duration::from_secs(3));
+    let tit = h.title();
+    assert!(
+        tit == nombre,
+        "el título volvió a quedar como {tit:?} en vez de {nombre:?}"
+    );
+
+    h.send(b"\x17");
+    h.wait_until("el cierre de la pestaña", |s| {
+        s.contains("Proyecto:") && !s.contains("1 Git")
+    });
     h.send(b"\x1b");
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {

@@ -1878,7 +1878,8 @@ pub fn run(ctx: &ProjectContext) -> anyhow::Result<()> {
     // Cada proyecto abre su propia pestaña: el título es sólo el directorio y
     // el acento de la pestaña sale del path, así dos instancias abiertas a la
     // vez se distinguen de un vistazo.
-    cmd::set_console_title(&ctx.window_title());
+    let titulo = ctx.window_title();
+    cmd::set_console_title(&titulo);
     cmd::set_tab_color(platform::tab_accent(&ctx.script_dir));
 
     // Con pestañas internas, el cierre de la ventana anfitriona no debe
@@ -1895,9 +1896,19 @@ pub fn run(ctx: &ProjectContext) -> anyhow::Result<()> {
         std::env::current_exe().context("No se pudo determinar la ruta del ejecutable")?;
     let project_path = &ctx.script_dir;
     let mut panes = Container::new();
+    // Cada pocos fotogramas basta con mirar el título una vez por segundo.
+    let mut title_check = Instant::now();
 
     loop {
         terminal.draw(|f| draw_ui(f, &mut state, ctx, &mut panes))?;
+
+        // El shell de una pestaña reescribe el título de la consola y el prefijo
+        // de elevación viaja con él (ver `cmd::reclaim_console_title`); se
+        // recupera una vez por segundo, no en cada fotograma.
+        if title_check.elapsed() >= Duration::from_secs(1) {
+            title_check = Instant::now();
+            cmd::reclaim_console_title(&titulo);
+        }
 
         // Con una pestaña de terminal activa, el teclado y el ratón son suyos.
         if panes.active().is_some() {
