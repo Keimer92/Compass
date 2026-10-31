@@ -11,6 +11,38 @@ use crate::utils::{cmd, context::ProjectContext, ui};
 const WINDOWS_ICON_RESOURCE: &[u8] = include_bytes!("../../assets/icon/golang_windows_amd64.syso");
 const WINDOWS_ICON_FILENAME: &str = "compass_go_icon_windows_amd64.syso";
 
+/// Arquitectura de Windows para un build cruzado de Go.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GoArch {
+    X86,
+    X64,
+    Arm64,
+}
+
+impl GoArch {
+    pub fn goarch(self) -> &'static str {
+        match self {
+            Self::X86 => "386",
+            Self::X64 => "amd64",
+            Self::Arm64 => "arm64",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::X86 => "x86",
+            Self::X64 => "x64",
+            Self::Arm64 => "arm64",
+        }
+    }
+}
+
+/// El `.syso` del icono es amd64: enlazarlo en otra arquitectura rompe el
+/// build, así que x86/ARM64 salen con el icono genérico de Go.
+fn icon_for_arch(arch: GoArch) -> bool {
+    arch == GoArch::X64
+}
+
 pub fn run(ctx: &ProjectContext) -> Result<()> {
     with_windows_icon(ctx, || {
         cmd::run_in_current_window("go run .", &ctx.script_dir)
@@ -35,6 +67,49 @@ pub fn build(ctx: &ProjectContext) -> Result<()> {
     with_windows_icon(ctx, || {
         cmd::run_build_and_reveal(&command, &ctx.script_dir, &output_dir, &["exe"], None)
     })
+}
+
+/// Compila un release de Go para **una** arquitectura de Windows.
+///
+/// La salida va a `bin/<nombre>-<arch>.exe`. Se fuerza `CGO_ENABLED=0` para
+/// que el build cruzado no necesite un toolchain de C; un proyecto con cgo
+/// fallará y el error lo explica.
+pub fn build_arch(ctx: &ProjectContext, arch: GoArch) -> Result<PathBuf> {
+    let output_dir = ctx.script_dir.join("bin");
+    std::fs::create_dir_all(&output_dir)
+        .with_context(|| format!("No se pudo crear {}", output_dir.display()))?;
+    let exe = executable_name(&ctx.script_dir);
+    let stem = exe.strip_suffix(".exe").unwrap_or(&exe);
+    let output = output_dir.join(format!("{stem}-{}.exe", arch.label()));
+
+    let build = || -> Result<()> {
+        let ok = cmd::run_program(
+            "go",
+            &["build", "-trimpath", "-o", &output.display().to_string(), "."],
+            &ctx.script_dir,
+            &[
+                ("GOOS".to_string(), "windows".to_string()),
+                ("GOARCH".to_string(), arch.goarch().to_string()),
+                ("CGO_ENABLED".to_string(), "0".to_string()),
+            ],
+        )?;
+        if !ok {
+            anyhow::bail!(
+                "[ERROR] `go build` fallo para {} (GOARCH={}). \
+                 Si el proyecto usa cgo, no puede compilarse cruzado sin el toolchain de C de esa arquitectura.",
+                arch.label(),
+                arch.goarch()
+            );
+        }
+        Ok(())
+    };
+
+    if icon_for_arch(arch) {
+        with_windows_icon(ctx, build)?;
+    } else {
+        build()?;
+    }
+    Ok(output)
 }
 
 pub fn test(ctx: &ProjectContext) -> Result<()> {
@@ -167,6 +242,19 @@ mod tests {
         let path = std::env::temp_dir().join(format!("compass-go-icon-{unique}"));
         fs::create_dir(&path).unwrap();
         path
+    }
+
+    #[test]
+    fn go_archs_map_to_toolchain_names_and_icon_only_for_amd64() {
+        assert_eq!(GoArch::X86.goarch(), "386");
+        assert_eq!(GoArch::X64.goarch(), "amd64");
+        assert_eq!(GoArch::Arm64.goarch(), "arm64");
+        assert_eq!(GoArch::X86.label(), "x86");
+        assert_eq!(GoArch::X64.label(), "x64");
+        assert_eq!(GoArch::Arm64.label(), "arm64");
+        assert!(icon_for_arch(GoArch::X64));
+        assert!(!icon_for_arch(GoArch::X86));
+        assert!(!icon_for_arch(GoArch::Arm64));
     }
 
     #[test]

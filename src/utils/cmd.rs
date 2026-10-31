@@ -505,7 +505,7 @@ pub fn spawn_new_window_interactive(
 
 /// Busca el archivo más reciente dentro de `folder` (recursivo) cuya extensión
 /// esté en `exts`. `exts` vacío significa "cualquier archivo".
-fn newest_artifact(folder: &Path, exts: &[&str]) -> Option<PathBuf> {
+pub(crate) fn newest_artifact(folder: &Path, exts: &[&str]) -> Option<PathBuf> {
     fn walk(dir: &Path, exts: &[&str], best: &mut Option<(SystemTime, PathBuf)>) {
         let Ok(entries) = std::fs::read_dir(dir) else {
             return;
@@ -543,16 +543,65 @@ fn newest_artifact(folder: &Path, exts: &[&str]) -> Option<PathBuf> {
     best.map(|(_, p)| p)
 }
 
+/// Archivo más reciente **directamente** en `folder` (sin recursión) cuya
+/// extensión esté en `exts`.
+///
+/// Lo usan los builds por arquitectura: `target/<triple>/release` contiene
+/// subcarpetas `build/` con ejecutables de build scripts, y una búsqueda
+/// recursiva devolvería uno de ésos en vez del binario de la app.
+pub(crate) fn newest_file_in(folder: &Path, exts: &[&str]) -> Option<PathBuf> {
+    let mut best: Option<(SystemTime, PathBuf)> = None;
+    for entry in std::fs::read_dir(folder).ok()?.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let matches = path
+            .extension()
+            .map(|ext| exts.iter().any(|e| ext.eq_ignore_ascii_case(e)))
+            .unwrap_or(false);
+        if !matches {
+            continue;
+        }
+        if let Ok(mtime) = entry.metadata().and_then(|m| m.modified()) {
+            if best.as_ref().map_or(true, |(best_t, _)| mtime > *best_t) {
+                best = Some((mtime, path));
+            }
+        }
+    }
+    best.map(|(_, p)| p)
+}
+
 /// Renombra `path` a `<base>.<ext>` (conservando la extensión) y devuelve el
 /// nuevo path, o `None` si falla.
-fn rename_artifact(path: &Path, base: &str) -> Option<PathBuf> {
+pub(crate) fn rename_artifact(path: &Path, base: &str) -> Option<PathBuf> {
     let ext = path.extension()?.to_string_lossy().into_owned();
     let target = path.with_file_name(format!("{base}.{ext}"));
     if target == path {
         return Some(path.to_path_buf());
     }
-    std::fs::rename(path, &target).ok()?;
-    Some(target)
+    // En Windows `rename` no sobrescribe: un artefacto de un build anterior
+    // con el mismo nombre dejaría el build sin renombrar (y sin revelar).
+    let _ = std::fs::remove_file(&target);
+    if std::fs::rename(path, &target).is_ok() {
+        return Some(target);
+    }
+    std::fs::copy(path, &target).ok().map(|_| target)
+}
+
+/// Muestra en consola un artefacto ya construido y lo resalta en Explorer.
+///
+/// Lo comparten el revelado de `run_build_and_reveal*` y los submenús de
+/// release, que hacen su propia pausa al final del lote.
+pub(crate) fn show_artifact(path: &Path) {
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    println!();
+    println!("[OK] Build exitoso: {name}");
+    println!("[INFO] Artefacto: {}", path.display());
+    open_in_explorer(path);
 }
 
 /// Muestra el resultado de un build exitoso y abre el explorador sobre el
@@ -566,14 +615,7 @@ fn reveal_artifact(folder: &Path, exts: &[&str], rename_to: Option<&str>) -> Opt
             let path = rename_to
                 .and_then(|base| rename_artifact(&path, base))
                 .unwrap_or(path);
-            let name = path
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_default();
-            println!();
-            println!("[OK] Build exitoso: {name}");
-            println!("[INFO] Artefacto: {}", path.display());
-            open_in_explorer(&path);
+            show_artifact(&path);
             Some(path)
         }
         None => {
@@ -721,6 +763,24 @@ mod tests {
         assert_eq!(renamed, dir.join("App-v2.0.0.apk"));
         assert!(renamed.exists());
         assert!(!path.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Regresión: en Windows `rename` falla si el destino ya existe, y con
+    /// nombres versionados (`App-v2.0.0.apk`) el segundo build del día choca
+    /// con el primero. Debe reemplazarlo, no dejar el artefacto sin renombrar.
+    #[test]
+    fn rename_artifact_overwrites_existing_destination() {
+        let dir = temp_dir("rename-overwrite");
+        let src = dir.join("app-release.apk");
+        let dst = dir.join("App-v2.0.0.apk");
+        std::fs::write(&src, b"nuevo").unwrap();
+        std::fs::write(&dst, b"viejo").unwrap();
+
+        let renamed = rename_artifact(&src, "App-v2.0.0").unwrap();
+        assert_eq!(renamed, dst);
+        assert_eq!(std::fs::read(&renamed).unwrap(), b"nuevo");
+        assert!(!src.exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

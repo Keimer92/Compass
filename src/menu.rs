@@ -238,40 +238,28 @@ impl MenuItem {
                 }
             }
             Self::WindowsBuild => match project_type {
-                ProjectType::Rust => "Build",
+                // Los tipos con builds por arquitectura abren el submenú.
+                ProjectType::Tauri
+                | ProjectType::Rust
+                | ProjectType::Go
+                | ProjectType::GoWails => "Win Release",
                 ProjectType::Python => "Package",
-                ProjectType::Go => "Build",
-                // En Go + Wails el release ya no es un `.exe` portable: la
-                // tarea empaqueta el instalador (NSIS en Windows).
-                ProjectType::GoWails => "Installer",
                 _ => "Win Build",
             },
             Self::AndroidBuildArm64 => match project_type {
-                ProjectType::Tauri => "Android a64",
-                ProjectType::Flutter => "APK",
-                ProjectType::Kotlin => "APK",
-                ProjectType::Rust => "",
-                ProjectType::Go => "",
-                ProjectType::GoWails => "APK x3",
-                ProjectType::Python => "",
+                ProjectType::Tauri
+                | ProjectType::Flutter
+                | ProjectType::Kotlin
+                | ProjectType::GoWails => "APK Release",
+                _ => "",
             },
-            Self::AndroidBuildArmv7 => match project_type {
-                ProjectType::Tauri => "Android a7",
-                ProjectType::Flutter => "",
-                ProjectType::Kotlin => "",
-                ProjectType::Rust => "",
-                ProjectType::Go => "",
-                ProjectType::GoWails => "",
-                ProjectType::Python => "",
-            },
+            Self::AndroidBuildArmv7 => "",
             Self::AndroidBuildAll => match project_type {
-                ProjectType::Tauri => "Android All",
-                ProjectType::Flutter => "AAB",
-                ProjectType::Kotlin => "AAB",
-                ProjectType::Rust => "",
-                ProjectType::Go => "",
-                ProjectType::GoWails => "AAB",
-                ProjectType::Python => "",
+                ProjectType::Tauri
+                | ProjectType::Flutter
+                | ProjectType::Kotlin
+                | ProjectType::GoWails => "AAB",
+                _ => "",
             },
             Self::InstallDebug => "Install",
             Self::FlutterProfile => "Profile",
@@ -298,7 +286,7 @@ impl MenuItem {
             ProjectType::Rust => match self {
                 Self::WindowsDev => "cargo run",
                 Self::AndroidDev => "",
-                Self::WindowsBuild => "cargo build --release",
+                Self::WindowsBuild => "x86 · x64 · ARM64",
                 Self::AndroidBuildArm64 => "",
                 Self::AndroidBuildArmv7 => "",
                 Self::AndroidBuildAll => "",
@@ -318,10 +306,10 @@ impl MenuItem {
             ProjectType::Tauri => match self {
                 Self::WindowsDev => "Inicia el dev server",
                 Self::AndroidDev => "Dev con target Android",
-                Self::WindowsBuild => "Compila produccion",
-                Self::AndroidBuildArm64 => "Compila APK arm64",
-                Self::AndroidBuildArmv7 => "Compila APK armv7",
-                Self::AndroidBuildAll => "Compila todas las APK",
+                Self::WindowsBuild => "x86 · x64 · ARM64",
+                Self::AndroidBuildArm64 => "arm64 · armv7 · universal",
+                Self::AndroidBuildArmv7 => "",
+                Self::AndroidBuildAll => "Bundle para Play Store",
                 Self::InstallDebug => "",
                 Self::Clean => "Limpia builds/deps",
                 Self::DebugAndroid => "Dev + Chrome DevTools",
@@ -338,10 +326,10 @@ impl MenuItem {
             ProjectType::Flutter => match self {
                 Self::WindowsDev => "flutter run windows",
                 Self::AndroidDev => "flutter run android",
-                Self::WindowsBuild => "flutter build windows",
-                Self::AndroidBuildArm64 => "flutter build apk",
+                Self::WindowsBuild => "Solo host (x64)",
+                Self::AndroidBuildArm64 => "arm64 · armv7 · universal",
                 Self::AndroidBuildArmv7 => "",
-                Self::AndroidBuildAll => "flutter build appbundle",
+                Self::AndroidBuildAll => "Bundle para Play Store",
                 Self::InstallDebug => "",
                 Self::Clean => "Limpia builds/deps",
                 Self::DebugAndroid => "Depurar Android",
@@ -358,10 +346,10 @@ impl MenuItem {
             ProjectType::Kotlin => match self {
                 Self::WindowsDev => "gradlew :composeApp:run",
                 Self::AndroidDev => "gradlew :installDebug",
-                Self::WindowsBuild => "gradlew :packageDist",
-                Self::AndroidBuildArm64 => "assembleRelease",
+                Self::WindowsBuild => "Solo host (x64)",
+                Self::AndroidBuildArm64 => "arm64 · armv7 · universal",
                 Self::AndroidBuildArmv7 => "",
-                Self::AndroidBuildAll => "gradlew :bundleRelease",
+                Self::AndroidBuildAll => "Bundle para Play Store",
                 Self::InstallDebug => "gradlew :installDebug",
                 Self::Clean => "Limpia builds/deps",
                 Self::DebugAndroid => "Depurar Android",
@@ -382,7 +370,7 @@ impl MenuItem {
                 Self::WindowsBuild => "x86 · x64 · ARM64",
                 Self::AndroidBuildArm64 => "arm64 · armv7 · universal",
                 Self::AndroidBuildArmv7 => "",
-                Self::AndroidBuildAll => "AAB (Play Store)",
+                Self::AndroidBuildAll => "Bundle para Play Store",
                 Self::InstallDebug => "APK dev",
                 Self::Clean => "Limpia builds/deps",
                 Self::DebugAndroid => "logcat de la app",
@@ -419,7 +407,7 @@ impl MenuItem {
                 Self::WindowsDev => "go run .",
                 Self::AndroidHmr => "air (rebuild + restart)",
                 Self::AndroidDev => "",
-                Self::WindowsBuild => "go build",
+                Self::WindowsBuild => "x86 · x64 · ARM64",
                 Self::AndroidBuildArm64 => "",
                 Self::AndroidBuildArmv7 => "",
                 Self::AndroidBuildAll => "",
@@ -672,6 +660,11 @@ impl MenuState {
                 ),
             })
             .collect();
+
+        // Las arquitecturas de Android viven en el submenú de release; la
+        // card suelta de armv7 sobra en todos los tipos. La variante se
+        // conserva para no reindexar `theme::CARD_KEYS`.
+        items.retain(|item| *item != MenuItem::AndroidBuildArmv7);
 
         // Sort estable: conserva el orden DEV → MNT dentro de la pestaña 1.
         items.sort_by_key(|item| item.tab() as u8);
@@ -1813,19 +1806,24 @@ fn menu_item_to_task(item: MenuItem, ptype: ProjectType) -> &'static str {
         (MenuItem::AndroidHmr, ProjectType::Python) => "android-hmr",
         (MenuItem::AndroidHmr, ProjectType::Go) => "go-hmr",
 
+        // Los tipos con builds por arquitectura abren su submenú de release;
+        // Flutter/Kotlin/Python conservan el build de escritorio de siempre.
+        (
+            MenuItem::WindowsBuild,
+            ProjectType::Tauri | ProjectType::Rust | ProjectType::Go | ProjectType::GoWails,
+        ) => "windows-release",
         (MenuItem::WindowsBuild, _) => "windows-build",
 
-        (MenuItem::AndroidBuildArm64, ProjectType::Tauri) => "android-arm64",
-        (MenuItem::AndroidBuildArm64, ProjectType::Flutter) => "android-arm64",
-        (MenuItem::AndroidBuildArm64, ProjectType::Kotlin) => "android-arm64",
-        (MenuItem::AndroidBuildArm64, ProjectType::GoWails) => "android-arm64",
+        (
+            MenuItem::AndroidBuildArm64,
+            ProjectType::Tauri | ProjectType::Flutter | ProjectType::Kotlin | ProjectType::GoWails,
+        ) => "android-release",
 
-        (MenuItem::AndroidBuildArmv7, ProjectType::Tauri) => "android-armv7",
-
-        (MenuItem::AndroidBuildAll, ProjectType::Tauri) => "android-all",
-        (MenuItem::AndroidBuildAll, ProjectType::Flutter) => "android-all",
-        (MenuItem::AndroidBuildAll, ProjectType::Kotlin) => "android-all",
-        (MenuItem::AndroidBuildAll, ProjectType::GoWails) => "android-all",
+        // El AAB sigue siendo una tarjeta propia: no es una arquitectura.
+        (
+            MenuItem::AndroidBuildAll,
+            ProjectType::Tauri | ProjectType::Flutter | ProjectType::Kotlin | ProjectType::GoWails,
+        ) => "android-aab",
 
         (MenuItem::InstallDebug, _) => "android-install-debug",
 
@@ -2064,6 +2062,99 @@ mod tests {
                 assert!(!task.is_empty());
             }
         }
+    }
+
+    /// Las cards de release abren su submenú sólo donde hay arquitecturas que
+    /// elegir; Flutter/Kotlin/Python conservan el build de escritorio (host).
+    #[test]
+    fn release_cards_route_to_the_release_submenus() {
+        for pt in [
+            ProjectType::Tauri,
+            ProjectType::Rust,
+            ProjectType::Go,
+            ProjectType::GoWails,
+        ] {
+            assert_eq!(
+                menu_item_to_task(MenuItem::WindowsBuild, pt),
+                "windows-release",
+                "{pt:?}"
+            );
+        }
+        for pt in [ProjectType::Flutter, ProjectType::Kotlin, ProjectType::Python] {
+            assert_eq!(
+                menu_item_to_task(MenuItem::WindowsBuild, pt),
+                "windows-build",
+                "{pt:?}"
+            );
+        }
+        for pt in [
+            ProjectType::Tauri,
+            ProjectType::Flutter,
+            ProjectType::Kotlin,
+            ProjectType::GoWails,
+        ] {
+            assert_eq!(
+                menu_item_to_task(MenuItem::AndroidBuildArm64, pt),
+                "android-release",
+                "{pt:?}"
+            );
+            assert_eq!(
+                menu_item_to_task(MenuItem::AndroidBuildAll, pt),
+                "android-aab",
+                "{pt:?}"
+            );
+        }
+    }
+
+    /// Las arquitecturas viven en el submenú de release: la card suelta de
+    /// armv7 no debe reaparecer en ningún tipo.
+    #[test]
+    fn armv7_card_is_hidden_in_every_project_type() {
+        for pt in [
+            ProjectType::Tauri,
+            ProjectType::Flutter,
+            ProjectType::Kotlin,
+            ProjectType::GoWails,
+            ProjectType::Rust,
+            ProjectType::Python,
+            ProjectType::Go,
+        ] {
+            let state = MenuState::new(pt, crate::theme::DEFAULT);
+            assert!(
+                !state.items.contains(&MenuItem::AndroidBuildArmv7),
+                "{pt:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn release_cards_show_architecture_hints() {
+        assert_eq!(MenuItem::WindowsBuild.label(ProjectType::Tauri), "Win Release");
+        assert_eq!(
+            MenuItem::WindowsBuild.description(ProjectType::Tauri),
+            "x86 · x64 · ARM64"
+        );
+        assert_eq!(
+            MenuItem::WindowsBuild.description(ProjectType::Flutter),
+            "Solo host (x64)"
+        );
+        assert_eq!(
+            MenuItem::WindowsBuild.description(ProjectType::Kotlin),
+            "Solo host (x64)"
+        );
+        assert_eq!(
+            MenuItem::AndroidBuildArm64.label(ProjectType::Flutter),
+            "APK Release"
+        );
+        assert_eq!(
+            MenuItem::AndroidBuildArm64.description(ProjectType::Flutter),
+            "arm64 · armv7 · universal"
+        );
+        assert_eq!(MenuItem::AndroidBuildAll.label(ProjectType::Tauri), "AAB");
+        assert_eq!(
+            MenuItem::AndroidBuildAll.description(ProjectType::Tauri),
+            "Bundle para Play Store"
+        );
     }
 
     /// Go + Wails muestra la tarjeta de firmas (el keystore se exporta al

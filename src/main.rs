@@ -208,6 +208,24 @@ fn run_task_direct(ctx: &crate::utils::context::ProjectContext, task: &str) -> R
             crate::utils::context::ProjectType::GoWails => tasks::gowails::build_desktop(ctx),
             crate::utils::context::ProjectType::Python => tasks::python::build(ctx),
         },
+        // Submenús TUI de release por arquitectura.
+        "windows-release" => tasks::release::manage_windows(ctx),
+        "android-release" => tasks::release::manage_android(ctx),
+        "android-aab" => match ctx.project_type {
+            crate::utils::context::ProjectType::Tauri => tasks::android::build_aab(ctx),
+            crate::utils::context::ProjectType::Flutter => tasks::flutter::build_aab(ctx),
+            crate::utils::context::ProjectType::Kotlin => tasks::kotlin::build_aab(ctx),
+            crate::utils::context::ProjectType::GoWails => tasks::gowails::build_aab(ctx),
+            crate::utils::context::ProjectType::Rust => {
+                anyhow::bail!("No aplicable a proyectos Rust")
+            }
+            crate::utils::context::ProjectType::Go => {
+                anyhow::bail!("Los proyectos Go puros no tienen compilación Android")
+            }
+            crate::utils::context::ProjectType::Python => {
+                anyhow::bail!("Python no tiene compilación Android")
+            }
+        },
         "android-arm64" => match ctx.project_type {
             crate::utils::context::ProjectType::Tauri => tasks::android::build_arm64(ctx),
             crate::utils::context::ProjectType::Flutter => tasks::flutter::build_apk(ctx),

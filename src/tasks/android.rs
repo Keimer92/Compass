@@ -402,21 +402,41 @@ fn cleanup_build_locks(ctx: &ProjectContext) {
     let _ = cmd::run("taskkill", &["/F", "/IM", "java.exe", "/T"]);
 }
 
-fn set_arch_arm64() {
-    env::set_var("ORG_GRADLE_PROJECT_abiList", "arm64-v8a");
-    env::set_var("ORG_GRADLE_PROJECT_archList", "arm64");
-    env::set_var("ORG_GRADLE_PROJECT_targetList", "aarch64");
-}
-
-fn clear_arch_env() {
-    env::remove_var("ORG_GRADLE_PROJECT_abiList");
-    env::remove_var("ORG_GRADLE_PROJECT_archList");
-    env::remove_var("ORG_GRADLE_PROJECT_targetList");
+/// Variables que el Gradle de Tauri lee para fijar la ABI de un build.
+///
+/// Se pasan a `cmd::run_shell_status` en vez de mutar el entorno del proceso:
+/// así un build individual no contamina los siguientes (antes `set_arch_*`
+/// dejaba `ORG_GRADLE_PROJECT_*` puestas hasta el `clear_arch_env`).
+fn arch_envs(target: &str) -> Vec<(String, String)> {
+    let (abi, arch) = match target {
+        "aarch64" => ("arm64-v8a", "arm64"),
+        "armv7" => ("armeabi-v7a", "arm"),
+        _ => return Vec::new(),
+    };
+    vec![
+        ("ORG_GRADLE_PROJECT_abiList".to_string(), abi.to_string()),
+        ("ORG_GRADLE_PROJECT_archList".to_string(), arch.to_string()),
+        (
+            "ORG_GRADLE_PROJECT_targetList".to_string(),
+            target.to_string(),
+        ),
+    ]
 }
 
 /// Nombre del script de `package.json` con el que arrancar el dev server en
 /// Android.
 const NPM_DEV_ANDROID: &str = "dev:android";
+
+/// El dev server de Tauri compila para arm64 por defecto.
+///
+/// Se fija en el entorno del proceso (y no con `arch_envs`) porque
+/// `spawn_new_window_interactive` no acepta variables extra: el hijo las
+/// hereda. Los builds release sí las pasan por `run_shell_status`.
+fn set_arch_arm64() {
+    env::set_var("ORG_GRADLE_PROJECT_abiList", "arm64-v8a");
+    env::set_var("ORG_GRADLE_PROJECT_archList", "arm64");
+    env::set_var("ORG_GRADLE_PROJECT_targetList", "aarch64");
+}
 
 /// Precondiciones compartidas por las dos rutas que arrancan la app en modo
 /// debug en Android (las tarjetas «Android» y «Debug Andr»).
@@ -509,96 +529,141 @@ pub fn dev(ctx: &ProjectContext) -> Result<()> {
     Ok(())
 }
 
-pub fn build_arm64(ctx: &ProjectContext) -> Result<()> {
+/// Precondiciones comunes de los builds release de Android.
+fn prepare_release(ctx: &ProjectContext) -> Result<()> {
     tauri::ensure(ctx)?;
     ctx.assert_android_sdk()?;
     ensure_android_project(ctx)?;
     ensure_package_consistent(ctx)?;
-
-    set_arch_arm64();
-
-    println!();
-    println!("[INFO] Compilando Android solo arm64 (Release)...");
-    println!(
-        "[INFO] Usando: {}",
-        tauri::command(ctx, "android build --target aarch64")
-    );
-    println!();
-
-    let rename = read_tauri_app_meta(ctx).map(|(name, ver)| format!("{}-v{}", name, ver));
-    let apk_dir = ctx
-        .script_dir
-        .join("src-tauri/gen/android/app/build/outputs/apk");
-    cmd::run_build_and_reveal(
-        &tauri::command(ctx, "android build --target aarch64"),
-        &ctx.script_dir,
-        &apk_dir,
-        &["apk"],
-        rename.as_deref(),
-    )?;
-
     Ok(())
 }
 
-fn set_arch_armv7() {
-    env::set_var("ORG_GRADLE_PROJECT_abiList", "armeabi-v7a");
-    env::set_var("ORG_GRADLE_PROJECT_archList", "arm");
-    env::set_var("ORG_GRADLE_PROJECT_targetList", "armv7");
+fn apk_output_dir(ctx: &ProjectContext) -> std::path::PathBuf {
+    ctx.script_dir
+        .join("src-tauri/gen/android/app/build/outputs/apk")
+}
+
+/// `<Product>[-v<ver>][-<label>]` con el nombre saneado del APK.
+fn apk_artifact_base(ctx: &ProjectContext, label: Option<&str>) -> String {
+    let (name, version) = read_tauri_app_meta(ctx).unwrap_or_else(|| {
+        (
+            sanitize_app_name(&platform::dir_display_name(&ctx.script_dir)),
+            String::new(),
+        )
+    });
+    match (version.is_empty(), label) {
+        (true, None) => name,
+        (true, Some(l)) => format!("{name}-{l}"),
+        (false, None) => format!("{name}-v{version}"),
+        (false, Some(l)) => format!("{name}-v{version}-{l}"),
+    }
+}
+
+fn newest_apk(ctx: &ProjectContext) -> Result<std::path::PathBuf> {
+    let dir = apk_output_dir(ctx);
+    cmd::newest_artifact(&dir, &["apk"]).ok_or_else(|| {
+        anyhow::anyhow!(
+            "[ERROR] El build termino bien pero no se encontro la APK en: {}",
+            dir.display()
+        )
+    })
+}
+
+/// Compila el APK release de **una** arquitectura (`aarch64` o `armv7`).
+pub fn build_arch(ctx: &ProjectContext, target: &str, label: &str) -> Result<std::path::PathBuf> {
+    prepare_release(ctx)?;
+
+    let command = tauri::command(ctx, &format!("android build --target {target} --apk"));
+    println!();
+    println!("[INFO] Compilando Android APK {label} (Release)...");
+    println!("[INFO] Usando: {command}");
+    println!();
+
+    if !cmd::run_shell_status(&command, &ctx.script_dir, &arch_envs(target))? {
+        anyhow::bail!(
+            "[ERROR] Fallo el build Android {label} (`tauri android build --target {target}`)."
+        );
+    }
+
+    let apk = newest_apk(ctx)?;
+    let base = apk_artifact_base(ctx, Some(label));
+    cmd::rename_artifact(&apk, &base)
+        .ok_or_else(|| anyhow::anyhow!("[ERROR] No se pudo renombrar {}", apk.display()))
+}
+
+/// APK release **universal**: una sola APK con todas las ABIs del proyecto.
+pub fn build_universal(ctx: &ProjectContext) -> Result<std::path::PathBuf> {
+    prepare_release(ctx)?;
+
+    let command = tauri::command(ctx, "android build --apk");
+    println!();
+    println!("[INFO] Compilando Android APK universal (Release)...");
+    println!("[INFO] Usando: {command}");
+    println!();
+
+    if !cmd::run_shell_status(&command, &ctx.script_dir, &[])? {
+        anyhow::bail!("[ERROR] Fallo el build Android universal (`tauri android build --apk`).");
+    }
+
+    let apk = newest_apk(ctx)?;
+    let base = apk_artifact_base(ctx, None);
+    cmd::rename_artifact(&apk, &base)
+        .ok_or_else(|| anyhow::anyhow!("[ERROR] No se pudo renombrar {}", apk.display()))
+}
+
+/// AAB release para Play Store.
+pub fn build_aab(ctx: &ProjectContext) -> Result<()> {
+    let aab = build_aab_artifact(ctx)?;
+    cmd::show_artifact(&aab);
+    ui::pause_for(10);
+    Ok(())
+}
+
+fn build_aab_artifact(ctx: &ProjectContext) -> Result<std::path::PathBuf> {
+    prepare_release(ctx)?;
+
+    let command = tauri::command(ctx, "android build --aab");
+    println!();
+    println!("[INFO] Compilando Android AAB (Release)...");
+    println!("[INFO] Usando: {command}");
+    println!();
+
+    if !cmd::run_shell_status(&command, &ctx.script_dir, &[])? {
+        anyhow::bail!("[ERROR] Fallo el build Android AAB (`tauri android build --aab`).");
+    }
+
+    let dir = ctx
+        .script_dir
+        .join("src-tauri/gen/android/app/build/outputs/bundle");
+    let aab = cmd::newest_artifact(&dir, &["aab"]).ok_or_else(|| {
+        anyhow::anyhow!(
+            "[ERROR] El build termino bien pero no se encontro el AAB en: {}",
+            dir.display()
+        )
+    })?;
+    let base = apk_artifact_base(ctx, None);
+    cmd::rename_artifact(&aab, &base)
+        .ok_or_else(|| anyhow::anyhow!("[ERROR] No se pudo renombrar {}", aab.display()))
+}
+
+pub fn build_arm64(ctx: &ProjectContext) -> Result<()> {
+    let apk = build_arch(ctx, "aarch64", "arm64")?;
+    cmd::show_artifact(&apk);
+    ui::pause_for(10);
+    Ok(())
 }
 
 pub fn build_armv7(ctx: &ProjectContext) -> Result<()> {
-    tauri::ensure(ctx)?;
-    ctx.assert_android_sdk()?;
-    ensure_android_project(ctx)?;
-
-    set_arch_armv7();
-
-    println!();
-    println!("[INFO] Compilando Android solo armv7 (Release)...");
-    println!(
-        "[INFO] Usando: {}",
-        tauri::command(ctx, "android build --target armv7")
-    );
-    println!();
-
-    let apk_dir = ctx
-        .script_dir
-        .join("src-tauri/gen/android/app/build/outputs/apk");
-    cmd::run_build_and_reveal(
-        &tauri::command(ctx, "android build --target armv7"),
-        &ctx.script_dir,
-        &apk_dir,
-        &["apk"],
-        None,
-    )?;
-
+    let apk = build_arch(ctx, "armv7", "armv7")?;
+    cmd::show_artifact(&apk);
+    ui::pause_for(10);
     Ok(())
 }
 
 pub fn build_all(ctx: &ProjectContext) -> Result<()> {
-    tauri::ensure(ctx)?;
-    ctx.assert_android_sdk()?;
-    ensure_android_project(ctx)?;
-    ensure_package_consistent(ctx)?;
-
-    clear_arch_env();
-
-    println!();
-    println!("[INFO] Compilando Android (Todas las arquitecturas)...");
-    println!();
-
-    let rename = read_tauri_app_meta(ctx).map(|(name, ver)| format!("{}-v{}", name, ver));
-    let apk_dir = ctx
-        .script_dir
-        .join("src-tauri/gen/android/app/build/outputs/apk");
-    cmd::run_build_and_reveal(
-        &tauri::command(ctx, "android build"),
-        &ctx.script_dir,
-        &apk_dir,
-        &["apk"],
-        rename.as_deref(),
-    )?;
-
+    let apk = build_universal(ctx)?;
+    cmd::show_artifact(&apk);
+    ui::pause_for(10);
     Ok(())
 }
 

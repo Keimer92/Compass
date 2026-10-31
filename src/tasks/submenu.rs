@@ -67,6 +67,9 @@ pub(crate) struct Submenu<T: Copy> {
     cols: usize,
     /// Última geometría dibujada; `None` si la terminal no admite ni una card.
     ui: Option<UiLayout>,
+    /// Reservar la fila de aviso de Android si el SDK no está configurado.
+    /// Lo apagan los submenús que no compilan Android.
+    warn_android: bool,
 }
 
 impl<T: Copy> Submenu<T> {
@@ -82,7 +85,14 @@ impl<T: Copy> Submenu<T> {
             vh: 0,
             cols: 1,
             ui: None,
+            warn_android: true,
         }
+    }
+
+    /// Desactiva la fila de aviso de Android (submenú de release de Windows).
+    pub fn with_android_warning(mut self, warn: bool) -> Self {
+        self.warn_android = warn;
+        self
     }
 
     pub fn len(&self) -> usize {
@@ -163,7 +173,7 @@ impl<T: Copy> Submenu<T> {
             area,
         );
 
-        let ui = layout(area, show_android_warning(ctx));
+        let ui = layout(area, self.warn_android && show_android_warning(ctx));
         self.vh = ui.list.height;
         self.cols = ui.cols;
 
@@ -415,6 +425,12 @@ mod tests {
                 (Demo::E, item("Epsilon", "git")),
             ],
         )
+    }
+
+    #[test]
+    fn android_warning_is_on_by_default_and_can_be_disabled() {
+        assert!(demo().warn_android);
+        assert!(!demo().with_android_warning(false).warn_android);
     }
 
     fn ctx() -> ProjectContext {

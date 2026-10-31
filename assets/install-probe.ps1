@@ -57,15 +57,15 @@ if ($comandoCr -and $comandoCr -notlike '*pwsh*' -and $comandoCr -notlike '*powe
 # La acción .gitignore se agregó después de la instalación del menú base.
 # También debe activar la reinstalación para migrar instalaciones existentes.
 if ($menuCompass -eq 0 -and (
-        -not (Test-Path 'HKCU:\Software\Classes\Directory\shell\zz_VibeGitignore\command') -or
-        -not (Test-Path 'HKCU:\Software\Classes\Directory\Background\shell\zz_VibeGitignore\command')
+        -not (Test-Path 'HKCU:\Software\Classes\Directory\shell\zz_CompassGitignore\command') -or
+        -not (Test-Path 'HKCU:\Software\Classes\Directory\Background\shell\zz_CompassGitignore\command')
     )) {
     $menuCompass = 1
 }
 $gitignoreFolderCommand = (Get-ItemProperty `
-    -Path 'HKCU:\Software\Classes\Directory\shell\zz_VibeGitignore\command').'(default)'
+    -Path 'HKCU:\Software\Classes\Directory\shell\zz_CompassGitignore\command').'(default)'
 $gitignoreBackgroundCommand = (Get-ItemProperty `
-    -Path 'HKCU:\Software\Classes\Directory\Background\shell\zz_VibeGitignore\command').'(default)'
+    -Path 'HKCU:\Software\Classes\Directory\Background\shell\zz_CompassGitignore\command').'(default)'
 # `cmd.exe` es el marcador de una instalación anterior a la migración a
 # PowerShell. Comparar el valor entero contra el nuevo sería frágil (cambia de
 # ruta con cada versión de pwsh); el shell sí es estable.
@@ -132,6 +132,7 @@ $nombres = @{
     'hermes'    = 'hermes'
     'kiro-cli'  = 'Kiro-Cli'
     'copilot'   = 'copilot'
+    'freebuff'  = 'freebuff'
     'qodercli'  = 'qodercli'
 }
 

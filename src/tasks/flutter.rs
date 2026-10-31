@@ -1,6 +1,7 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::io::{self, Write};
+use std::path::{Path, PathBuf};
 
 use crate::utils::{android as android_utils, cmd, context::ProjectContext};
 
@@ -121,20 +122,107 @@ pub fn build_windows(ctx: &ProjectContext) -> Result<()> {
     Ok(())
 }
 
-pub fn build_apk(ctx: &ProjectContext) -> Result<()> {
-    println!("\n[INFO] Compilando Android APK (Release)...\n");
+fn apk_output_dir(ctx: &ProjectContext) -> PathBuf {
+    ctx.script_dir.join("build/app/outputs/flutter-apk")
+}
+
+fn apk_base(ctx: &ProjectContext, suffix: Option<&str>) -> String {
+    let name = read_flutter_app_meta(ctx)
+        .map(|(name, ver)| format!("{}-v{}", name, ver))
+        .unwrap_or_else(|| {
+            crate::utils::platform::dir_display_name(&ctx.script_dir).replace(' ', "_")
+        });
+    match suffix {
+        Some(suffix) => format!("{name}-{suffix}"),
+        None => name,
+    }
+}
+
+/// Copia el APK ya compilado a `bin/` con su nombre final.
+///
+/// Es una **copia** y no un renombrado: Flutter reescribe siempre
+/// `app-release.apk`, así que moverlo dejaría al siguiente paso sin origen.
+fn copy_apk_to_bin(ctx: &ProjectContext, src: &Path, base: &str) -> Result<PathBuf> {
+    let bin = ctx.script_dir.join("bin");
+    std::fs::create_dir_all(&bin)
+        .with_context(|| format!("No se pudo crear {}", bin.display()))?;
+    let dest = bin.join(format!("{base}.apk"));
+    if dest.exists() {
+        std::fs::remove_file(&dest).ok();
+    }
+    std::fs::copy(src, &dest).with_context(|| {
+        format!(
+            "No se pudo copiar {} a {}",
+            src.display(),
+            dest.display()
+        )
+    })?;
+    Ok(dest)
+}
+
+fn run_flutter_apk(ctx: &ProjectContext, args: &str) -> Result<()> {
+    let command = format!("flutter build apk --release {args}");
+    println!("\n[INFO] Ejecutando: {command}\n");
+    if !cmd::run_shell_status(&command, &ctx.script_dir, &[])? {
+        anyhow::bail!("[ERROR] `{command}` fallo.");
+    }
+    Ok(())
+}
+
+fn apk_from_output(ctx: &ProjectContext, file: &str) -> Result<PathBuf> {
+    let dir = apk_output_dir(ctx);
+    let path = dir.join(file);
+    if path.exists() {
+        return Ok(path);
+    }
+    cmd::newest_artifact(&dir, &["apk"])
+        .ok_or_else(|| anyhow::anyhow!("[ERROR] No se encontro la APK en {}", dir.display()))
+}
+
+/// APK release para una sola arquitectura (`android-arm64` / `android-arm`).
+pub fn build_apk_arch(ctx: &ProjectContext, platform: &str, label: &str) -> Result<PathBuf> {
+    ensure_pubget(ctx)?;
+    run_flutter_apk(ctx, &format!("--target-platform {platform}"))?;
+    let apk = apk_from_output(ctx, "app-release.apk")?;
+    copy_apk_to_bin(ctx, &apk, &apk_base(ctx, Some(label)))
+}
+
+/// APK universal (todas las ABIs en un solo fichero).
+pub fn build_apk_universal(ctx: &ProjectContext) -> Result<PathBuf> {
+    ensure_pubget(ctx)?;
+    run_flutter_apk(ctx, "")?;
+    let apk = apk_from_output(ctx, "app-release.apk")?;
+    copy_apk_to_bin(ctx, &apk, &apk_base(ctx, None))
+}
+
+/// Tres APK: universal primero (se copia **antes** de los splits, porque el
+/// build siguiente reescribe `app-release.apk`) y luego arm64/armv7.
+pub fn build_apks_all(ctx: &ProjectContext) -> Result<Vec<PathBuf>> {
     ensure_pubget(ctx)?;
 
-    let rename = read_flutter_app_meta(ctx).map(|(name, ver)| format!("{}-v{}", name, ver));
-    let apk_dir = ctx.script_dir.join("build/app/outputs/flutter-apk");
-    cmd::run_build_and_reveal(
-        "flutter build apk --release",
-        &ctx.script_dir,
-        &apk_dir,
-        &["apk"],
-        rename.as_deref(),
-    )?;
+    let mut artifacts = Vec::new();
 
+    run_flutter_apk(ctx, "")?;
+    let universal = apk_from_output(ctx, "app-release.apk")?;
+    artifacts.push(copy_apk_to_bin(ctx, &universal, &apk_base(ctx, None))?);
+
+    run_flutter_apk(ctx, "--split-per-abi")?;
+    for (file, label) in [
+        ("app-arm64-v8a-release.apk", "arm64"),
+        ("app-armeabi-v7a-release.apk", "armv7"),
+    ] {
+        let apk = apk_from_output(ctx, file)?;
+        artifacts.push(copy_apk_to_bin(ctx, &apk, &apk_base(ctx, Some(label)))?);
+    }
+
+    Ok(artifacts)
+}
+
+pub fn build_apk(ctx: &ProjectContext) -> Result<()> {
+    println!("\n[INFO] Compilando Android APK universal (Release)...\n");
+    let apk = build_apk_universal(ctx)?;
+    cmd::show_artifact(&apk);
+    crate::utils::ui::pause_for(10);
     Ok(())
 }
 

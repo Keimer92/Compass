@@ -8,6 +8,7 @@ pub mod go;
 pub mod gowails;
 pub mod kotlin;
 pub mod python;
+pub mod release;
 pub mod rust;
 pub mod signer;
 pub mod submenu;

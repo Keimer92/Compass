@@ -122,12 +122,15 @@ Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_Co
     let _ = cmd::run_ps(ps);
 }
 
-const GITIGNORE_KEY: &str = "zz_VibeGitignore";
+const GITIGNORE_KEY: &str = "zz_CompassGitignore";
 const GITIGNORE_LABEL: &str = "Compass: Add .gitignore";
+/// Clave anterior, cuando la entrada vivía junto a Vibe Coding. Se borra en
+/// cada instalación para que no queden dos acciones `.gitignore`.
+const GITIGNORE_OLD_KEY: &str = "zz_VibeGitignore";
 
-/// Instala el ejecutable no interactivo como hermano inmediato de Vibe Coding.
-/// Las claves se ordenan alfabéticamente, por eso `VibeGitignore` va después
-/// de `VibeCoding`.
+/// Instala la acción no interactiva justo después de `zz_Compass`.
+/// Las claves se ordenan alfabéticamente, y `zz_Compass` es prefijo de
+/// `zz_CompassGitignore`: la acción queda entre "Compass" y "Vibe Coding".
 fn install_gitignore_action_windows() -> Result<()> {
     let exe = exe_path();
     let icon = icon_path();
@@ -135,7 +138,9 @@ fn install_gitignore_action_windows() -> Result<()> {
     let folder_command = gitignore_context_command(shell, &exe, "%1");
     let background_command = gitignore_context_command(shell, &exe, "%V");
     let ps = format!(
-        "New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{GITIGNORE_KEY}' -Force | Out-Null; \
+        "Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{GITIGNORE_OLD_KEY}' -Recurse -Force -ErrorAction SilentlyContinue; \
+         Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\{GITIGNORE_OLD_KEY}' -Recurse -Force -ErrorAction SilentlyContinue; \
+         New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{GITIGNORE_KEY}' -Force | Out-Null; \
          Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{GITIGNORE_KEY}' -Name '(default)' -Value {label} -Force; \
          Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{GITIGNORE_KEY}' -Name 'Icon' -Type String -Value {icon} -Force; \
          New-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{GITIGNORE_KEY}\\command' -Force | Out-Null; \
@@ -192,13 +197,16 @@ fn gitignore_context_command(shell: &str, exe: &str, placeholder: &str) -> Strin
 pub fn uninstall() -> Result<()> {
     remove_old_code_runner_entry();
 
-    let ps = "\
-Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_Compass' -Recurse -Force -ErrorAction SilentlyContinue; \
-Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_Compass' -Recurse -Force -ErrorAction SilentlyContinue; \
-Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_VibeGitignore' -Recurse -Force -ErrorAction SilentlyContinue; \
-Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_VibeGitignore' -Recurse -Force -ErrorAction SilentlyContinue";
+    let ps = format!(
+        "Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\zz_Compass' -Recurse -Force -ErrorAction SilentlyContinue; \
+         Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\zz_Compass' -Recurse -Force -ErrorAction SilentlyContinue; \
+         Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{GITIGNORE_KEY}' -Recurse -Force -ErrorAction SilentlyContinue; \
+         Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\{GITIGNORE_KEY}' -Recurse -Force -ErrorAction SilentlyContinue; \
+         Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\shell\\{GITIGNORE_OLD_KEY}' -Recurse -Force -ErrorAction SilentlyContinue; \
+         Remove-Item -Path 'HKCU:\\Software\\Classes\\Directory\\Background\\shell\\{GITIGNORE_OLD_KEY}' -Recurse -Force -ErrorAction SilentlyContinue"
+    );
 
-    let _ = cmd::run_ps(ps);
+    let _ = cmd::run_ps(&ps);
 
     println!("[OK] Menú contextual Compass eliminado.");
     Ok(())
@@ -257,9 +265,9 @@ enum InstallVia {
 }
 
 /// Orden solicitado: OpenCode → Kilo Code → Cline → Antigravity → Copilot CLI
-/// → Kiro CLI → Qoder CLI → Hermes.
+/// → Kiro CLI → Freebuff → Qoder CLI → Hermes.
 /// Los prefijos numéricos fuerzan ese orden porque Windows ordena las
-/// sub-claves de `shell` alfabéticamente (01 < 02 < … < 08).
+/// sub-claves de `shell` alfabéticamente (01 < 02 < … < 09).
 ///
 /// `cli` es lo que se ejecuta al elegir la entrada del menú; el primer token es
 /// el binario que [`resolve_tool_command`] busca en el PATH. Para Kiro CLI ese
@@ -269,8 +277,9 @@ enum InstallVia {
 ///
 /// Comandos de instalación verificados en la documentación oficial de cada
 /// producto (opencode.ai/download, kilo.ai/docs, docs.cline.bot,
-/// antigravity.google/docs, kiro.dev, hermes-agent.nousresearch.com,
-/// qoder.com/cli y docs.github.com/copilot/how-tos/copilot-cli).
+/// antigravity.google/docs, kiro.dev, freebuff.com/cli,
+/// hermes-agent.nousresearch.com, qoder.com/cli y
+/// docs.github.com/copilot/how-tos/copilot-cli).
 const VIBE_TOOLS: &[VibeTool] = &[
     VibeTool {
         key: "01OpenCode",
@@ -350,7 +359,17 @@ const VIBE_TOOLS: &[VibeTool] = &[
         install_via: InstallVia::Cmd,
     },
     VibeTool {
-        key: "07QoderCli",
+        key: "07Freebuff",
+        title: "Freebuff",
+        // Freebuff arranca con un prompt en la TUI, sin flags: `freebuff` a secas.
+        cli: "freebuff",
+        // Se distribuye como paquete npm global, que sí agrega el binario al PATH.
+        install: "npm install -g freebuff",
+        fallback: &[],
+        install_via: InstallVia::Cmd,
+    },
+    VibeTool {
+        key: "08QoderCli",
         title: "Qoder CLI",
         // `--yolo` equivale a `--permission-mode bypass_permissions`: aprueba
         // todas las herramientas sin pedir confirmación (docs.qoder.com/cli/cli-reference).
@@ -371,7 +390,7 @@ const VIBE_TOOLS: &[VibeTool] = &[
         install_via: InstallVia::PowerShell,
     },
     VibeTool {
-        key: "08Hermes",
+        key: "09Hermes",
         title: "Hermes",
         cli: "hermes",
         // Hermes arranca su TUI a pelo, sin flags: `hermes` a secas.
@@ -735,8 +754,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn gitignore_context_menu_is_ordered_after_vibe_and_quotes_both_paths() {
-        assert!("zz_VibeCoding" < GITIGNORE_KEY);
+    fn gitignore_context_menu_is_ordered_between_compass_and_vibe() {
+        assert!("zz_Compass" < GITIGNORE_KEY);
+        assert!(GITIGNORE_KEY < "zz_VibeCoding");
         let shell = r"C:\Program Files\PowerShell\7\pwsh.exe";
         let exe = r"C:\Program Files\Compass\compass.exe";
         let folder = gitignore_context_command(shell, exe, "%1");
@@ -805,8 +825,9 @@ mod tests {
                 InstallVia::Cmd,
             ),
             ("06KiroCli", "Kiro CLI", "", InstallVia::Cmd),
-            ("07QoderCli", "Qoder CLI", "irm https://qoder.com/install.ps1 | iex", InstallVia::PowerShell),
-            ("08Hermes", "Hermes", "iex (irm https://hermes-agent.nousresearch.com/install.ps1)", InstallVia::PowerShell),
+            ("07Freebuff", "Freebuff", "npm install -g freebuff", InstallVia::Cmd),
+            ("08QoderCli", "Qoder CLI", "irm https://qoder.com/install.ps1 | iex", InstallVia::PowerShell),
+            ("09Hermes", "Hermes", "iex (irm https://hermes-agent.nousresearch.com/install.ps1)", InstallVia::PowerShell),
         ];
 
         assert_eq!(
@@ -870,17 +891,34 @@ mod tests {
         );
     }
 
-    /// Qoder CLI va justo después de Kiro, arranca en YOLO (`--yolo` equivale a
+    /// Freebuff va justo después de Kiro y antes de Qoder, y arranca con su
+    /// TUI a pelo: `freebuff` sin flags.
+    #[test]
+    fn freebuff_comes_after_kiro_and_before_qoder() {
+        let posiciones: Vec<&str> = VIBE_TOOLS.iter().map(|t| t.key).collect();
+        let kiro = posiciones.iter().position(|k| *k == "06KiroCli").unwrap();
+        let freebuff = posiciones
+            .iter()
+            .position(|k| *k == "07Freebuff")
+            .unwrap();
+        let qoder = posiciones.iter().position(|k| *k == "08QoderCli").unwrap();
+        assert_eq!(freebuff, kiro + 1, "Freebuff debe ir inmediatamente tras Kiro");
+        assert_eq!(qoder, freebuff + 1, "Qoder debe ir inmediatamente tras Freebuff");
+
+        let tool = &VIBE_TOOLS[freebuff];
+        assert_eq!(tool.title, "Freebuff");
+        assert_eq!(tool.cli, "freebuff");
+    }
+
+    /// Qoder CLI va después de Freebuff, arranca en YOLO (`--yolo` equivale a
     /// `--permission-mode bypass_permissions`) y su ejecutable real es
     /// `qodercli`: `qoder` es el dispatcher que instala el script.
     #[test]
-    fn qoder_comes_after_kiro_and_runs_in_yolo_mode() {
-        let posiciones: Vec<&str> = VIBE_TOOLS.iter().map(|t| t.key).collect();
-        let kiro = posiciones.iter().position(|k| *k == "06KiroCli").unwrap();
-        let qoder = posiciones.iter().position(|k| *k == "07QoderCli").unwrap();
-        assert_eq!(qoder, kiro + 1, "Qoder debe ir inmediatamente tras Kiro");
-
-        let tool = &VIBE_TOOLS[qoder];
+    fn qoder_runs_in_yolo_mode() {
+        let tool = VIBE_TOOLS
+            .iter()
+            .find(|t| t.key == "08QoderCli")
+            .unwrap();
         assert_eq!(tool.title, "Qoder CLI");
         let palabras: Vec<&str> = tool.cli.split_whitespace().collect();
         assert_eq!(palabras.first(), Some(&"qodercli"));

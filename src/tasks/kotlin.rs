@@ -1,6 +1,7 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::io::{self, Write};
+use std::path::{Path, PathBuf};
 
 use crate::utils::{
     android as android_utils, cmd,
@@ -288,7 +289,7 @@ pub fn install_debug(ctx: &ProjectContext) -> Result<()> {
 /// concreto: Gradle no tiene tarea para "instalar este APK release", así que
 /// se usa `adb install -r` directamente (ver `android_utils::install_apk`,
 /// que además resuelve el choque de firmas debug ↔ release).
-fn install_release_apk(ctx: &ProjectContext, apk: &std::path::Path) -> Result<()> {
+pub(crate) fn install_release_apk(ctx: &ProjectContext, apk: &std::path::Path) -> Result<()> {
     let namespace = extract_namespace(ctx).unwrap_or_default();
     let activity = extract_main_activity_package(ctx)
         .map(|p| format!("{}.MainActivity", p))
@@ -326,47 +327,234 @@ pub fn build_windows(ctx: &ProjectContext) -> Result<()> {
     Ok(())
 }
 
-pub fn build_apk(ctx: &ProjectContext) -> Result<()> {
-    println!("\n[INFO] Compilando Android APK (Release)...\n");
-    ensure_gradle(ctx)?;
+fn apk_output_dir(ctx: &ProjectContext) -> PathBuf {
+    kotlin_android_dir(ctx)
+        .join("build")
+        .join("outputs")
+        .join("apk")
+        .join("release")
+}
 
-    let android_dir = kotlin_android_dir(ctx);
-    let gradle = gradlew_cmd(ctx, &format!("{}:assembleRelease", gradle_module(ctx)));
-    let envs = match release_signing_env(ctx) {
+fn apk_base(ctx: &ProjectContext, suffix: Option<&str>) -> String {
+    let name = read_kotlin_app_meta(ctx)
+        .map(|(name, ver)| format!("{}-v{}", name, ver))
+        .unwrap_or_else(|| "app".to_string());
+    match suffix {
+        Some(suffix) => format!("{name}-{suffix}"),
+        None => name,
+    }
+}
+
+fn signing_envs(ctx: &ProjectContext) -> Vec<(String, String)> {
+    match release_signing_env(ctx) {
         Some(envs) => envs,
         None => {
             println!("[WARN] No se encontro keystore.properties de release; el build release podria fallar. Usa la tarjeta Keystore para configurar la firma.");
             Vec::new()
         }
-    };
-    let rename = read_kotlin_app_meta(ctx).map(|(name, ver)| format!("{}-v{}", name, ver));
-    let apk_dir = android_dir
-        .join("build")
-        .join("outputs")
-        .join("apk")
-        .join("release");
-    let outcome = cmd::run_build_and_reveal_with_env_outcome(
-        &gradle,
-        &ctx.script_dir,
-        &apk_dir,
-        &["apk"],
-        rename.as_deref(),
-        &envs,
-    )?;
+    }
+}
 
-    // El APK release se instala en el telefono igual que el de debug: **si
-    // hay un dispositivo Android conectado**. Si no lo hay, el paso se omite
-    // (la APK ya está compilada) y no se pregunta nada.
-    if outcome.success {
-        if let Some(apk) = outcome.artifact {
-            install_release_apk(ctx, &apk)?;
-        } else {
-            println!("[WARN] No se encontro el APK para instalar.");
+/// APK por ABI sólo tiene sentido si el módulo empaqueta librerías nativas
+/// (`jniLibs/**/*.so`). Un Compose puro es el mismo bytecode en todas.
+pub(crate) fn has_native_libs(module_dir: &Path) -> bool {
+    fn walk(dir: &Path) -> bool {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return false;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                if walk(&path) {
+                    return true;
+                }
+            } else if path
+                .extension()
+                .map(|ext| ext.eq_ignore_ascii_case("so"))
+                .unwrap_or(false)
+            {
+                return true;
+            }
+        }
+        false
+    }
+    walk(&module_dir.join("src").join("main").join("jniLibs"))
+}
+
+/// Init script que fija la ABI del build **antes** de que AGP lea el DSL.
+///
+/// Igual que en Go + Wails, el `afterEvaluate` se registra desde
+/// `beforeProject` para quedar delante del de AGP; con `projectsEvaluated`
+/// ya sería tarde.
+fn write_abi_init_script(abi: Option<&str>) -> Result<PathBuf> {
+    let mut script = String::new();
+    script.push_str("// Generado por Compass: ABIs del build release.\n");
+    script.push_str("gradle.beforeProject { p ->\n");
+    script.push_str("    p.afterEvaluate {\n");
+    script.push_str("        def android = p.extensions.findByName('android')\n");
+    script.push_str("        if (android == null) { return }\n");
+    match abi {
+        Some(abi) => {
+            script.push_str("        android.splits.abi.enable = false\n");
+            script.push_str("        android.defaultConfig.ndk.abiFilters.clear()\n");
+            script.push_str(&format!(
+                "        android.defaultConfig.ndk.abiFilters.add('{abi}')\n"
+            ));
+        }
+        None => {
+            script.push_str("        android.splits.abi.enable = true\n");
+            script.push_str("        android.splits.abi.reset()\n");
+            script.push_str("        android.splits.abi.include 'arm64-v8a', 'armeabi-v7a'\n");
+            script.push_str("        android.splits.abi.universalApk = true\n");
         }
     }
+    script.push_str("    }\n}\n");
 
-    // Pausa final: la ventana del menú se cierra al terminar el proceso, y
-    // sin esto el resultado de la instalación se pierde de vista.
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let path = std::env::temp_dir().join(format!(
+        "compass-kotlin-abis-{}-{seq}.gradle",
+        std::process::id()
+    ));
+    std::fs::write(&path, script)
+        .with_context(|| format!("No se pudo escribir: {}", path.display()))?;
+    Ok(path)
+}
+
+fn assemble_release(ctx: &ProjectContext, init: Option<&Path>) -> Result<bool> {
+    let module = gradle_module(ctx);
+    let command = match init {
+        Some(init) => gradlew_cmd(
+            ctx,
+            &format!(
+                "--init-script {} {}:assembleRelease",
+                cmd::ps_quote(&init.display().to_string()),
+                module
+            ),
+        ),
+        None => gradlew_cmd(ctx, &format!("{}:assembleRelease", module)),
+    };
+    println!();
+    println!("[INFO] Ejecutando: {command}");
+    println!();
+    cmd::run_shell_status(&command, &ctx.script_dir, &signing_envs(ctx))
+}
+
+fn newest_matching(dir: &Path, fragment: &str) -> Option<PathBuf> {
+    let mut best: Option<(std::time::SystemTime, PathBuf)> = None;
+    for entry in std::fs::read_dir(dir).ok()?.flatten() {
+        let path = entry.path();
+        if !path
+            .extension()
+            .map(|ext| ext.eq_ignore_ascii_case("apk"))
+            .unwrap_or(false)
+        {
+            continue;
+        }
+        let name = path.file_name()?.to_string_lossy().to_lowercase();
+        if !name.contains(fragment) {
+            continue;
+        }
+        if let Ok(mtime) = entry.metadata().and_then(|m| m.modified()) {
+            if best.as_ref().map_or(true, |(best_t, _)| mtime > *best_t) {
+                best = Some((mtime, path));
+            }
+        }
+    }
+    best.map(|(_, path)| path)
+}
+
+fn take_apk(src: &Path, base: &str) -> Result<PathBuf> {
+    cmd::rename_artifact(src, base)
+        .ok_or_else(|| anyhow::anyhow!("No se pudo renombrar {}", src.display()))
+}
+
+/// APK release para una sola ABI (`arm64-v8a` / `armeabi-v7a`).
+pub fn build_apk_arch(ctx: &ProjectContext, abi: &str, label: &str) -> Result<PathBuf> {
+    println!("\n[INFO] Compilando Android APK {abi} (Release)...\n");
+    ensure_gradle(ctx)?;
+
+    let init = write_abi_init_script(Some(abi))?;
+    let built = assemble_release(ctx, Some(&init));
+    let _ = std::fs::remove_file(&init);
+    if !built? {
+        anyhow::bail!("[ERROR] Gradle fallo en `assembleRelease` ({abi}).");
+    }
+
+    let dir = apk_output_dir(ctx);
+    let src = dir.join("app-release.apk");
+    let src = if src.exists() {
+        src
+    } else {
+        cmd::newest_artifact(&dir, &["apk"])
+            .ok_or_else(|| anyhow::anyhow!("[ERROR] No se encontro la APK en {}", dir.display()))?
+    };
+    take_apk(&src, &apk_base(ctx, Some(label)))
+}
+
+/// APK universal: una sola pasada sin splits; se instala si hay teléfono.
+pub fn build_apk_universal(ctx: &ProjectContext) -> Result<PathBuf> {
+    println!("\n[INFO] Compilando Android APK universal (Release)...\n");
+    ensure_gradle(ctx)?;
+
+    if !assemble_release(ctx, None)? {
+        anyhow::bail!("[ERROR] Gradle fallo en `assembleRelease`.");
+    }
+
+    let dir = apk_output_dir(ctx);
+    let src = dir.join("app-release.apk");
+    let src = if src.exists() {
+        src
+    } else {
+        cmd::newest_artifact(&dir, &["apk"])
+            .ok_or_else(|| anyhow::anyhow!("[ERROR] No se encontro la APK en {}", dir.display()))?
+    };
+    let apk = take_apk(&src, &apk_base(ctx, None))?;
+    install_release_apk(ctx, &apk)?;
+    Ok(apk)
+}
+
+/// Tres APK en una sola pasada de Gradle (splits arm64-v8a + armeabi-v7a y
+/// universal). Sólo tiene sentido con librerías nativas; el llamador lo
+/// decide con [`has_native_libs`].
+pub fn build_apks_all(ctx: &ProjectContext) -> Result<Vec<PathBuf>> {
+    println!("\n[INFO] Compilando Android APK arm64 + armv7 + universal (Release)...\n");
+    ensure_gradle(ctx)?;
+
+    let init = write_abi_init_script(None)?;
+    let built = assemble_release(ctx, Some(&init));
+    let _ = std::fs::remove_file(&init);
+    if !built? {
+        anyhow::bail!("[ERROR] Gradle fallo en `assembleRelease` (splits).");
+    }
+
+    let dir = apk_output_dir(ctx);
+    let mut artifacts = Vec::new();
+    for (fragment, label) in [("arm64-v8a", "arm64"), ("armeabi-v7a", "armv7")] {
+        let src = newest_matching(&dir, fragment).ok_or_else(|| {
+            anyhow::anyhow!(
+                "[ERROR] Gradle no dejo la APK {fragment} en {}",
+                dir.display()
+            )
+        })?;
+        artifacts.push(take_apk(&src, &apk_base(ctx, Some(label)))?);
+    }
+    let universal = newest_matching(&dir, "universal").ok_or_else(|| {
+        anyhow::anyhow!(
+            "[ERROR] Gradle no dejo la APK universal en {}",
+            dir.display()
+        )
+    })?;
+    let universal = take_apk(&universal, &apk_base(ctx, None))?;
+    install_release_apk(ctx, &universal)?;
+    artifacts.push(universal);
+
+    Ok(artifacts)
+}
+
+pub fn build_apk(ctx: &ProjectContext) -> Result<()> {
+    let apk = build_apk_universal(ctx)?;
+    cmd::show_artifact(&apk);
     ui::pause();
     Ok(())
 }
@@ -400,6 +588,9 @@ pub fn build_aab(ctx: &ProjectContext) -> Result<()> {
     )?;
 
     if outcome.success {
+        if let Some(aab) = &outcome.artifact {
+            println!("[INFO] Bundle: {}", aab.display());
+        }
         // Un AAB no se puede instalar con `adb install`: es un bundle de
         // Play Store. Para instalar en el telefono hay que usar el APK
         // (tarjeta de APK release) o `bundletool`.
@@ -541,4 +732,65 @@ fn pause() {
     io::stdout().flush().ok();
     let mut _input = String::new();
     io::stdin().read_line(&mut _input).ok();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_dir(name: &str) -> PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("compass-kotlin-{name}-{unique}"));
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    }
+
+    #[test]
+    fn abi_init_script_targets_agp_before_it_reads_the_dsl() {
+        let single = write_abi_init_script(Some("arm64-v8a")).unwrap();
+        let content = std::fs::read_to_string(&single).unwrap();
+        std::fs::remove_file(&single).ok();
+
+        assert!(content.contains("gradle.beforeProject"));
+        assert!(content.contains("p.afterEvaluate"));
+        assert!(!content.contains("projectsEvaluated"));
+        assert!(content.contains("android.splits.abi.enable = false"));
+        assert!(content.contains("abiFilters.clear()"));
+        assert!(content.contains("abiFilters.add('arm64-v8a')"));
+    }
+
+    #[test]
+    fn abi_init_script_builds_universal_and_splits() {
+        let all = write_abi_init_script(None).unwrap();
+        let content = std::fs::read_to_string(&all).unwrap();
+        std::fs::remove_file(&all).ok();
+
+        assert!(content.contains("gradle.beforeProject"));
+        assert!(content.contains("p.afterEvaluate"));
+        assert!(content.contains("android.splits.abi.enable = true"));
+        assert!(content.contains("android.splits.abi.include 'arm64-v8a', 'armeabi-v7a'"));
+        assert!(content.contains("android.splits.abi.universalApk = true"));
+    }
+
+    #[test]
+    fn native_libs_are_detected_only_under_jnilibs() {
+        let root = temp_dir("native-libs");
+        assert!(!has_native_libs(&root));
+
+        // Un `.so` fuera de `jniLibs` no empaqueta nada en el APK.
+        std::fs::create_dir_all(root.join("libs")).unwrap();
+        std::fs::write(root.join("libs").join("libdemo.so"), b"elf").unwrap();
+        assert!(!has_native_libs(&root));
+
+        let jni = root.join("src").join("main").join("jniLibs").join("arm64-v8a");
+        std::fs::create_dir_all(&jni).unwrap();
+        std::fs::write(jni.join("libdemo.so"), b"elf").unwrap();
+        assert!(has_native_libs(&root));
+
+        std::fs::remove_dir_all(&root).ok();
+    }
 }

@@ -34,7 +34,7 @@ const MIN_SDK: u32 = 21;
 
 /// ABI de Android que Compass compila con la NDK.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Abi {
+pub(crate) struct Abi {
     /// Carpeta `jniLibs` que recibe `libwails.so`.
     jni_dir: &'static str,
     /// `GOARCH` de Go.
@@ -47,7 +47,7 @@ struct Abi {
     artifact: &'static str,
 }
 
-const ABI_ARM64: Abi = Abi {
+pub(crate) const ABI_ARM64: Abi = Abi {
     jni_dir: "arm64-v8a",
     goarch: "arm64",
     goarm: None,
@@ -55,7 +55,7 @@ const ABI_ARM64: Abi = Abi {
     artifact: "arm64",
 };
 
-const ABI_ARMV7: Abi = Abi {
+pub(crate) const ABI_ARMV7: Abi = Abi {
     jni_dir: "armeabi-v7a",
     goarch: "arm",
     goarm: Some("7"),
@@ -433,6 +433,24 @@ pub fn dev(ctx: &ProjectContext) -> Result<()> {
     Ok(())
 }
 
+/// Arquitectura de escritorio que compila Wails.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DesktopArch {
+    X86,
+    X64,
+    Arm64,
+}
+
+impl DesktopArch {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::X86 => "x86",
+            Self::X64 => "x64",
+            Self::Arm64 => "ARM64",
+        }
+    }
+}
+
 /// Compila el escritorio para **x86, x64 y ARM64** y deja los paquetes en `bin/`.
 ///
 /// | Arquitectura | Comando | Artefactos |
@@ -449,62 +467,14 @@ pub fn dev(ctx: &ProjectContext) -> Result<()> {
 /// con otro `ARCH` empaquetaría el binario equivocado. Por eso x86 se entrega
 /// como portable; x64 y ARM64 llevan portable **e** instalador.
 pub fn build_desktop(ctx: &ProjectContext) -> Result<()> {
-    ensure_wails_cli()?;
-
-    let (name, version) = release_meta(ctx);
-    let bin = bin_dir(ctx);
-    std::fs::create_dir_all(&bin).ok();
-
     println!("\n[INFO] Compilando escritorio para x86, x64 y ARM64...\n");
-    println!("[INFO] x86: binario portable (`wails3 task build ARCH=386`).");
-    println!("[INFO] x64 y ARM64: portable + instalador NSIS (`wails3 task package`).");
-    println!(
-        "[INFO] El instalador usa NSIS (`makensis`); para MSIX: wails3 task package FORMAT=msix"
-    );
-    println!();
-
     let mut artifacts: Vec<PathBuf> = Vec::new();
-
-    // ── 1. x86: sólo portable (NSIS no soporta 386) ──
-    println!("[1/3] Windows x86...");
-    if !cmd::run_shell_status("wails3 task build ARCH=386", &ctx.script_dir, &[])? {
-        anyhow::bail!("[ERROR] Fallo el build x86 (`wails3 task build ARCH=386`).");
-    }
-    let portable = bin.join(format!("{}.exe", app_name(ctx)));
-    artifacts.push(copy_artifact(
-        &portable,
-        &bin.join(desktop_artifact(&name, &version, "x86", "exe")),
-    ));
-
-    // ── 2 y 3. x64 / ARM64: package compila el portable y el instalador ──
-    for (step, arch, label) in [("2/3", "amd64", "x64"), ("3/3", "arm64", "ARM64")] {
-        println!("[{step}] Windows {label}...");
-        if !cmd::run_shell_status(
-            &format!("wails3 task package ARCH={arch}"),
-            &ctx.script_dir,
-            &[],
-        )? {
-            anyhow::bail!("[ERROR] Fallo el paquete {label} (`wails3 task package ARCH={arch}`).");
-        }
-
-        let portable = bin.join(format!("{}.exe", app_name(ctx)));
-        // x64 conserva el nombre clásico `<App> v<ver>.exe`; el resto lleva sufijo.
-        let portable_suffix = if arch == "amd64" { "" } else { label };
-        artifacts.push(copy_artifact(
-            &portable,
-            &bin.join(desktop_artifact(&name, &version, portable_suffix, "exe")),
-        ));
-
-        let installer = bin.join(format!("{}-{arch}-installer.exe", app_name(ctx)));
-        artifacts.push(copy_artifact(
-            &installer,
-            &bin.join(desktop_artifact(
-                &name,
-                &version,
-                &format!("{label} installer"),
-                "exe",
-            )),
-        ));
+    for (step, arch) in [DesktopArch::X86, DesktopArch::X64, DesktopArch::Arm64]
+        .into_iter()
+        .enumerate()
+    {
+        println!("[{}/3] Windows {}...", step + 1, arch.label());
+        artifacts.extend(build_desktop_arch(ctx, arch)?);
     }
 
     println!();
@@ -512,9 +482,69 @@ pub fn build_desktop(ctx: &ProjectContext) -> Result<()> {
     for artifact in &artifacts {
         println!("  - {}", artifact.display());
     }
-    cmd::open_folder(&bin);
+    cmd::open_folder(&bin_dir(ctx));
     ui::pause_for(10);
     Ok(())
+}
+
+/// Compila/empaqueta **una** arquitectura de escritorio y copia sus artefactos
+/// a `bin/`. El `package` recompila el portable sobre la misma ruta
+/// `bin/<APP_NAME>.exe`, así que la copia se hace tras **cada** paso.
+pub fn build_desktop_arch(ctx: &ProjectContext, arch: DesktopArch) -> Result<Vec<PathBuf>> {
+    ensure_wails_cli()?;
+
+    let (name, version) = release_meta(ctx);
+    let bin = bin_dir(ctx);
+    std::fs::create_dir_all(&bin).ok();
+
+    let portable = bin.join(format!("{}.exe", app_name(ctx)));
+    match arch {
+        DesktopArch::X86 => {
+            println!("[INFO] Windows x86: binario portable (`wails3 task build ARCH=386`).");
+            if !cmd::run_shell_status("wails3 task build ARCH=386", &ctx.script_dir, &[])? {
+                anyhow::bail!("[ERROR] Fallo el build x86 (`wails3 task build ARCH=386`).");
+            }
+            Ok(vec![copy_artifact(
+                &portable,
+                &bin.join(desktop_artifact(&name, &version, "x86", "exe")),
+            )])
+        }
+        DesktopArch::X64 | DesktopArch::Arm64 => {
+            let (arg, suffix) = match arch {
+                DesktopArch::X64 => ("amd64", ""),
+                _ => ("arm64", "arm64"),
+            };
+            let label = arch.label();
+            println!(
+                "[INFO] Windows {label}: portable + instalador NSIS (`wails3 task package ARCH={arg}`)."
+            );
+            if !cmd::run_shell_status(
+                &format!("wails3 task package ARCH={arg}"),
+                &ctx.script_dir,
+                &[],
+            )? {
+                anyhow::bail!(
+                    "[ERROR] Fallo el paquete {label} (`wails3 task package ARCH={arg}`)."
+                );
+            }
+
+            let mut artifacts = vec![copy_artifact(
+                &portable,
+                &bin.join(desktop_artifact(&name, &version, suffix, "exe")),
+            )];
+            let installer = bin.join(format!("{}-{arg}-installer.exe", app_name(ctx)));
+            artifacts.push(copy_artifact(
+                &installer,
+                &bin.join(desktop_artifact(
+                    &name,
+                    &version,
+                    &format!("{label} installer"),
+                    "exe",
+                )),
+            ));
+            Ok(artifacts)
+        }
+    }
 }
 
 /// Alias de [`build_desktop`].
@@ -807,7 +837,7 @@ fn write_init_script(version: Option<&str>, abis: &[Abi], splits: bool) -> Resul
 ///
 /// Gradle las separa con ABI splits (un `apk` por ABI + el universal), así que
 /// una sola pasada produce los tres entregables. Devuelve sus rutas en `bin/`.
-fn build_release_apks(ctx: &ProjectContext) -> Result<Vec<PathBuf>> {
+pub(crate) fn build_release_apks(ctx: &ProjectContext) -> Result<Vec<PathBuf>> {
     let signing = prepare_android(ctx, true, &RELEASE_ABIS)?;
     let android = android_dir(ctx);
     let (name, version) = release_meta(ctx);
@@ -865,6 +895,99 @@ fn build_release_apks(ctx: &ProjectContext) -> Result<Vec<PathBuf>> {
     let _ = std::fs::copy(&universal, bin.join(format!("{}.apk", app_name(ctx))));
 
     Ok(artifacts)
+}
+
+/// APK release de **una** ABI (sin splits) para el submenú de arquitecturas.
+pub(crate) fn build_apk_arch(ctx: &ProjectContext, abi: Abi) -> Result<PathBuf> {
+    let abis = [abi];
+    let signing = prepare_android(ctx, true, &abis)?;
+    let android = android_dir(ctx);
+    let (name, version) = release_meta(ctx);
+
+    println!("[5/5] Ensamblando la APK {} con Gradle...", abi.artifact);
+    let init = write_init_script(
+        (!version.is_empty()).then_some(version.as_str()),
+        &abis,
+        false,
+    )?;
+    let args = format!(
+        "--init-script {} assembleRelease",
+        cmd::ps_quote(&init.display().to_string())
+    );
+    let built = gradle(&android, &args, signing.as_deref().unwrap_or(&[]));
+    let _ = std::fs::remove_file(&init);
+    if !built? {
+        anyhow::bail!("[ERROR] Gradle fallo en `assembleRelease`.");
+    }
+
+    let out = android
+        .join("app")
+        .join("build")
+        .join("outputs")
+        .join("apk")
+        .join("release");
+    let apk = newest_matching(&out, "apk", "app-release")
+        .or_else(|| newest_in(&out, "apk"))
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "[ERROR] Gradle termino bien pero no se encontro la APK en: {}",
+                out.display()
+            )
+        })?;
+
+    let bin = bin_dir(ctx);
+    std::fs::create_dir_all(&bin).ok();
+    Ok(copy_artifact(
+        &apk,
+        &bin.join(versioned_artifact(&name, &version, abi.artifact, "apk")),
+    ))
+}
+
+/// APK release **universal** (arm64 + armv7 en un solo fichero, sin splits).
+pub(crate) fn build_apk_universal(ctx: &ProjectContext) -> Result<PathBuf> {
+    let signing = prepare_android(ctx, true, &RELEASE_ABIS)?;
+    let android = android_dir(ctx);
+    let (name, version) = release_meta(ctx);
+
+    println!("[5/5] Ensamblando la APK universal con Gradle...");
+    let init = write_init_script(
+        (!version.is_empty()).then_some(version.as_str()),
+        &RELEASE_ABIS,
+        false,
+    )?;
+    let args = format!(
+        "--init-script {} assembleRelease",
+        cmd::ps_quote(&init.display().to_string())
+    );
+    let built = gradle(&android, &args, signing.as_deref().unwrap_or(&[]));
+    let _ = std::fs::remove_file(&init);
+    if !built? {
+        anyhow::bail!("[ERROR] Gradle fallo en `assembleRelease`.");
+    }
+
+    let out = android
+        .join("app")
+        .join("build")
+        .join("outputs")
+        .join("apk")
+        .join("release");
+    let apk = newest_matching(&out, "apk", "app-release")
+        .or_else(|| newest_in(&out, "apk"))
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "[ERROR] Gradle termino bien pero no se encontro la APK en: {}",
+                out.display()
+            )
+        })?;
+
+    let bin = bin_dir(ctx);
+    std::fs::create_dir_all(&bin).ok();
+    let dest = copy_artifact(
+        &apk,
+        &bin.join(versioned_artifact(&name, &version, "universal", "apk")),
+    );
+    let _ = std::fs::copy(&apk, bin.join(format!("{}.apk", app_name(ctx))));
+    Ok(dest)
 }
 
 /// APK de **debug** (arm64) para instalar en el teléfono.
@@ -1066,54 +1189,7 @@ pub fn build_apk(ctx: &ProjectContext) -> Result<()> {
 /// APK **release sólo armv7** (para equipos antiguos de 32 bits).
 pub fn build_apk_armv7(ctx: &ProjectContext) -> Result<()> {
     println!("\n[INFO] Compilando Android APK armv7 (Release) con Wails...\n");
-    let result = (|| -> Result<PathBuf> {
-        let abis = [ABI_ARMV7];
-        let signing = prepare_android(ctx, true, &abis)?;
-        let android = android_dir(ctx);
-        let (name, version) = release_meta(ctx);
-
-        println!("[5/5] Ensamblando la APK armv7 con Gradle...");
-        let init = write_init_script(
-            (!version.is_empty()).then_some(version.as_str()),
-            &abis,
-            false,
-        )?;
-        let args = format!(
-            "--init-script {} assembleRelease",
-            cmd::ps_quote(&init.display().to_string())
-        );
-        let built = gradle(&android, &args, signing.as_deref().unwrap_or(&[]));
-        let _ = std::fs::remove_file(&init);
-        if !built? {
-            anyhow::bail!("[ERROR] Gradle fallo en `assembleRelease`.");
-        }
-
-        let out = android
-            .join("app")
-            .join("build")
-            .join("outputs")
-            .join("apk")
-            .join("release");
-        let apk = newest_in(&out, "apk").ok_or_else(|| {
-            anyhow::anyhow!(
-                "[ERROR] Gradle termino bien pero no se encontro la APK en: {}",
-                out.display()
-            )
-        })?;
-
-        let bin = bin_dir(ctx);
-        std::fs::create_dir_all(&bin).ok();
-        Ok(copy_artifact(
-            &apk,
-            &bin.join(versioned_artifact(
-                &name,
-                &version,
-                ABI_ARMV7.artifact,
-                "apk",
-            )),
-        ))
-    })();
-    match result {
+    match build_apk_arch(ctx, ABI_ARMV7) {
         Ok(_) => {
             ui::pause_for(10);
             Ok(())
@@ -1223,7 +1299,7 @@ pub fn build_aab(ctx: &ProjectContext) -> Result<()> {
 /// **Se instala solo si hay un dispositivo Android conectado**: si no lo hay,
 /// el paso se omite (la APK ya está compilada, que es lo que importa) y no se
 /// pregunta nada.
-fn install_apk(ctx: &ProjectContext, apk: &Path) -> Result<()> {
+pub(crate) fn install_apk(ctx: &ProjectContext, apk: &Path) -> Result<()> {
     let package = application_id(ctx);
     let activity = main_activity(ctx);
     android_utils::install_apk_if_device(ctx, apk, &package, &activity)?;

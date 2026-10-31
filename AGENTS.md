@@ -353,17 +353,18 @@ utils/
   └─ android.rs — select_device(), wait_for_device_boot(), list_physical_devices() [sólo dispositivos físicos]
 
 tasks/
-  ├─ windows.rs — dev(), build()                         [Tauri only]
-  ├─ android.rs — dev(), build_arm64(), build_all(), debug(), ensure_package_consistent() [verifica identifier vs directorio paquete Android]
-  ├─ flutter.rs — run_windows(), run_android(), profile_windows(), profile_android(), build_*(), clean()
-  ├─ kotlin.rs  — run_windows() [con hot reload], run_android(), install_debug() (`:<modulo>:installDebug` + lanza con `am start`), build_*(), clean(); deteccion de modulo Gradle `:app`/`:composeApp` via `gradle_module()`; release_signing_env() [exporta RELEASE_* vars, parseando con `signer::Props`]
-  ├─ gowails.rs — dev(), build_desktop(), package_desktop(), build_apk(), build_aab(), install_debug(), debug_android(), clean()  [Go + Wails v3: pipeline Android propio, ver "Go + Wails v3"]
-  ├─ go.rs      — run(), build(), test(), clean()         [Go puro]
-  ├─ rust.rs    — run(), build(), clean()                [Rust only]
+  ├─ windows.rs — dev(), build(), build_arch()           [Tauri only; build_arch = target por arquitectura + NSIS]
+  ├─ android.rs — dev(), build_arch(), build_universal(), build_aab(), debug(), ensure_package_consistent() [verifica identifier vs directorio paquete Android]; build_arm64()/build_armv7()/build_all() quedan como alias CLI
+  ├─ flutter.rs — run_windows(), run_android(), profile_windows(), profile_android(), build_apk_arch(), build_apk_universal(), build_apks_all(), build_*(), clean()
+  ├─ kotlin.rs  — run_windows() [con hot reload], run_android(), install_debug() (`:<modulo>:installDebug` + lanza con `am start`), build_apk_arch(), build_apk_universal(), build_apks_all() [ABI splits por init script], build_aab(), has_native_libs(), clean(); deteccion de modulo Gradle `:app`/`:composeApp` via `gradle_module()`; release_signing_env() [exporta RELEASE_* vars, parseando con `signer::Props`]
+  ├─ gowails.rs — dev(), build_desktop() [lote x86/x64/ARM64], build_desktop_arch(), package_desktop(), build_apk_arch(), build_apk_universal(), build_release_apks(), build_aab(), install_debug(), debug_android(), clean()  [Go + Wails v3: pipeline Android propio, ver "Go + Wails v3"]
+  ├─ go.rs      — run(), build(), build_arch() [GOARCH + CGO_ENABLED=0, icono sólo amd64], test(), clean()  [Go puro]
+  ├─ rust.rs    — run(), build(), build_arch() [target triple], clean()  [Rust only]
+  ├─ release.rs — manage_windows()/manage_android() [submenús TUI de release por arquitectura: cards x86/x64/ARM64 y arm64/armv7/universal + Todos, con `tasks/submenu.rs`; ver "Release por arquitectura"]
   ├─ cleanup.rs — manage() [submenú unificado: rápida / completa / reporte de tamaños], quick_targets()/full_targets(), clean_project() [Tauri: portabilidad]
   ├─ git.rs     — manage() [submenú unificado: init / .gitignore / conectar con remoto / estado, con `tasks/submenu.rs`]; templates de .gitignore por tipo
   ├─ signer.rs  — dominio único de firmas: manage() [submenú con `tasks/submenu.rs`], android_layout(), detect()/SigningInfo [autodetección], Props (parseo de properties), crear/importar/manual, patch_build_gradle(), huellas (keytool), respaldos, base64 + secretos de GitHub Actions, verify_apk() [apksigner]
-  ├─ submenu.rs — TUI compartida de los submenús (Firmas, Git): reutiliza la cabecera, la fila de sección, la rejilla adaptativa de cards de 3 líneas, el halo de hover y el pie del menú principal; `Submenu<T>` devuelve `SubmenuAction::{Run(T), Back, Continue}`
+  ├─ submenu.rs — TUI compartida de los submenús (Firmas, Git, Entorno, Release): reutiliza la cabecera, la fila de sección, la rejilla adaptativa de cards de 3 líneas, el halo de hover y el pie del menú principal; `Submenu<T>` devuelve `SubmenuAction::{Run(T), Back, Continue}` y `with_android_warning(false)` omite la fila de aviso del SDK
   ├─ terminal.rs — configure() [perfil PSReadLine según la versión instalada]
   ├─ context_menu.rs — install/uninstall/toggle para Compass + Vibe Coding (menú cascada con ExtendedSubCommandsKey: OpenCode, Kilo Code, Cline, Antigravity, Copilot CLI, Kiro CLI, Qoder CLI, Hermes)
   ├─ environment.rs — manage() [submenú: backup completo / inventario / restaurar / validar / abrir respaldos]; scripts `Backup-Variables.ps1` y `Restore-Variables.ps1` embebidos con `include_str!` y materializados en `<data_dir>/compass/env-backup`
@@ -380,9 +381,10 @@ tasks/
 | WindowsDev | `windows::dev` | `flutter::run_windows` | `kotlin::run_windows` | `gowails::dev` (`wails3 task dev`) | `rust::run` |
 | AndroidDev | `android::dev` | `flutter::run_android` | `kotlin::run_android` | `gowails::install_debug` | oculto |
 | FlutterProfile | oculto | `flutter::profile_windows` / `flutter::profile_android` (pregunta) | oculto | oculto | oculto |
-| WindowsBuild | `windows::build` | `flutter::build_windows` | `kotlin::build_windows` | `gowails::build_desktop` | `rust::build` |
-| AndroidBuildArm64 | `android::build_arm64` | `flutter::build_apk` | `kotlin::build_apk` (assembleRelease) | `gowails::build_apk` | oculto |
-| AndroidBuildAll | `android::build_all` | `flutter::build_aab` | `kotlin::build_aab` (bundleRelease) | `gowails::build_aab` | oculto |
+| WindowsBuild | `release::manage_windows` (submenú x86/x64/ARM64) | `flutter::build_windows` | `kotlin::build_windows` | `release::manage_windows` (submenú) | `release::manage_windows` (submenú) |
+| AndroidBuildArm64 | `release::manage_android` (submenú arm64/armv7/universal) | `release::manage_android` | `release::manage_android` (una card si no hay `jniLibs`) | `release::manage_android` | oculto |
+| AndroidBuildAll | `android::build_aab` | `flutter::build_aab` | `kotlin::build_aab` (bundleRelease) | `gowails::build_aab` | oculto |
+| AndroidBuildArmv7 | oculto | oculto | oculto | oculto | oculto |
 | InstallDebug | oculto | oculto | `kotlin::install_debug` (`:<modulo>:installDebug` + lanza) | `gowails::install_debug` | oculto |
 | Clean | `cleanup::manage` | `cleanup::manage` | `cleanup::manage` | `cleanup::manage` → `gowails::clean` | `cleanup::manage` |
 | DebugAndroid | `android::debug` | mensaje info | mensaje info | `gowails::debug_android` (logcat por PID) | oculto |
@@ -393,6 +395,13 @@ tasks/
 | ConfigureTerminal | `terminal::configure` | `terminal::configure` | `terminal::configure` | `terminal::configure` | `terminal::configure` |
 | Environment | `environment::manage` | `environment::manage` | `environment::manage` | `environment::manage` | `environment::manage` |
 | Salir | `Esc` → `process::exit(0)` | ídem | ídem | ídem | ídem |
+
+Las cards **Win Release** (Tauri/Rust/Go/Go+Wails) y **APK Release** abren los
+submenús de `release.rs`; en Flutter/Kotlin/Python la card de Windows sigue
+compilando sólo el host (`windows-build`). La variante **AndroidBuildArmv7**
+queda oculta en **todos** los tipos (las arquitecturas viven ya en el submenú),
+pero se conserva para no reindexar `theme::card_hexes`; la tarea CLI
+`--task android-armv7` sigue existiendo como alias.
 
 ### Go puro
 
@@ -457,6 +466,12 @@ módulo recalcula estas rutas (antes estaban copiadas en cuatro sitios).
 | Entrada | Comando | Clave Registro |
 |---------|---------|----------------|
 | **Compass** | `"<pwsh>" -NoLogo -NoProfile -Command "& '<exe>' -p '%1'"` | `HKCR\Directory\shell\zz_Compass` |
+| **Compass: Add .gitignore** | `"<pwsh>" -NoLogo -NoProfile -NoExit -Command "& '<exe>' --task context-gitignore --path '%1'"` | `HKCR\Directory\shell\zz_CompassGitignore` |
+
+`zz_Compass` es prefijo de `zz_CompassGitignore`, así que la acción `.gitignore`
+aparece inmediatamente después de **Compass** y antes de **Vibe Coding** en el
+menú (Windows ordena las claves alfabéticamente). La clave anterior
+(`zz_VibeGitignore`) se borra en cada instalación para no dejar dos acciones.
 
 La TUI también se aloja en PowerShell: Windows atribuye la consola al perfil de
 `pwsh` (icono de PowerShell 7 en Windows Terminal) en vez del icono genérico de
@@ -470,7 +485,7 @@ simples por la misma razón que en Vibe Coding.
 Sin esos recursos Explorer y Windows Terminal enseñan el icono genérico de
 consola (idéntico al de cmd) y el perfil de la pestaña queda sin nombre.
 
-### Vibe Coding (menú cascada: 8 agentes)
+### Vibe Coding (menú cascada: 9 agentes)
 
 Usa el método **`ExtendedSubCommandsKey`** (el oficial de Windows para menús cascada, mismo que usa Command Prompt y PowerShell).
 
@@ -488,8 +503,9 @@ HKCU\Software\Classes\Directory\ContextMenus\VibeCoding\shell
   04Antigravity  → command
   05Copilot      → command
   06KiroCli      → command
-  07QoderCli     → command
-  08Hermes       → command
+  07Freebuff     → command
+  08QoderCli     → command
+  09Hermes       → command
 ```
 
 ⚠️ Las sub-entradas **no** cuelgan de `zz_VibeCoding\shell`: cuelgan de `Directory\ContextMenus\VibeCoding\shell` (ruta compartida con `Directory\Background`), y `zz_VibeCoding` sólo lleva el puntero `ExtendedSubCommandsKey`. Buscar en el sitio equivocado es lo que hacía que `install.bat` reinstallara el menú en cada ejecución.
@@ -502,8 +518,9 @@ HKCU\Software\Classes\Directory\ContextMenus\VibeCoding\shell
 | 04 | **Antigravity** | `… & agy --dangerously-skip-permissions` | Abre Antigravity omitiendo todos los prompts de permisos |
 | 05 | **Copilot CLI** | `… & copilot --yolo` | Abre GitHub Copilot CLI con todos los permisos (`--yolo` = `--allow-all-tools --allow-all-paths --allow-all-urls`) |
 | 06 | **Kiro CLI** | `… & kiro-cli chat --trust-all-tools` | Abre Kiro CLI con confianza total de sesión (YOLO mode). El binario es **`kiro-cli`**, no `kiro` |
-| 07 | **Qoder CLI** | `… & qodercli --yolo` | Abre Qoder CLI en YOLO mode (`--yolo` = `--permission-mode bypass_permissions`). El binario real es **`qodercli`**; `qoder` es el dispatcher que instala el script |
-| 08 | **Hermes** | `… & hermes` | Abre Hermes (Nous Research), sin flags: su TUI arranca a pelo |
+| 07 | **Freebuff** | `… & freebuff` | Abre Freebuff (Codebuff), sin flags: su TUI arranca a pelo en el directorio del proyecto |
+| 08 | **Qoder CLI** | `… & qodercli --yolo` | Abre Qoder CLI en YOLO mode (`--yolo` = `--permission-mode bypass_permissions`). El binario real es **`qodercli`**; `qoder` es el dispatcher que instala el script |
+| 09 | **Hermes** | `… & hermes` | Abre Hermes (Nous Research), sin flags: su TUI arranca a pelo |
 
 `<pwsh>` es `cmd::shell_path()` (ruta completa, porque Explorer no hereda el
 PATH de la terminal). El valor se construye en `vibe_context_command()`:
@@ -529,7 +546,7 @@ La acción `.gitignore` usa la misma forma, con `-NoExit` en vez de `cmd /k`:
 
 ### Instalación de las herramientas (`vibe-setup`)
 
-`ensure_tools_installed()` detecta cuáles de las 8 faltan. **Sólo pregunta por las que tienen instalador**: Kiro CLI se avisa pero no se pregunta, porque va con `.exe`. El comando de instalación vive en `VibeTool::install`, verificado en la documentación oficial de cada producto:
+`ensure_tools_installed()` detecta cuáles de las 9 faltan. **Sólo pregunta por las que tienen instalador**: Kiro CLI se avisa pero no se pregunta, porque va con `.exe`. El comando de instalación vive en `VibeTool::install`, verificado en la documentación oficial de cada producto:
 
 | Herramienta | `install` | `install_via` |
 |---|---|---|
@@ -538,6 +555,7 @@ La acción `.gitignore` usa la misma forma, con `-NoExit` en vez de `cmd /k`:
 | Cline | `npm install -g cline` | `Cmd` |
 | Antigravity | `irm https://antigravity.google/cli/install.ps1 \| iex` | `PowerShell` |
 | Kiro CLI | *(ninguno: `.exe`)* | — |
+| Freebuff | `npm install -g freebuff` | `Cmd` |
 | Qoder CLI | `irm https://qoder.com/install.ps1 \| iex` | `PowerShell` |
 | Hermes | `iex (irm https://hermes-agent.nousresearch.com/install.ps1)` | `PowerShell` |
 | Copilot CLI | `winget install --id GitHub.Copilot --exact --accept-source-agreements --accept-package-agreements` | `Cmd` |
@@ -753,7 +771,8 @@ se veía bien porque solo era el display; el parseo de Explorer era lo fallido.
 | Task | folder | exts |
 |------|--------|------|
 | `windows::build` (Tauri) | `src-tauri/target/release/bundle` | `desktop_artifact_exts()` |
-| `android::{build_arm64,build_armv7,build_all}` | `src-tauri/gen/android/app/build/outputs/apk` | apk |
+| `android::{build_arm64,build_armv7,build_universal}` | `src-tauri/gen/android/app/build/outputs/apk` | apk |
+| `android::build_aab` | `src-tauri/gen/android/app/build/outputs/bundle/release` | aab |
 | `flutter::build_windows` | `build` | `desktop_artifact_exts()` |
 | `flutter::build_apk` | `build/app/outputs/flutter-apk` | apk |
 | `flutter::build_aab` | `build/app/outputs/bundle/release` | aab |
@@ -776,6 +795,93 @@ El sanitizado reemplaza espacios y caracteres especiales por `_`. Los builds de 
 **Importante**: la llamada a Explorer es `explorer.exe ("/select,`"" + $f.FullName + "`"")` — el path debe ir
 **entre comillas dobles embebidas** (`/select,"ruta con espacios"`). `explorer.exe /select,<path>` sin esas comillas
 falla el parser de Explorer cuando la ruta tiene espacios y abre **Documentos** en su lugar.
+
+### Release por arquitectura (`tasks/release.rs`)
+
+La card **Win Release** y la card **APK Release** no compilan directamente: abren
+un **submenú TUI** con `tasks/submenu.rs` (mismo header, fila de sección, rejilla
+adaptativa de cards de 3 líneas, halo de hover, scroll y pie que el menú padre).
+Título de sección `RELEASE · WINDOWS` / `RELEASE · ANDROID`, acento `DEV` y
+`warn_android = false` en el de Windows.
+
+| Submenú | Cards (en orden) |
+|---------|------------------|
+| `manage_windows` | 🖥 Windows x86 (`32 bits · PCs y VMs antiguas`) · 🖥 Windows x64 (`64 bits · uso general`) · 🖥 Windows ARM64 (`Snapdragon X · bajo consumo`) · ✅ Todos · ↩ Volver |
+| `manage_android` | 📱 Android arm64 (`arm64-v8a · moviles modernos`) · 📱 Android armv7 (`armeabi-v7a · equipos antiguos`) · 📦 Android universal (`Una APK con todas las ABIs`) · ✅ Todos · ↩ Volver |
+
+- **Kotlin sin `jniLibs`** (sin `.so` bajo `<modulo>/src/main/jniLibs`): las tres
+  APK serían idénticas, así que el submenú muestra **una sola** card universal
+  (`Sin libs nativas · sirve para todas las ABIs`) + Volver.
+- **Todos** compila en serie y **corta en el primer fallo**; revela y pausa una
+  sola vez al final (Go+Wails abre `bin/`, el resto resalta el último artefacto).
+- Los builds individuales devuelven `Result<Vec<PathBuf>>` (o `Result<PathBuf>`)
+  y **no** revelan ni pausan; eso lo hace `finish()` una vez por ejecución.
+- Un fallo de build se imprime, `ui::pause()` y **se vuelve al submenú** (no se
+  cierra). `Esc`/`q` vuelve al menú principal. El loop es el canónico de
+  `signer::manage`: `restore_terminal` → ejecutar → `setup_terminal` →
+  `set_console_title`.
+
+**Soporte:**
+
+| Tipo | Windows | Android |
+|------|---------|---------|
+| Tauri | x86/x64/ARM64 (`build --target <triple> --bundles nsis`) | arm64/armv7/universal (`android build --target … --apk`) |
+| Rust | x86/x64/ARM64 (`cargo build --release --target`) | — |
+| Go puro | x86/x64/ARM64 (`GOOS=windows` + `GOARCH`) | — |
+| Go + Wails | x86/x64/ARM64 (`wails3 task build/package ARCH=…`) | arm64/armv7/universal (`build_release_apks`) |
+| Flutter | — (sólo host, `windows-build`) | arm64/armv7/universal |
+| Kotlin | — (sólo host, `windows-build`) | universal, o las tres si hay `jniLibs` |
+| Python | — (`windows-build`) | — |
+
+**Nombres de artefacto:**
+
+| Salida | Nombre |
+|---|---|
+| Tauri/Rust Windows x64 | `<name> v<ver>.exe` |
+| Tauri/Rust Windows x86/ARM64 | `<name> v<ver> x86.exe` / `<name> v<ver> arm64.exe` |
+| Go | `bin/<exe>-x86.exe` / `-x64.exe` / `-arm64.exe` |
+| GoWails | `<Product> v<ver>.exe`, `... x86.exe`, `... arm64.exe`, `... [x64\|arm64] installer.exe` |
+| Tauri Android | `<Name>-v<ver>.apk`, `...-arm64.apk`, `...-armv7.apk` |
+| Flutter Android | `bin/<name>-v<ver>.apk`, `...-arm64.apk`, `...-armv7.apk` |
+| Kotlin Android | `<name>-v<ver>.apk`, `...-arm64.apk`, `...-armv7.apk` |
+| GoWails Android | `<Product>-v<ver>-arm64.apk`, `-armv7.apk`, `-universal.apk` |
+| AAB (todos) | `<name>-v<ver>.aab` |
+
+**Limitaciones y decisiones:**
+
+- **Flutter/Kotlin no tienen submenú de Windows**: `flutter build windows` y
+  `gradlew …packageDistributionForCurrentOS` sólo compilan el host, así que su
+  card delega en el build de siempre.
+- **Tauri x86/ARM64 puede no tener NSIS**: si el bundle falla se entrega el
+  portable más reciente de `src-tauri/target/<triple>/release/*.exe` con un
+  aviso. ARM64 necesita las herramientas ARM64 de Visual Studio; si faltan, el
+  mensaje lo dice (vale igual para Rust).
+- **Go cruzado usa `CGO_ENABLED=0`**: el `.syso` del icono sólo se embebe para
+  `amd64` (`icon_for_arch`), porque un `.syso` es específico de arquitectura.
+- **Tauri Android pasa las ABIs por entorno del proceso de Gradle**
+  (`ORG_GRADLE_PROJECT_abiList/archList/targetList`) vía `run_shell_status`, sin
+  `env::set_var` global; sólo `android::dev` sigue fijando arm64 en el entorno
+  porque la ventana hija lo hereda.
+- **Flutter reescribe `app-release.apk` en cada build**, así que cada APK se
+  copia a `bin/` **inmediatamente**; el lote universal compila primero el
+  universal y luego `--split-per-abi` (ignora `x86_64`).
+- **Kotlin usa un init script de Gradle** (`beforeProject` → `afterEvaluate`)
+  para fijar `abiFilters` o habilitar splits + `universalApk` sin editar el
+  `build.gradle.kts` del proyecto; el instalador sólo instala la universal.
+- **`release.rs` no usa `run_build_and_reveal*`**: esos helpers revelan y pausan
+  por build. Los builders por arquitectura resuelven la ruta exacta
+  (`newest_file_in`, no recursivo en `target/<triple>/release`, para no coger
+  exes de build-scripts) y `finish()` hace `cmd::show_artifact(...)` +
+  `ui::pause_for(10)` una sola vez.
+
+CLI: `--task windows-release`, `--task android-release` y `--task android-aab`;
+`windows-build`, `android-arm64`, `android-armv7` y `android-all` se conservan
+como alias de los builds antiguos.
+
+Cubierto por `tasks::release::tests`: entradas por tipo (Todos al final),
+Kotlin sin `jniLibs` = una sola card, claves de `theme::CARD_KEYS` válidas y
+distintas, triples/GOARCH reales, `icon_for_arch` sólo amd64, `has_native_libs`
+y el contenido del init script de ABIs.
 
 ### npm en Windows
 `cmd::run_npm_install()` usa `cmd::run_ps_status("npm.cmd install", …)`. El
@@ -1161,16 +1267,17 @@ usaba `wails.json` y otro CLI, así que no se mezcla (`context::is_wails_v3`).
 |---------|----------|
 | Windows | `wails3 task dev` en ventana interactiva (Vite en modo dev + hot reload) |
 | Windows Build | `build_desktop`: **x86 portable** (`wails3 task build ARCH=386`) + **x64/ARM64 portable e instalador NSIS** (`wails3 task package ARCH=…`). Todo se copia a `bin/` con el nombre del producto y la versión |
-| APK x3 (release) | Pipeline Android propio con **dos ABIs y ABI splits** → tres APK: arm64, armv7 y universal. Copiadas a `bin/` y **opción de instalar la universal en el teléfono** |
+| APK Release | Abre el submenú de `release.rs` (arm64 / armv7 / universal / Todos). Cada card compila una ABI o las tres con **ABI splits**, copia a `bin/` e instala la universal si hay teléfono |
 | AAB (release) | El mismo pipeline (arm64 + armv7, sin splits) + `bundleRelease` → `bin/<Product>-v<ver>.aab` |
 | Install (debug) | APK debug (arm64) + `adb install` + `am start`; la ventana se cierra sola a los 10 s tras compilar bien |
 | Debug Andr | `adb logcat --pid=<pid de la app>` (sin `grep`, así que funciona en Windows) |
 | Version | Bump de `version:` en `build/config.yml` (formato YAML, conserva indentación y comentario) |
 | Clean | `bin/`, `frontend/dist`, `frontend/bindings`, `build/android/app/build`, `build/android/.gradle`, `jniLibs/` |
 
-El menú oculta la card **APK armv7** para Go+Wails (la release normal ya genera
-las tres APK), pero la tarea `--task android-armv7` existe y compila sólo esa
-ABI (`gowails::build_apk_armv7`) para equipos antiguos.
+La card **APK armv7** ya no existe en el menú principal (la release por
+arquitectura vive en el submenú de `APK Release`), pero la tarea
+`--task android-armv7` existe y compila sólo esa ABI
+(`gowails::build_apk_armv7`) para equipos antiguos.
 
 **El build de escritorio produce los paquetes de x86, x64 y ARM64.** `build_desktop()`
 encadena tres pasos y copia cada artefacto en cuanto termina:
@@ -1424,6 +1531,9 @@ Dos detalles que importan en la práctica:
 compass --task windows-dev
 compass --path /ruta/proyecto --task sign
 compass --task context-menu-install
+compass --task windows-release   # submenú x86/x64/ARM64
+compass --task android-release   # submenú arm64/armv7/universal
+compass --task android-aab       # bundle de Play Store
 compass  # abre menú interactivo
 ```
 
@@ -1477,7 +1587,7 @@ Microsoft Store es un stub de 0 bytes que `where` encuentra y que no arranca.
 La sonda también considera incompleto el menú de Compass si falta la acción `.gitignore` en el clic derecho sobre una carpeta o sobre el fondo. Así `install.bat` migra instalaciones anteriores que ya tenían Compass, pero no esa acción.
 
 ⚠️ **Migración de cmd a PowerShell**: la sonda fuerza la reinstalación si el
-comando de `zz_VibeGitignore` o el de `01OpenCode` todavía contiene `cmd.exe`,
+comando de `zz_CompassGitignore` o el de `01OpenCode` todavía contiene `cmd.exe`,
 y también si `zz_Compass` no pasa por `pwsh`/`powershell` (antes lanzaba el
 `.exe` directo, con el icono genérico de consola). La marca `CompassStamp` sola
 no basta: instalar pwsh *después* de Compass no cambia el mtime de
@@ -1522,7 +1632,12 @@ cubren `version_code` (semver → entero monótono de Play), los nombres
 versionados de APK/AAB y escritorio, el contenido del init script (versión,
 ABIs, splits, `doNotStrip` y que use `beforeProject`/`afterEvaluate` y no
 `projectsEvaluated`), `release_meta` contra `build/config.yml` y la selección
-de cada split por nombre (`newest_matching`).
+de cada split por nombre (`newest_matching`). De `release.rs`, las entradas del
+submenú por tipo, las claves de paleta y el mapeo triple/GOARCH; de `kotlin.rs`,
+el init script de ABIs y `has_native_libs`; de `cmd.rs`, que `rename_artifact`
+sobrescribe un destino existente; de `submenu.rs`, el flag `warn_android`; y de
+`menu.rs`, el routing de las cards de release y que `AndroidBuildArmv7` queda
+oculta en todos los tipos.
 
 Dos pruebas abren una **ConPTY real** y están `#[ignore]` porque dependen del
 sistema y tardan unos segundos:
