@@ -198,7 +198,8 @@ izquierda (`Ctrl+T temas: <nombre>`, en color `brand`); a la derecha va la
   (`[Console]::Title = …`) para que se vea bien durante el arranque, pero el
   valor definitivo lo pone el proceso hijo. Si el host antepone un prefijo
   propio (p. ej. `Administrator - ` en una terminal elevada) no se puede quitar
-  desde la aplicación: Compass sólo controla lo que hay a la derecha.
+  desde la aplicación: Compass sólo controla lo que hay a la derecha (véase
+  "El prefijo `Administrator: ` de la pestaña").
 - **Color de acento de la pestaña (Windows Terminal)**: al arrancar, `menu::run`
   y `run_task_direct` llaman a `cmd::set_tab_color(platform::tab_accent(path))`.
   WT pinta el fondo de la pestaña con el índice de paleta **264** (texto: 263),
@@ -220,6 +221,56 @@ izquierda (`Ctrl+T temas: <nombre>`, en color `brand`); a la derecha va la
   `←→↑↓ navegar`, `Enter ejecutar`, `Esc salir`) y el tema activo (`Ctrl+T
   temas: <nombre>`, en color `brand`). A la derecha, la **ruta completa** del
   proyecto en color `muted`; si no cabe, se recorta por la izquierda con `…`.
+
+#### El prefijo `Administrator: ` de la pestaña
+
+Cuando la ventana se ve como `Administrator: <carpeta>`, **no lo pone Compass**:
+el ejecutable no lleva `RT_MANIFEST` —`build.rs` sólo embebe icono y `VERSIONINFO`
+en un `.syso` con `embed_resource` y no emite `/MANIFESTUAC`, así que rige el
+`asInvoker` implícito y el proceso nunca pide elevación—; y `window_title()` ya es
+sólo el nombre del directorio. El prefijo lo antepone el
+**host de terminal** (Windows Terminal, y también conhost) porque su proceso tiene
+token de administrador; desde la aplicación no se puede quitar ni sobrescribir con
+`SetConsoleTitleW`, y WT no ofrece ningún ajuste para ocultarlo
+(microsoft/terminal#984 se cerró como respondido, no implementado).
+
+Lo decisivo es el valor `EnableLUA` de `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System`:
+con `0` (UAC apagado) **todas** las ventanas del administrador salen elevadas y el
+prefijo aparece siempre —se comprueba con `Get-Process WindowsTerminal` + el título
+de `CASCADIA_HOSTING_WINDOW_CLASS`, o viendo que otras apps (VS Code) también lo
+llevan—. Con `1`, sólo las ventanas que se eleven a propósito.
+
+```powershell
+# ver el estado actual (0 = UAC apagado, 1 = encendido) y si este shell es de
+# administrador
+reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" /v EnableLUA
+([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+
+# quitar el prefijo: reactivar UAC (desde una consola ELEVADA) y reiniciar
+reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" /v EnableLUA /t REG_DWORD /d 1 /f
+shutdown /r /t 0
+
+# revertir: volver a dejar UAC apagado (y reiniciar de nuevo)
+reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" /v EnableLUA /t REG_DWORD /d 0 /f
+shutdown /r /t 0
+
+# tras el reinicio, una terminal normal debe dar IL Medium (S-1-16-8192); hoy en
+# esta máquina da High (S-1-16-12288) precisamente por tener el UAC apagado
+& "$env:windir\System32\whoami.exe" /groups | Select-String "Mandatory Label"
+```
+
+⚠️ `whoami` hay que llamarlo **con la ruta de System32 y desde PowerShell**: Git
+para Windows instala su propio `whoami.exe` en `\usr\bin`, que sombrea al del
+sistema incluso escribiendo la extensión, así que `whoami.exe /groups` a secas
+falla con `extra operand ‘/groups’`. Desde Git Bash tampoco vale con la ruta
+completa: MSYS reescribe `/groups` como `C:/Program Files/Git/groups`.
+
+⚠️ Es un cambio **de toda la máquina**, no del proyecto: con UAC encendido las
+tareas que necesiten privilegios de administrador (el backup de variables de
+**SISTEMA** de la tarjeta Entorno) tendrán que abrirse en una ventana elevada a
+mano, que es justo lo que `environment.rs` ya avisa en su cabecera. Compass no
+relanza con UAC ni toca el registro del sistema: estos comandos quedan
+documentados para aplicarlos a petición del usuario.
 
 Estado: `MenuState.picker: Option<ThemePicker>` (`index` en `theme::THEMES` +
 `original`, para el cancelar). `MenuState::preview_theme()` mueve el resaltado y
