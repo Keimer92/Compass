@@ -1,5 +1,5 @@
 use anyhow::Result;
-use std::io::{self, Write};
+use std::io::{self, IsTerminal, Write};
 
 pub fn ask_text(prompt: &str, default: Option<&str>) -> Result<String> {
     let msg = match default {
@@ -21,6 +21,16 @@ pub fn ask_text(prompt: &str, default: Option<&str>) -> Result<String> {
 pub fn ask_password(prompt: &str) -> Result<String> {
     print!("{}: ", prompt);
     io::stdout().flush()?;
+
+    // Sin una terminal real (stdin redirigido, p. ej. desde un script) no se
+    // puede activar el modo raw: se lee una línea normal. Antes se intentaba y
+    // `read()` se quedaba bloqueado esperando teclas que nunca llegan.
+    if !io::stdin().is_terminal() {
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)?;
+        println!();
+        return Ok(input.trim().to_string());
+    }
 
     use crossterm::event::{read, Event, KeyCode, KeyEventKind};
     use crossterm::terminal::{disable_raw_mode, enable_raw_mode};

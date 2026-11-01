@@ -454,6 +454,7 @@ tasks/
   ├─ flutter.rs — run_windows(), run_android(), profile_windows(), profile_android(), build_apk_arch(), build_apk_universal(), build_apks_all(), build_*(), clean()
   ├─ kotlin.rs  — run_windows() [con hot reload], run_android(), install_debug() (`:<modulo>:installDebug` + lanza con `am start`), build_apk_arch(), build_apk_universal(), build_apks_all() [ABI splits por init script], build_aab(), has_native_libs(), clean(); deteccion de modulo Gradle `:app`/`:composeApp` via `gradle_module()`; release_signing_env() [exporta RELEASE_* vars, parseando con `signer::Props`]
   ├─ gowails.rs — dev(), build_desktop() [lote x86/x64/ARM64], build_desktop_arch(), package_desktop(), build_apk_arch(), build_apk_universal(), build_release_apks(), build_aab(), install_debug(), debug_android(), clean()  [Go + Wails v3: pipeline Android propio, ver "Go + Wails v3"]
+  ├─ opencode.rs — configure() [fusiona el proveedor InferX en opencode.json(c) y pide la API key], install_plugin() [copia assets/opencode/tui.tsx al descubrimiento de OpenCode], reminder_needed()/dismiss_reminder() [aviso en la cabecera de Compass]
   ├─ go.rs      — run(), build(), build_arch() [GOARCH + CGO_ENABLED=0, icono sólo amd64], test(), clean()  [Go puro]
   ├─ rust.rs    — run(), build(), build_arch() [target triple], clean()  [Rust only]
   ├─ release.rs — manage_windows()/manage_android() [submenús TUI de release por arquitectura: cards x86/x64/ARM64 y arm64/armv7/universal + Todos, con `tasks/submenu.rs`; ver "Release por arquitectura"]
@@ -514,8 +515,9 @@ pero se conserva para no reindexar `theme::card_hexes`; la tarea CLI
 | `vibe-setup` | `context_menu::setup()` → `ensure_tools_installed()` (pregunta por las que falten) + `install_vibe_coding()` |
 | `context-menu-install` | `context_menu::install()` |
 | `context-menu-uninstall` | `context_menu::uninstall()` |
-| `opencode-install` | `context_menu::install_opencode()` → `install_vibe_coding()` |
+| `opencode-install` | `context_menu::install_opencode()` → `opencode::configure()` + `install_vibe_coding()` |
 | `opencode-uninstall` | `context_menu::uninstall_opencode()` → `uninstall_vibe_coding()` |
+| `opencode-configure` | `opencode::configure()` → pide/completa la API de InferX en OpenCode |
 | `cline-install` | `context_menu::install_cline()` → `install_vibe_coding()` |
 | `cline-uninstall` | `context_menu::uninstall_cline()` → `uninstall_vibe_coding()` |
 | `kilo-install` | `context_menu::install_kilocode()` → `install_vibe_coding()` |
@@ -691,6 +693,42 @@ preguntar). Los `irm | iex` ya eran sintaxis de PowerShell. `InstallVia::Cmd`
 - **Copilot CLI** (GitHub): se instala con `winget install --id GitHub.Copilot --exact` (paquete `GitHub.Copilot`), **no por npm**. Con `--yolo` arranca con todos los permisos concedidos (`--allow-all` = `--allow-all-tools --allow-all-paths --allow-all-urls`); sin flags la TUI pide confirmación por herramienta. ⚠️ winget **no** sigue el patrón `%LOCALAPPDATA%\<tool>\bin`: crea el enlace en `%LOCALAPPDATA%\Microsoft\WinGet\Links\copilot.exe`, y ésa es la ruta que declara `VibeTool::fallback` y la que comprueba la sonda de `install.bat`. Ojo también con el shim que instala VS Code en `%ProgramFiles%\Microsoft VS Code\bin\copilot-shim\`, que está antes en el PATH y responde igual, así que `Get-Command copilot` puede acertar aunque winget aún no haya refrescado el PATH.
 - `install.bat` instala/actualiza Vibe Coding con detección de "ya instalado".
 - El menú interactivo `toggle()` gestiona Compass + Vibe Coding + "Instalar todos" / "Desinstalar todos".
+
+### InferX en OpenCode
+
+`vibe-setup` y `opencode-install` dejan OpenCode listo para el proveedor
+`inferx` sin editar el JSON a mano (`src/tasks/opencode.rs`):
+
+- `configure()` localiza `~/.config/opencode/opencode.json(c)` (o
+  `$XDG_CONFIG_HOME/opencode`), **acepta** JSONC (comentarios y comas finales) y
+  reescribe el archivo como JSON válido antes de fusionar el proveedor: `name`,
+  `env: ["INFERX_API_KEY"]`,
+  `package: "@opencode/ai/providers/openai-compatible"`,
+  `settings.baseURL: https://model.inferx.net/endpoints/v1` y el modelo
+  `deepseek-v4.1-flash-1017-basic`. Si la raíz no tiene `model`, lo fija a
+  `inferx/deepseek-v4.1-flash-1017-basic`; si ya hay otro, no lo pisa.
+- La API key se pide **una sola vez** con `ui::ask_password` (Enter la deja
+  pendiente). Nunca se sobrescribe una clave existente. Antes de escribir se
+  guarda `<archivo>.compass.bak`.
+- `install_plugin()` copia `assets/opencode/tui.tsx` a
+  `<config>/plugins/inferx-reminder/tui.tsx`. OpenCode lo descubre solo; **no**
+  hace falta tocar `cli.json`. El plugin pinta un aviso clicable en
+  `home.footer.status` mientras falte la API, con un diálogo
+  "Ya la configuré / Recordar luego" y persistencia en el storage de OpenCode.
+  También registra el comando `/inferx` (y su entrada en la paleta) como
+  alternativa de teclado al clic.
+- En Compass, `reminder_needed()` añade una línea a la cabecera y un botón `[x]`
+  clicable que persiste el descarte en
+  `<data_dir>/compass/opencode-inferx-reminder`. Configurar la clave limpia esa
+  marca.
+- `opencode-configure` repite el flujo sin reinstalar el menú contextual.
+- `install.bat` llama a `opencode-configure` cuando **no** ejecuta `vibe-setup`
+  (todo al día), para que una instalación existente de OpenCode reciba InferX
+  sin reinstalar nada.
+
+⚠️ `configure()` sólo actúa si OpenCode está instalado (`opencode` en PATH o
+`%APPDATA%\npm\opencode.cmd`). Si el JSON no se puede interpretar, avisa y no lo
+modifica.
 - **Idempotencia**: `install()` compara tanto el comando (`command_is_current()`) como el texto visible (`label_is()`), así un cambio de nombre fuerza el reinstall aunque el comando ya sea correcto.
 - **Menú desactualizado por binario nuevo**: `install_vibe_coding()` escribe `CompassStamp` (mtime del exe en segundos) en `Directory\ContextMenus\VibeCoding`, y la sonda de `install.bat` lo compara con `%USERPROFILE%\.cargo\bin\compass.exe`. Si no coincide —o si falta, como en instalaciones anteriores— el menú se reinstala. Sin esto, recompilar no actualizaba nada: la sonda sólo miraba que `01OpenCode` existiera, así que una herramienta nueva (Qoder) no aparecía. Cubierto por `probe_reads_the_stamp_written_by_the_installer` y `menu_stamp_is_unix_seconds`.
 - **Los cambios del registro requieren reiniciar Explorer**: `taskkill /f /im explorer.exe & start explorer.exe`.

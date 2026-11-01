@@ -148,6 +148,7 @@ fn run_global_task(task: &str) -> Result<()> {
         "opencode" => tasks::context_menu::toggle(),
         "opencode-install" => tasks::context_menu::install_opencode(),
         "opencode-uninstall" => tasks::context_menu::uninstall_opencode(),
+        "opencode-configure" => tasks::opencode::configure(true),
         "cline-install" => tasks::context_menu::install_cline(),
         "cline-uninstall" => tasks::context_menu::uninstall_cline(),
         "kilo-install" => tasks::context_menu::install_kilocode(),

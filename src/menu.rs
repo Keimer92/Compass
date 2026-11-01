@@ -437,6 +437,8 @@ pub(crate) struct UiLayout {
     /// `width == 0` si la terminal no deja hueco.
     pub(crate) scrollbar: Rect,
     pub(crate) footer: Rect,
+    /// Zona clicable del botón `[x]` del recordatorio de InferX, si se pinta.
+    pub(crate) reminder_button: Option<Rect>,
 }
 
 /// Cards por fila para un ancho dado: hasta [`GRID_MAX_COLS`], y menos si las
@@ -461,7 +463,14 @@ pub(crate) fn visible_rows(height: u16) -> usize {
 }
 
 pub(crate) fn layout(area: Rect, warn: bool) -> UiLayout {
-    let header_h: u16 = if warn { 3 } else { 2 };
+    layout_with(area, warn, false)
+}
+
+/// Como [`layout`], pero reserva una línea extra para el recordatorio de
+/// InferX y calcula la zona clicable de su botón `[x]`.
+pub(crate) fn layout_with(area: Rect, warn: bool, reminder: bool) -> UiLayout {
+    // Cabecera base: nombre/versión y proyecto. Cada aviso suma una línea.
+    let header_h: u16 = 2 + warn as u16 + reminder as u16;
     let [header, tabs, list, footer] = Layout::vertical([
         Constraint::Length(header_h),
         Constraint::Length(TABS_H),
@@ -500,6 +509,19 @@ pub(crate) fn layout(area: Rect, warn: bool) -> UiLayout {
         }
     };
 
+    // El botón va alineado a la derecha de la línea del recordatorio: tras las
+    // dos líneas base y, si existe, la del aviso de Android.
+    let reminder_button = if reminder && header.width >= 8 {
+        Some(Rect {
+            x: header.right().saturating_sub(4),
+            y: header.y + 2 + warn as u16,
+            width: 3,
+            height: 1,
+        })
+    } else {
+        None
+    };
+
     UiLayout {
         header,
         tabs,
@@ -507,6 +529,7 @@ pub(crate) fn layout(area: Rect, warn: bool) -> UiLayout {
         cols,
         scrollbar,
         footer,
+        reminder_button,
     }
 }
 
@@ -539,6 +562,9 @@ struct MenuState {
     /// Aviso al salir con pestañas de tarea abiertas. `None` = no se ha
     /// intentado salir todavía (o se canceló).
     quit_confirm: Option<QuitConfirm>,
+    /// Recordatorio de que OpenCode aún no tiene la API de InferX. Lo fija
+    /// `run()` al arrancar (y nunca en los tests, para no invocar PowerShell).
+    opencode_reminder: bool,
 }
 
 /// Datos del aviso de salida: cuántas pestañas hay y cuántas siguen vivas.
@@ -689,6 +715,7 @@ impl MenuState {
             theme,
             picker: None,
             quit_confirm: None,
+            opencode_reminder: false,
         }
     }
 
@@ -871,7 +898,7 @@ fn draw_menu_in(frame: &mut Frame, area: Rect, state: &mut MenuState, ctx: &Proj
     );
 
     let warn = show_android_warning(ctx);
-    let ui = layout(area, warn);
+    let ui = layout_with(area, warn, state.opencode_reminder);
     state.vh = ui.list.height;
     state.cols = ui.cols;
 
@@ -894,7 +921,14 @@ fn draw_menu_in(frame: &mut Frame, area: Rect, state: &mut MenuState, ctx: &Proj
         return;
     }
 
-    render_header(frame, ui.header, ctx, theme);
+    render_header_with_reminder(
+        frame,
+        ui.header,
+        ctx,
+        theme,
+        state.opencode_reminder,
+        ui.reminder_button,
+    );
     render_tabs(frame, ui.tabs, state, theme);
 
     state.ensure_visible();
@@ -1333,6 +1367,17 @@ fn render_quit_confirm(frame: &mut Frame, area: Rect, theme: &Theme, confirm: Qu
 }
 
 pub(crate) fn render_header(frame: &mut Frame, area: Rect, ctx: &ProjectContext, theme: &Theme) {
+    render_header_with_reminder(frame, area, ctx, theme, false, None);
+}
+
+fn render_header_with_reminder(
+    frame: &mut Frame,
+    area: Rect,
+    ctx: &ProjectContext,
+    theme: &Theme,
+    reminder: bool,
+    reminder_button: Option<Rect>,
+) {
     let project_name = ctx
         .script_dir
         .file_name()
@@ -1400,7 +1445,30 @@ pub(crate) fn render_header(frame: &mut Frame, area: Rect, ctx: &ProjectContext,
         )]));
     }
 
+    if reminder {
+        lines.push(Line::from(vec![Span::styled(
+            "    \u{26a0} InferX: falta la API — compass --task opencode-configure",
+            Style::default().fg(theme.warning),
+        )]));
+    }
+
     frame.render_widget(Paragraph::new(Text::from(lines)), area);
+
+    // Botón de descarte, alineado a la derecha de la línea del recordatorio.
+    if reminder {
+        if let Some(rect) = reminder_button {
+            frame.render_widget(
+                Paragraph::new(Line::from(Span::styled(
+                    "[x]",
+                    Style::default()
+                        .fg(theme.warning)
+                        .add_modifier(Modifier::BOLD),
+                )))
+                .alignment(Alignment::Center),
+                rect,
+            );
+        }
+    }
 }
 
 fn render_footer(frame: &mut Frame, area: Rect, theme: &Theme, ctx: &ProjectContext) {
@@ -1757,6 +1825,18 @@ fn handle_event(state: &mut MenuState, panes: &mut Container) -> anyhow::Result<
                     state.set_hover(None);
                     return Ok(MenuAction::Continue);
                 }
+                // Botón `[x]` del recordatorio de InferX: oculta el aviso de
+                // esta sesión y lo persiste para las siguientes.
+                if state.opencode_reminder {
+                    if let Some(rect) = state.ui.and_then(|ui| ui.reminder_button) {
+                        if rect.contains(Position::new(mouse.column, mouse.row)) {
+                            crate::tasks::opencode::dismiss_reminder();
+                            state.opencode_reminder = false;
+                            state.set_hover(None);
+                            return Ok(MenuAction::Continue);
+                        }
+                    }
+                }
                 // Las pestañas también responden al ratón: un clic en su
                 // etiqueta cambia de pestaña (sin ejecutar nada).
                 if let Some(tab) = tab_at(mouse.column, mouse.row, state) {
@@ -1874,6 +1954,7 @@ pub fn run(ctx: &ProjectContext) -> anyhow::Result<()> {
 
     let mut terminal = setup_terminal()?;
     let mut state = MenuState::new(ctx.project_type, theme::load());
+    state.opencode_reminder = crate::tasks::opencode::reminder_needed();
 
     // Cada proyecto abre su propia pestaña: el título es sólo el directorio y
     // el acento de la pestaña sale del path, así dos instancias abiertas a la
@@ -1908,6 +1989,11 @@ pub fn run(ctx: &ProjectContext) -> anyhow::Result<()> {
         if title_check.elapsed() >= Duration::from_secs(1) {
             title_check = Instant::now();
             cmd::reclaim_console_title(&titulo);
+            // Si el usuario configuró la API desde otra pestaña, el aviso
+            // desaparece sin reiniciar (lectura barata del JSON).
+            if state.opencode_reminder && !crate::tasks::opencode::key_is_missing() {
+                state.opencode_reminder = false;
+            }
         }
 
         // Con una pestaña de terminal activa, el teclado y el ratón son suyos.
@@ -2484,6 +2570,28 @@ mod tests {
         let clicked = tab_at(cfg_start, row, &s).expect("clic sobre CONFIGURACION");
         s.set_tab(clicked);
         assert_eq!(s.tab, Tab::Cfg);
+    }
+
+    /// El recordatorio de InferX suma una línea a la cabecera y deja una zona
+    /// clicable para el botón `[x]`, alineada a la derecha.
+    #[test]
+    fn reminder_adds_a_header_line_and_a_clickable_button() {
+        let ui = layout_with(Rect::new(0, 0, 80, 20), false, true);
+        assert_eq!(ui.header.height, 3);
+        let button = ui.reminder_button.expect("botón del recordatorio");
+        assert_eq!(button.width, 3);
+        assert_eq!(button.y, ui.header.y + 2);
+        assert_eq!(button.right() + 1, ui.header.right());
+    }
+
+    /// Con el aviso de Android y el recordatorio, cada uno ocupa su línea y el
+    /// botón queda en la última.
+    #[test]
+    fn reminder_button_follows_the_android_warning_line() {
+        let ui = layout_with(Rect::new(0, 0, 80, 20), true, true);
+        assert_eq!(ui.header.height, 4);
+        let button = ui.reminder_button.expect("botón del recordatorio");
+        assert_eq!(button.y, ui.header.y + 3);
     }
 
     /// La rejilla se adapta al ancho: hasta 4 cards por fila, y menos (más

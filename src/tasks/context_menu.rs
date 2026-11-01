@@ -638,6 +638,7 @@ pub fn uninstall_vibe_coding() -> Result<()> {
 }
 
 pub fn install_opencode() -> Result<()> {
+    crate::tasks::opencode::configure(true)?;
     install_vibe_coding()
 }
 
@@ -1236,6 +1237,10 @@ mod tests {
 /// preservar lo que haya.
 pub fn setup() -> Result<()> {
     ensure_tools_installed()?;
+    println!();
+    // OpenCode (recién instalado o ya presente) recibe el proveedor InferX y el
+    // plugin que avisa si falta la API. Es idempotente.
+    crate::tasks::opencode::configure(true)?;
     println!();
     install_vibe_coding()
 }

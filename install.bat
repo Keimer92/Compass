@@ -186,6 +186,18 @@ if "%NEED_VIBE_SETUP%"=="1" (
     echo [SKIP] Menu contextual de Vibe Coding ya instalado y las herramientas presentes.
 )
 
+REM `vibe-setup` ya configura InferX cuando se ejecuta. Si no se ejecuto (todo
+REM al dia), se hace aqui igualmente: asi una instalacion existente de OpenCode
+REM recibe el proveedor sin tener que reinstalar nada a mano. Es idempotente.
+if "%EXIT_CODE%"=="0" if not "%NEED_VIBE_SETUP%"=="1" (
+    echo.
+    echo [INFO] Configurando InferX en OpenCode...
+    call "%USERPROFILE%\.cargo\bin\compass.exe" --task opencode-configure
+    if errorlevel 1 (
+        echo [WARN] No se pudo configurar InferX en OpenCode.
+    )
+)
+
 echo.
 if "%EXIT_CODE%"=="1" exit /b 1
 

@@ -7,6 +7,7 @@ pub mod git;
 pub mod go;
 pub mod gowails;
 pub mod kotlin;
+pub mod opencode;
 pub mod python;
 pub mod release;
 pub mod rust;
