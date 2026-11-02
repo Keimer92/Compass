@@ -132,6 +132,15 @@ fn main() -> Result<()> {
 
     if let Some(task) = &cli.task {
         run_task_direct(&ctx, task)?;
+        // Una cuenta atrás agotada (`ui::pause_for`) pide cerrar la pestaña:
+        // el código lo lee el contenedor. Con salida `Err` no se llega, así que
+        // un fallo conserva su pestaña para poder leer el mensaje.
+        if utils::cmd::close_tab_requested() {
+            // `process::exit` no vacía los buffers: lo hace el stdout al
+            // escribir línea a línea, pero se fuerza por si queda algo pendiente.
+            let _ = io::stdout().flush();
+            std::process::exit(utils::cmd::EXIT_CLOSE_TAB);
+        }
     } else {
         menu::set_trace(cli.trace);
         menu::run(&ctx)?;

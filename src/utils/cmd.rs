@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
 use std::time::SystemTime;
 
@@ -85,6 +86,26 @@ pub fn ps_quote(s: &str) -> String {
 /// abrir otra ventana: la pestaña **es** la consola del comando.
 pub fn embedded() -> bool {
     std::env::var_os("COMPASS_EMBEDDED").is_some()
+}
+
+/// Código con el que una tarea avisa de que su pestaña debe cerrarse.
+///
+/// Alto a propósito: `0` es el éxito, `1` el fallo genérico y `2` el de `clap`
+/// al no parsear los argumentos; ninguno debe confundirse con esta señal.
+pub const EXIT_CLOSE_TAB: i32 = 95;
+
+/// Cuenta atrás agotada en **este** proceso (el de la tarea).
+static CLOSE_TAB: AtomicBool = AtomicBool::new(false);
+
+/// Llamada de [`crate::utils::ui::pause_for`] al llegar a cero.
+pub fn request_close_tab() {
+    CLOSE_TAB.store(true, Ordering::Relaxed);
+}
+
+/// `main` sale con [`EXIT_CLOSE_TAB`] si se cumple, y el contenedor cierra la
+/// pestaña al ver ese código.
+pub fn close_tab_requested() -> bool {
+    CLOSE_TAB.load(Ordering::Relaxed)
 }
 
 /// Argumentos con los que se lanza un script de PowerShell.

@@ -142,13 +142,20 @@ pub fn pause() {
     io::stdin().read_line(&mut input).ok();
 }
 
-/// Como [`pause`], pero en vez de esperar a Enter cuenta regresiva y cierra
-/// automáticamente.
+/// Como [`pause`], pero en vez de esperar a Enter cuenta regresiva y **cierra
+/// la pestaña** al llegar a cero.
 ///
-/// Se usa en las tareas de **compilación en modo debug** de Go + Wails v3:
-/// el build ya terminó bien, no hay nada que leer, así que la ventana se cierra
-/// sola pasados `seconds` segundos (en vez de quedarse colgada esperando un
-/// Enter que nadie va a pulsar).
+/// Se usa en las tareas de compilación: el build ya terminó bien, no hay nada
+/// que leer, así que la ventana se cierra sola pasados `seconds` segundos (en
+/// vez de quedarse colgada esperando un Enter que nadie va a pulsar).
+///
+/// Dentro del contenedor no hay ventana que cerrar: lo que se cierra es la
+/// pestaña, y eso lo decide el proceso padre mirando el código de salida. Por
+/// eso la cuenta deja la marca `cmd::request_close_tab`, que `main` convierte
+/// en `cmd::EXIT_CLOSE_TAB` **cuando la tarea termina**. Las dos llamadas que
+/// caen en medio de un flujo (`cmd::run_build_and_reveal_*` y el `finish` del
+/// submenú de release) siguen con su bucle: ahí la pestaña se cierra al salir
+/// del submenú o al terminar la instalación, que es cuando de verdad se acabó.
 pub fn pause_for(seconds: u64) {
     for remaining in (1..=seconds).rev() {
         print!("\r  Cerrando en {} s...  ", remaining);
@@ -156,4 +163,31 @@ pub fn pause_for(seconds: u64) {
         std::thread::sleep(std::time::Duration::from_secs(1));
     }
     println!();
+    if crate::utils::cmd::embedded() {
+        crate::utils::cmd::request_close_tab();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// La cuenta atrás deja la marca que hace salir al proceso con
+    /// `cmd::EXIT_CLOSE_TAB`.
+    ///
+    /// Se prueba con `pause_for(0)`, cuyo rango `(1..=0)` está vacío: no duerme
+    /// un segundo por cada cuenta y deja el flag en el mismo punto. La otra
+    /// mitad del `if` (fuente del contenedor, donde la ventana ya se cierra
+    /// sola al terminar el proceso) no se comprueba aquí porque el flag no se
+    /// puede volver a bajar: sería una prueba dependiente del orden.
+    #[test]
+    fn the_countdown_asks_the_container_to_close_the_tab() {
+        // `COMPASS_EMBEDDED` define el proceso entero, así que se limpia al
+        // terminar para no contaminar otras pruebas.
+        std::env::set_var("COMPASS_EMBEDDED", "1");
+        pause_for(0);
+        std::env::remove_var("COMPASS_EMBEDDED");
+
+        assert!(crate::utils::cmd::close_tab_requested());
+    }
 }

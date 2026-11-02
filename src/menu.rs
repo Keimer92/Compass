@@ -1947,6 +1947,23 @@ fn spawn_in_window(
     )
 }
 
+/// Guion de la pestaña: la misma tarea que ejecutaba la ventana externa, más la
+/// propagación de su código de salida.
+///
+/// `& '<exe>' --task …` devuelve **1 o 0**, no el código del proceso: PowerShell
+/// solo propaga el código de un comando nativo con `exit $LASTEXITCODE`. Sin
+/// ese cierre, el `cmd::EXIT_CLOSE_TAB` de una cuenta atrás se quedaría dentro
+/// del `compass` hijo y la pestaña nunca se cerraría. Medido: con el sufijo,
+/// `pwsh -Command "& …; exit $LASTEXITCODE"` sale con 95; sin él, con 1.
+fn pane_script(exe: &std::path::Path, task: &str, project: &std::path::Path) -> String {
+    format!(
+        "& {} --task {} --path {}; exit $LASTEXITCODE",
+        cmd::ps_quote(&exe.to_string_lossy()),
+        task,
+        cmd::ps_quote(&project.to_string_lossy()),
+    )
+}
+
 pub fn run(ctx: &ProjectContext) -> anyhow::Result<()> {
     if TRACE.load(Ordering::Relaxed) {
         let _ = std::fs::File::create(std::env::temp_dir().join("compass-tui.log"));
@@ -1981,6 +1998,11 @@ pub fn run(ctx: &ProjectContext) -> anyhow::Result<()> {
     let mut title_check = Instant::now();
 
     loop {
+        // Las tareas que terminan con cuenta atrás salen pidiendo que se cierre
+        // su pestaña: se recolecta antes de dibujar, para no pintar ni un
+        // fotograma más la pantalla muerta.
+        panes.reap_finished();
+
         terminal.draw(|f| draw_ui(f, &mut state, ctx, &mut panes))?;
 
         // El shell de una pestaña reescribe el título de la consola y el prefijo
@@ -2035,12 +2057,7 @@ pub fn run(ctx: &ProjectContext) -> anyhow::Result<()> {
 
                 // La pestaña corre exactamente el mismo CLI que abría la
                 // ventana externa, pero con su consola dentro de Compass.
-                let script = format!(
-                    "& {} --task {} --path {}",
-                    cmd::ps_quote(&exe_path.to_string_lossy()),
-                    task,
-                    cmd::ps_quote(&project_path.to_string_lossy()),
-                );
+                let script = pane_script(&exe_path, task, project_path);
                 let size = terminal.size()?;
                 // Barra de pestañas + pie del contenedor.
                 let rows = size.height.saturating_sub(BAR_HEIGHT + 1);

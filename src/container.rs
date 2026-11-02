@@ -13,7 +13,7 @@
 
 use std::io::{Read, Write};
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -54,6 +54,9 @@ pub struct PtySession {
     child: Mutex<Box<dyn Child + Send + Sync>>,
     pid: u32,
     exited: Arc<AtomicBool>,
+    /// Código con el que terminó el shell (`-1` mientras sigue vivo o si la
+    /// salida llegó por EOF sin poder preguntarle).
+    code: AtomicI32,
     size: Mutex<(u16, u16)>,
 }
 
@@ -174,22 +177,42 @@ impl PtySession {
         }
     }
 
+    /// `true` si el shell de la pestaña ya terminó, y **de paso** guarda el
+    /// código con el que salió.
+    ///
+    /// La ConPTY no cierra el pipe de salida mientras el master siga abierto,
+    /// así que el lector nunca ve EOF al terminar la tarea: sin preguntar al
+    /// proceso, la pestaña jamás se marcaba como terminada. El código se guarda
+    /// aquí y no en el lector porque es lo que decide si la pestaña se cierra
+    /// sola; preguntarlo dos veces sobre un hijo ya esperado es inútil, y
+    /// portable-pty conserva el estado tras el primer `try_wait`.
+    fn probe(&self) -> bool {
+        let Ok(mut child) = self.child.lock() else {
+            return self.exited.load(Ordering::Relaxed);
+        };
+        if let Ok(Some(status)) = child.try_wait() {
+            self.code.store(status.code as i32, Ordering::Relaxed);
+            self.exited.store(true, Ordering::Relaxed);
+        }
+        self.exited.load(Ordering::Relaxed)
+    }
+
     pub fn is_exited(&self) -> bool {
         if self.exited.load(Ordering::Relaxed) {
             return true;
         }
-        // La ConPTY no cierra el pipe de salida mientras el master siga
-        // abierto, así que el lector nunca ve EOF al terminar la tarea: sin
-        // preguntar al proceso, la pestaña jamás se marcaba como terminada.
-        let Ok(mut child) = self.child.lock() else {
-            return false;
-        };
-        if matches!(child.try_wait(), Ok(Some(_))) {
-            self.exited.store(true, Ordering::Relaxed);
-            true
-        } else {
-            false
-        }
+        self.probe()
+    }
+
+    /// La tarea terminó pidiendo que se cierre su pestaña (`cmd::EXIT_CLOSE_TAB`,
+    /// que pone [`crate::utils::ui::pause_for`] al agotar la cuenta atrás).
+    ///
+    /// Se pregunta incluso si el lector ya había marcado la sesión como salida
+    /// —entonces faltaba el código—, porque el `if` del contenedor decide con
+    /// ese número y un `-1` sería «no cerrar», que es justo el bug que esto
+    /// arregla.
+    pub fn close_requested(&self) -> bool {
+        self.probe() && self.code.load(Ordering::Relaxed) == cmd::EXIT_CLOSE_TAB
     }
 
     /// PID del shell de la pestaña (`0` si el sistema no lo dio).
