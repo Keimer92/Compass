@@ -353,8 +353,6 @@ fn run_menu<T: Copy>(
                     }
                     menu::restore_terminal(&mut terminal)?;
                     let outcome = exec(item);
-                    terminal = menu::setup_terminal()?;
-                    cmd::set_console_title(&ctx.window_title());
                     match outcome {
                         Ok(artifacts) => finish(ctx, &artifacts, reveal),
                         Err(error) => {
@@ -363,6 +361,18 @@ fn run_menu<T: Copy>(
                             println!();
                             ui::pause();
                         }
+                    }
+                    // La salida va **antes** de remontar el TUI: con la pantalla
+                    // alternativa activa el `terminal.draw` de la vuelta la tapa
+                    // (la lista de artefactos y su cuenta atrás no se ven) y el
+                    // `read_line` de `ui::pause` se quedaría en modo raw.
+                    terminal = menu::setup_terminal()?;
+                    cmd::set_console_title(&ctx.window_title());
+                    // `finish` agotó su cuenta atrás: pide cerrar la pestaña,
+                    // así que el submenú no espera otra elección y la tarea
+                    // termina (ver `cmd::EXIT_CLOSE_TAB`).
+                    if cmd::close_tab_requested() {
+                        return Ok(());
                     }
                 }
             }

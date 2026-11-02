@@ -3019,4 +3019,28 @@ mod tests {
             "el tipo de proyecto va en el badge, no en el título: {screen}"
         );
     }
+
+    /// El guion de la pestaña tiene que cerrar PowerShell con el código del
+    /// `compass` hijo: es el único canal por el que la cuenta atrás de
+    /// `ui::pause_for` llega al contenedor (`cmd::EXIT_CLOSE_TAB`).
+    #[test]
+    fn pane_script_propagates_the_child_exit_code() {
+        let exe = std::path::Path::new(r"C:\Users\Un Usuario\bin\compass.exe");
+        let project = std::path::Path::new(r"D:\Mis Proyectos\Go + Wails v3");
+        let script = pane_script(exe, "android-install-debug", project);
+
+        let esperado = format!(
+            "& '{}' --task android-install-debug --path '{}'",
+            exe.display(),
+            project.display()
+        );
+        assert!(
+            script.starts_with(&esperado),
+            "la ruta va entrecomillada y llamada con `&`: {script}"
+        );
+        assert!(
+            script.ends_with("; exit $LASTEXITCODE"),
+            "sin propagar el código, la pestaña nunca se cierra sola: {script}"
+        );
+    }
 }

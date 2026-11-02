@@ -149,13 +149,16 @@ pub fn pause() {
 /// que leer, así que la ventana se cierra sola pasados `seconds` segundos (en
 /// vez de quedarse colgada esperando un Enter que nadie va a pulsar).
 ///
-/// Dentro del contenedor no hay ventana que cerrar: lo que se cierra es la
-/// pestaña, y eso lo decide el proceso padre mirando el código de salida. Por
-/// eso la cuenta deja la marca `cmd::request_close_tab`, que `main` convierte
-/// en `cmd::EXIT_CLOSE_TAB` **cuando la tarea termina**. Las dos llamadas que
-/// caen en medio de un flujo (`cmd::run_build_and_reveal_*` y el `finish` del
-/// submenú de release) siguen con su bucle: ahí la pestaña se cierra al salir
-/// del submenú o al terminar la instalación, que es cuando de verdad se acabó.
+/// Dentro del contenedor no hay ventana que cerrar: se cierra la **pestaña**, y
+/// eso lo decide el proceso padre por el código de salida. La cuenta deja la
+/// marca `cmd::request_close_tab` y `main` la convierte en
+/// `cmd::EXIT_CLOSE_TAB` al terminar la tarea.
+///
+/// Cuando la cuenta cae en medio de un flujo, la pestaña se cierra al acabar de
+/// verdad: el submenú de release (`tasks/release.rs::run_menu`) consulta la marca
+/// y sale en vez de volver a pintarse, y tras
+/// `cmd::run_build_and_reveal_with_env_outcome` Kotlin todavía pregunta si quiere
+/// instalar el APK —esa pregunta se hace y después llega el cierre.
 pub fn pause_for(seconds: u64) {
     for remaining in (1..=seconds).rev() {
         print!("\r  Cerrando en {} s...  ", remaining);

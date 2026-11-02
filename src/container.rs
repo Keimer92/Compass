@@ -130,6 +130,7 @@ impl PtySession {
             child: Mutex::new(child),
             pid,
             exited,
+            code: AtomicI32::new(-1),
             size: Mutex::new((rows, cols)),
         })
     }
@@ -182,16 +183,17 @@ impl PtySession {
     ///
     /// La ConPTY no cierra el pipe de salida mientras el master siga abierto,
     /// así que el lector nunca ve EOF al terminar la tarea: sin preguntar al
-    /// proceso, la pestaña jamás se marcaba como terminada. El código se guarda
+    /// proceso, la pestaña jamás se marcaba como terminada. El código se pregunta
     /// aquí y no en el lector porque es lo que decide si la pestaña se cierra
-    /// sola; preguntarlo dos veces sobre un hijo ya esperado es inútil, y
-    /// portable-pty conserva el estado tras el primer `try_wait`.
+    /// sola; en Windows es `GetExitCodeProcess`, que se puede consultar varias
+    /// veces sobre un proceso ya muerto.
     fn probe(&self) -> bool {
         let Ok(mut child) = self.child.lock() else {
             return self.exited.load(Ordering::Relaxed);
         };
         if let Ok(Some(status)) = child.try_wait() {
-            self.code.store(status.code as i32, Ordering::Relaxed);
+            self.code
+                .store(status.exit_code() as i32, Ordering::Relaxed);
             self.exited.store(true, Ordering::Relaxed);
         }
         self.exited.load(Ordering::Relaxed)
@@ -392,6 +394,21 @@ impl Container {
             Some(l) if l == i => self.last = self.active,
             Some(l) if l > i => self.last = Some(l - 1),
             _ => {}
+        }
+    }
+
+    /// Cierra las pestañas cuya tarea terminó pidiendo que se cerraran (la cuenta
+    /// atrás de `ui::pause_for` → `cmd::EXIT_CLOSE_TAB`).
+    ///
+    /// Se recorre de atrás hacia adelante porque `close_pane` reindexa los
+    /// índices mayores: yendo hacia atrás los que faltan por visitar no cambian.
+    /// Las pestañas que salen con otro código se quedan con su última pantalla y
+    /// la marca `✓`: son el historial de la tarea, no basura.
+    pub fn reap_finished(&mut self) {
+        for i in (0..self.panes.len()).rev() {
+            if self.panes[i].session.close_requested() {
+                self.close_pane(i);
+            }
         }
     }
 
@@ -1064,5 +1081,53 @@ mod tests {
             text.contains("hola contenedor"),
             "la salida de la sesión no llegó a la pantalla: {text:?}"
         );
+    }
+
+    /// La cadena completa del cierre automático, sobre ConPTY real: un hijo que
+    /// sale con `cmd::EXIT_CLOSE_TAB` cierra su pestaña, y uno que sale con `0`
+    /// se queda con su pantalla y su `✓`.
+    ///
+    /// El guion imita al del menú (`pane_script`): un comando nativo y después
+    /// `; exit $LASTEXITCODE`. Es la parte que no se puede comprobar sin una
+    /// consola de verdad, porque PowerShell devuelve `1`/`0` al llamar a un
+    /// binario con `&` y solo el `exit` saca el número del hijo.
+    #[test]
+    #[ignore = "abre dos ConPTY reales"]
+    fn a_pane_exiting_with_the_sentinel_code_is_reaped() {
+        let mut panes = Container::new();
+        for (title, code) in [("Centinela", cmd::EXIT_CLOSE_TAB), ("Normal", 0)] {
+            panes
+                .open(
+                    title.to_string(),
+                    &format!("cmd /c exit {code}; exit $LASTEXITCODE"),
+                    &std::env::temp_dir(),
+                    10,
+                    40,
+                )
+                .expect("la ConPTY debería abrirse");
+        }
+
+        for _ in 0..160 {
+            if panes.panes.iter().all(|p| p.session.is_exited()) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        for pane in &panes.panes {
+            assert!(
+                pane.session.is_exited(),
+                "{} no terminó a tiempo",
+                pane.title
+            );
+        }
+
+        panes.reap_finished();
+
+        assert_eq!(
+            panes.tab_count(),
+            1,
+            "sólo la pestaña con el código de cierre debe desaparecer"
+        );
+        assert_eq!(panes.panes[0].title, "Normal");
     }
 }

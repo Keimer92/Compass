@@ -379,15 +379,19 @@ main.rs
   └─ Cli (clap) → --task, --path
       ├─ sin args → menu::run()
       └─ con args → run_task_direct() dispatches by task name
-          └─ run_global_task() para context-menu y opencode
+          ├─ run_global_task() para context-menu y opencode
+          └─ con la cuenta atrás agotada sale con `cmd::EXIT_CLOSE_TAB`
+             (cierra la pestaña: ver "Contenedor de terminal")
 
 container.rs
   ├─ PtySession — una sesión ConPTY (`portable-pty`) que corre el shell activo
   │   con `-Command <script>`; lector en hilo → `vt100::Parser`; writer, resize,
-  │   `is_exited()` y `close()` (taskkill /T del árbol + kill del hijo)
+  │   `is_exited()`/`close_requested()` (probe con `try_wait`, guarda el código de
+  │   salida) y `close()` (taskkill /T del árbol + kill del hijo)
   ├─ Container — pestañas: `active: Option<usize>` (None = pestaña Compass),
   │   `last` para F12, `bar` y `closes` con las zonas clicables;
-  │   open/show_menu/show_last/select/next/close/close_all, poll_input() y
+  │   open/show_menu/show_last/select/next/close/close_all/**reap_finished**
+  │   (cierra las que salieron con `cmd::EXIT_CLOSE_TAB`), poll_input() y
   │   handle_event() (teclas reservadas: F12, Ctrl+Tab, Ctrl+Shift+Tab, Ctrl+W,
   │   Alt+1..9, Alt+M; el resto se codifica a xterm con `encode_key` y se
   │   escribe en la ConPTY)
@@ -435,16 +439,17 @@ menu.rs
   │   menú o sesión activa; `draw_menu_in(area)` permite pintar el menú debajo
   ├─ Sin botón Salir: `Esc` cierra el programa (`MenuAction::Quit`); si hay
   │   pestañas de tarea abiertas, antes pide confirmación (`quit_confirm`)
-  └─ run(): loop draw_ui → (pestaña activa → `panes.poll_input()`) o
-      handle_event → Run abre una **pestaña** con el CLI de la tarea (fallback a
+  └─ run(): loop → `panes.reap_finished()` → draw_ui → (pestaña activa →
+      `panes.poll_input()`) o handle_event → Run abre una **pestaña** con
+      `pane_script()` (el CLI de la tarea + `; exit $LASTEXITCODE`; fallback a
       ventana externa si la ConPTY falla o con `COMPASS_EXTERNAL_WINDOWS=1`)
 
 utils/
   ├─ context.rs — detect(), ProjectType, ProjectContext, whatsapp_path()
   ├─ platform.rs — helpers de portabilidad: IS_WINDOWS, exe_name(), gradlew_name(), home_dir(), data_dir(), find_gradlew(), dir_display_name(), console_title() [GetConsoleTitleW], tab_accent() [hash del path → tono de 12 posiciones, girado por instancia viva], NDK_VERSION, tauri_native_pkg()
-  ├─ cmd.rs — shell()/shell_path()/ps_quote/embedded(), run*, run_ps*, run_ps_file_status, set_console_title, reclaim_console_title [reintegra el título si otra consola lo pisó], set_tab_color [DECAC + OSC 4 del índice 264], spawn_new_window_autoexit, spawn_new_window_interactive [en modo embebido ejecutan en la consola actual], run_build_and_reveal, run_in_current_window, run_shell_status, run_npm_install, clear_screen, remove_dir
+  ├─ cmd.rs — shell()/shell_path()/ps_quote/embedded(), run*, run_ps*, run_ps_file_status, set_console_title, reclaim_console_title [reintegra el título si otra consola lo pisó], set_tab_color [DECAC + OSC 4 del índice 264], spawn_new_window_autoexit, spawn_new_window_interactive [en modo embebido ejecutan en la consola actual], run_build_and_reveal, run_in_current_window, run_shell_status, run_npm_install, clear_screen, remove_dir, **EXIT_CLOSE_TAB (95)** + request_close_tab()/close_tab_requested() [el código con el que una cuenta atrás pide cerrar su pestaña]
   ├─ tauri.rs — command(), ensure(), cli_entry() [CLI sin shim de .bin + reinstalación si falta el binding nativo]
-  ├─ ui.rs — ask_text(), ask_password(), success_banner(), info_banner(), pause()
+  ├─ ui.rs — ask_text(), ask_password(), success_banner(), info_banner(), pause(), pause_for() [cuenta atrás que deja pedido el cierre de su pestaña]
   ├─ console_guard.rs — guarda del cierre de la ventana anfitriona: install() [SetConsoleCtrlHandler], set_open_tabs(), register_pane()/unregister_pane(); en conhost deshabilita SC_CLOSE con pestañas abiertas y en el cierre mata los árboles (sin aviso: el host no se puede vetar)
   └─ android.rs — select_device(), wait_for_device_boot(), list_physical_devices() [sólo dispositivos físicos]
 
@@ -759,11 +764,13 @@ pwsh -NoLogo -NoProfile -Command "& 'C:\…\compass.exe' --task <task> --path '<
   resize del frame se propaga a la ConPTY (`master.resize` + `parser.set_size`).
 - El pie muestra los atajos y el shell activo; al terminar el proceso, la
   pestaña conserva su última pantalla y se marca con `✓` / "proceso finalizado".
-  ⚠️ Ese estado lo da `PtySession::is_exited()`, que **pregunta al hijo**
-  (`child.try_wait`) además del flag del lector: la ConPTY no cierra el pipe de
-  salida mientras el master siga abierto, así que el EOF nunca llega al terminar
-  la tarea y sin el `try_wait` la pestaña quedaría "en ejecución" para siempre
-  (y `running_count()` mentiría en el aviso de salida).
+  ⚠️ Ese estado lo da `PtySession::probe()` (vía `is_exited()`), que **pregunta
+  al hijo** (`child.try_wait`) además del flag del lector: la ConPTY no cierra el
+  pipe de salida mientras el master siga abierto, así que el EOF nunca llega al
+  terminar la tarea y sin el `try_wait` la pestaña quedaría "en ejecución" para
+  siempre (y `running_count()` mentiría en el aviso de salida). El mismo `try_wait`
+  guarda el **código** de salida (`code`, `-1` mientras vive), que es lo que
+  pregunta `close_requested()` para el cierre por cuenta atrás.
 - **Barra de pestañas** (`draw_bar`, 3 líneas: `BAR_HEIGHT`): una caja
   redondeada por pestaña (`Block` + `BorderType::Rounded`), separadas por una
   columna vacía. La activa va en `brand` + BOLD con `hover_bg` de fondo; las
@@ -794,6 +801,31 @@ Detalles que importan:
   matar sólo al `pwsh` de la pestaña dejaría vivos a `cargo`/`gradlew`/`flutter`
   escribiendo en la ConPTY. `process::exit` no ejecuta destructores, así que
   `run()` llama a `panes.close_all()` antes de salir.
+- **Una cuenta atrás agotada cierra su pestaña**: `ui::pause_for` no tiene
+  ventana que cerrar (la pestaña la sostiene el proceso del menú, no el de la
+  tarea), así que la petición viaja en el **código de salida**, en cinco pasos:
+  `ui::pause_for` → `cmd::request_close_tab()` (marca del proceso de la tarea,
+  sólo con `COMPASS_EMBEDDED`) → `main` sale con `cmd::EXIT_CLOSE_TAB` (`95`) al
+  terminar `run_task_direct` → el guion de la pestaña lo propaga
+  (`pane_script` añade `; exit $LASTEXITCODE`) → `PtySession::close_requested()`
+  lo lee con `try_wait` y `Container::reap_finished` cierra la pestaña desde el
+  bucle de `menu::run`.
+  ⚠️ Sin el `; exit $LASTEXITCODE` el código **se pierde**: PowerShell devuelve
+  `1` o `0` al llamar un nativo con `&` (medido: con el sufijo salen los 95).
+  Y ⚠️ el `try_wait` es obligatorio, no basta el flag del lector: la ConPTY no
+  cierra el pipe mientras el master está abierto, así que `exited` podía llegar
+  a `true` **sin** código y `-1` significaba «no cerrar» —el bug original, la
+  pestaña se quedaba en `proceso finalizado` para siempre—.
+  Las cuentas que caen **en medio** de un flujo no matan el proceso: el submenú
+  de release consulta `cmd::close_tab_requested()` tras `finish()` y sale (con
+  lo que la tarea termina y la pestaña se cierra), y en
+  `cmd::run_build_and_reveal_with_env_outcome` Kotlin aún pregunta si instala el
+  APK antes de cerrar. Las pestañas que terminan con **otro** código siguen
+  conservando su pantalla con `✓`: eso es histórico, no basura.
+  Cubierto por `container::tests::a_pane_exiting_with_the_sentinel_code_is_reaped`
+  (ConPTY real, dos pestañas: la del 95 desaparece, la del 0 se queda),
+  `menu::tests::pane_script_propagates_the_child_exit_code` y
+  `utils::ui::tests::the_countdown_asks_the_container_to_close_the_tab`.
 - **Salir con pestañas abiertas pide confirmación**: `Esc` en el menú no sale
   directamente si el contenedor tiene pestañas de tarea (`Container::tab_count`)
   —se matarían sus árboles—. `MenuState.quit_confirm` abre un aviso modal con la
@@ -848,8 +880,9 @@ Detalles que importan:
   escritura rápida a ~30 teclas/s.
 
 Cubierto por `container::tests` (codificación de teclas, la zona clicable del
-`×` contra el glifo realmente dibujado en un `TestBackend`, y
-`session_renders_its_output`, que abre una ConPTY real) y por
+`×` contra el glifo realmente dibujado en un `TestBackend`, y las dos que abren
+una ConPTY real: `session_renders_its_output` y
+`a_pane_exiting_with_the_sentinel_code_is_reaped`) y por
 `tests/container_e2e.rs` (ver "Testing").
 
 ### Ventanas de terminal (fallback)
@@ -896,7 +929,10 @@ Los builds **no abren una segunda ventana**. Llaman a
 2. Si termina bien, busca el artefacto más reciente de `folder` en Rust
    (`newest_artifact`, recursivo y filtrando por extensión), lo renombra a
    `<rename><ext>` si `rename` viene, y lo abre en el explorador.
-3. Espera un Enter (`ui::pause()`) para que se pueda leer la salida.
+3. Espera con `ui::pause_for(10)` si el build tuvo éxito (y dentro del
+   contenedor esa cuenta **cierra la pestaña** al llegar a cero, ver
+   "Contenedor de terminal"); con `ui::pause()` si falló, para que se pueda leer
+   el error antes de cerrarla.
 
 Así sólo hay **una** ventana y es la rápida. Antes se generaba un script de
 PowerShell con la lógica de revelado incrustada y se abría con `powershell -NoExit -Command`:
@@ -966,8 +1002,16 @@ Título de sección `RELEASE · WINDOWS` / `RELEASE · ANDROID`, acento `DEV` y
   y **no** revelan ni pausan; eso lo hace `finish()` una vez por ejecución.
 - Un fallo de build se imprime, `ui::pause()` y **se vuelve al submenú** (no se
   cierra). `Esc`/`q` vuelve al menú principal. El loop es el canónico de
-  `signer::manage`: `restore_terminal` → ejecutar → `setup_terminal` →
-  `set_console_title`.
+  `signer::manage`: `restore_terminal` → ejecutar → **imprimir** →
+  `setup_terminal` → `set_console_title`.
+  ⚠️ Imprimir después de `setup_terminal` (como estaba) mete el texto en la
+  pantalla alternativa: el `terminal.draw` de la vuelta lo tapa —la lista de
+  artefactos y su cuenta atrás no se veían— y el `read_line` de `ui::pause` se
+  queda en modo raw.
+- Al agotar `finish()` su cuenta atrás, `run_menu` mira
+  `cmd::close_tab_requested()` y **sale** en vez de repintarse: la tarea
+  termina, `main` devuelve `EXIT_CLOSE_TAB` y la pestaña se cierra (ver
+  "Contenedor de terminal").
 
 **Soporte:**
 
@@ -1372,10 +1416,11 @@ submenú de Git se pinta con `GIT 5` y `volver` dentro de la pestaña.
 
 Cada tarea del menú TUI se lanza en una **pestaña del propio Compass** (ConPTY
 con el shell activo, ver "Contenedor de terminal") ejecutando
-`compass --task <task> --path '<proyecto>'`. El menú sigue vivo en la pestaña
-`Inicio` y se recupera con `F12`; la pestaña de la tarea conserva su pantalla
-cuando el proceso termina, que se cierra sola con `ui::pause_for` o tras un
-Enter en las tareas que muestran salida.
+`compass --task <task> --path '<proyecto>'` (con `; exit $LASTEXITCODE`, ver
+"Contenedor de terminal"). El menú sigue vivo en la pestaña `Inicio` y se
+recupera con `F12`; la pestaña de la tarea conserva su pantalla cuando el proceso
+termina —salvo las que salen tras agotar la cuenta atrás de `ui::pause_for`, que
+se cierran solas— y las que piden un Enter se quedan hasta que se pulsa.
 
 Con `COMPASS_EXTERNAL_WINDOWS=1` (o si abrir la ConPTY falla) se recupera el
 comportamiento antiguo: `cmd::spawn_new_window_autoexit` abre una ventana
@@ -1686,7 +1731,7 @@ Dos detalles que importan en la práctica:
 | `success_banner(title)` | Borde ┌─┐└─┘ con ✅ centrado |
 | `info_banner(title)` | Borde ┌─┐└─┘ con ℹ️ centrado |
 | `pause()` | Espera Enter (read_line, sin raw mode) |
-| `pause_for(secs)` | Cuenta regresiva y cierra automáticamente tras `secs` segundos. La usan **todas** las tareas de compilación (debug y release, todas las plataformas) al terminar con éxito, para que la ventana se cierre sola. |
+| `pause_for(secs)` | Cuenta regresiva de `secs` segundos y, dentro del contenedor, **pide cerrar la pestaña** (`cmd::request_close_tab` → `main` sale con `EXIT_CLOSE_TAB`). La usan las tareas de compilación (debug y release, todas las plataformas) al terminar con éxito. Fuera del contenedor no hace falta: la ventana ya se cierra sola cuando muere el proceso. |
 
 ### Signer prompts
 `signer.rs` usa `ui::ask_text()` y `ui::ask_password()` en vez de `inquire::Text`/`inquire::Password` para que el cursor aparezca después de los dos puntos en la misma línea.
@@ -1804,21 +1849,26 @@ ABIs, splits, `doNotStrip` y que use `beforeProject`/`afterEvaluate` y no
 de cada split por nombre (`newest_matching`). De `release.rs`, las entradas del
 submenú por tipo, las claves de paleta y el mapeo triple/GOARCH; de `kotlin.rs`,
 el init script de ABIs y `has_native_libs`; de `cmd.rs`, que `rename_artifact`
-sobrescribe un destino existente; de `submenu.rs`, el flag `warn_android`; y de
-`menu.rs`, el routing de las cards de release y que `AndroidBuildArmv7` queda
-oculta en todos los tipos.
+sobrescribe un destino existente; de `submenu.rs`, el flag `warn_android`; de
+`menu.rs`, el routing de las cards de release, que `AndroidBuildArmv7` queda
+oculta en todos los tipos y que el guion de la pestaña termina con
+`; exit $LASTEXITCODE`; de `ui.rs`, que la cuenta atrás deja pedido el cierre de
+la pestaña.
 
-Cuatro pruebas abren una **ConPTY real** y están `#[ignore]` porque dependen del
+Cinco pruebas abren una **ConPTY real** y están `#[ignore]` porque dependen del
 sistema y tardan unos segundos:
 
 ```text
-cargo test --bin compass session_renders_its_output -- --ignored
+cargo test --bin compass -- --ignored
 cargo test --test container_e2e -- --ignored --nocapture
 ```
 
-La primera comprueba que una sesión pinta su salida (`hola contenedor`). Las
-otras tres (`tests/container_e2e.rs`) arrancan el `compass.exe` real en una ConPTY
-de 120×35 con el helper `spawn_compass`:
+La primera batería comprueba cosas que no se pueden simular sin consola: que una
+sesión pinta su salida (`hola contenedor`) y que la pestaña cuyo shell sale con
+`cmd::EXIT_CLOSE_TAB` la cierra `reap_finished`, mientras la que sale con `0` se
+queda (`a_pane_exiting_with_the_sentinel_code_is_reaped`, con el mismo guion que
+genera `pane_script`). Las otras tres (`tests/container_e2e.rs`) arrancan el
+`compass.exe` real en una ConPTY de 120×35 con el helper `spawn_compass`:
 
 - `card_opens_a_session_tab_and_f12_switches_between_menu_and_tab` entra en
   `CONFIGURACIÓN`, ejecuta la card Git y verifica la secuencia completa: primera
