@@ -1,6 +1,17 @@
 use anyhow::Result;
 use std::io::{self, IsTerminal, Write};
 
+/// `true` si la respuesta de un `[S/n]` es afirmativa.
+///
+/// Acepta las dos familias de monosílabos porque el default de las preguntas es
+/// texto ya escrito (`s`, `y`), no el vacío.
+pub fn is_yes(answer: &str) -> bool {
+    matches!(
+        answer.trim().to_lowercase().as_str(),
+        "s" | "si" | "sí" | "y" | "yes"
+    )
+}
+
 pub fn ask_text(prompt: &str, default: Option<&str>) -> Result<String> {
     let msg = match default {
         Some(d) => format!("{} [{}]: ", prompt, d),

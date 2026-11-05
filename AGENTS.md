@@ -447,9 +447,9 @@ menu.rs
 utils/
   ├─ context.rs — detect(), ProjectType, ProjectContext, whatsapp_path()
   ├─ platform.rs — helpers de portabilidad: IS_WINDOWS, exe_name(), gradlew_name(), home_dir(), data_dir(), find_gradlew(), dir_display_name(), console_title() [GetConsoleTitleW], tab_accent() [hash del path → tono de 12 posiciones, girado por instancia viva], NDK_VERSION, tauri_native_pkg()
-  ├─ cmd.rs — shell()/shell_path()/ps_quote/embedded(), run*, run_ps*, run_ps_file_status, set_console_title, reclaim_console_title [reintegra el título si otra consola lo pisó], set_tab_color [DECAC + OSC 4 del índice 264], spawn_new_window_autoexit, spawn_new_window_interactive [en modo embebido ejecutan en la consola actual], run_build_and_reveal, run_in_current_window, run_shell_status, run_npm_install, clear_screen, remove_dir, **EXIT_CLOSE_TAB (95)** + request_close_tab()/close_tab_requested() [el código con el que una cuenta atrás pide cerrar su pestaña]
+  ├─ cmd.rs — shell()/shell_path()/ps_quote/embedded(), run*, run_ps*, run_ps_file_status, set_console_title, reclaim_console_title [reintegra el título si otra consola lo pisó], set_tab_color [DECAC + OSC 4 del índice 264], spawn_new_window_autoexit, spawn_new_window_interactive [en modo embebido ejecutan en la consola actual], run_build_and_reveal, run_in_current_window, run_shell_status, run_npm_install, clear_screen, remove_dir, add_user_path_dir [añade una carpeta al PATH de HKCU\Environment como ExpandString, sin expandir %VAR%] + refresh_environment() [ie4uinit.exe -show], **EXIT_CLOSE_TAB (95)** + request_close_tab()/close_tab_requested() [el código con el que una cuenta atrás pide cerrar su pestaña]
   ├─ tauri.rs — command(), ensure(), cli_entry() [CLI sin shim de .bin + reinstalación si falta el binding nativo]
-  ├─ ui.rs — ask_text(), ask_password(), success_banner(), info_banner(), pause(), pause_for() [cuenta atrás que deja pedido el cierre de su pestaña]
+  ├─ ui.rs — ask_text(), ask_password(), is_yes(), success_banner(), info_banner(), pause(), pause_for() [cuenta atrás que deja pedido el cierre de su pestaña]
   ├─ console_guard.rs — guarda del cierre de la ventana anfitriona: install() [SetConsoleCtrlHandler], set_open_tabs(), register_pane()/unregister_pane(); en conhost deshabilita SC_CLOSE con pestañas abiertas y en el cierre mata los árboles (sin aviso: el host no se puede vetar)
   └─ android.rs — select_device(), wait_for_device_boot(), list_physical_devices() [sólo dispositivos físicos]
 
@@ -471,7 +471,7 @@ tasks/
   ├─ context_menu.rs — install/uninstall/toggle para Compass + Vibe Coding (menú cascada con ExtendedSubCommandsKey: OpenCode, Kilo Code, Cline, Antigravity, Copilot CLI, Kiro CLI, Freebuff, Command Code, Qoder CLI, Hermes)
   ├─ environment.rs — manage() [submenú: backup completo / inventario / restaurar / validar / abrir respaldos]; scripts `Backup-Variables.ps1` y `Restore-Variables.ps1` embebidos con `include_str!` y materializados en `<data_dir>/compass/env-backup`
   ├─ whatsapp.rs — build()
-  └─ version.rs — bump() [port de versionar.bat: Tauri/Rust, todo-o-nada]
+  └─ version.rs — bump() [port de versionar.bat: Tauri/Rust/Go+Wails, todo-o-nada]
 ```
 
 ## Task Routing
@@ -491,7 +491,7 @@ tasks/
 | Clean | `cleanup::manage` | `cleanup::manage` | `cleanup::manage` | `cleanup::manage` → `gowails::clean` | `cleanup::manage` |
 | DebugAndroid | `android::debug` | mensaje info | mensaje info | `gowails::debug_android` (logcat por PID) | oculto |
 | Signing | `signer::manage` | `signer::manage` | `signer::manage` | `signer::manage` (variables de entorno) | oculto |
-| Version | `version::bump` (pkg/cargo/tauri) | mensaje info | mensaje info | `version::bump` (`build/config.yml`) | `version::bump` (Cargo.toml) |
+| Version | `version::bump` (pkg/cargo/tauri) | mensaje info | mensaje info | `version::bump` (`build/config.yml` + `main.go` + metadatos Windows/Android/iOS/macOS) | `version::bump` (Cargo.toml) |
 | Git | `git::manage` | `git::manage` | `git::manage` | `git::manage` | `git::manage` |
 | BuildWhatsApp | `whatsapp::build` | `whatsapp::build` | `whatsapp::build` | `whatsapp::build` | `whatsapp::build` |
 | ConfigureTerminal | `terminal::configure` | `terminal::configure` | `terminal::configure` | `terminal::configure` | `terminal::configure` |
@@ -1216,8 +1216,10 @@ Cubierto por `tasks::environment::tests`: los scripts embebidos contienen los
 marcadores reales (`Invoke-Native`, `-Destino`, `-CarpetaBackup`,
 `pre-restore_`), `materialize()` es idempotente y corrige un script corrupto,
 `latest_backup()` elige el más nuevo, las entradas cubren cada acción una sola
-vez con `Volver` al final y claves de paleta distintas, y `is_yes()` acepta
-`s`/`si`/`sí`/`y`/`yes`.
+vez con `Volver` al final y claves de paleta distintas, y `ui::is_yes()` —el
+parser **compartido** de los `[S/n]` (Entorno y las preguntas de NSIS)— acepta
+`s`/`si`/`sí`/`y`/`yes`; el default va entre corchetes, así que el prompt no
+lleva su propio `[S/n]`.
 
 ### KMP Desktop (Hot Reload)
 `kotlin::run_windows()` ejecuta `:composeApp:run` con Hot Reload incorporado.
@@ -1409,6 +1411,29 @@ submenú de Git se pinta con `GIT 5` y `volver` dentro de la pestaña.
 - `Test-Path -PathType Leaf` no funciona en claves de registro; se omite.
 - **Todo valor interpolado va con `ps_quote()`** (comillas simples duplicadas): un `'` en el título o en la ruta rompería el literal del script instalador, que se compone como texto.
 
+### PATH del usuario (`cmd::add_user_path_dir`)
+
+Para fijar una carpeta en el PATH se escribe `HKCU\Environment` con PowerShell
+(una sola invocación), y hay dos trampas:
+
+- ⚠️ **Leer con `'DoNotExpandEnvironmentNames'` y escribir con tipo
+  `ExpandString`**, concatenando sobre el valor original: la forma habitual,
+  `[Environment]::SetEnvironmentVariable('Path', …)`, **aplanó** el valor a
+  `String`, así que un `%USERPROFILE%\go\bin` del PATH quedaba expandido para
+  siempre (y las entradas vacías se perdían si se reconstruía la lista con
+  `Where-Object { $_ -ne '' }`). `cmd::user_path_append_script()` hace lo primero;
+  `cmd::tests::user_path_append_writes_the_raw_value_as_expand_string` lo verifica
+  y prohíbe expresamente `SetEnvironmentVariable`.
+- Es **HKCU**, sin elevación, y sólo afecta a procesos **nuevos**: tras escribir
+  se llama `cmd::refresh_environment()` (`ie4uinit.exe -show`) para que Explorer
+  herede el valor en las ventanas que abra, pero las ventanas ya abiertas —y el
+  Compass de la pestaña— siguen con el PATH viejo hasta reiniciarlas. El script
+  imprime `COMPASS_PATH_ADDED` / `COMPASS_PATH_PRESENT`, y eso es lo que devuelve
+  `add_user_path_dir()` como `bool` para que el llamador no duplique el aviso.
+- El caso real que motivó el helper es NSIS en Wails v3 (ver
+  "`makensis` NO está en el PATH"): se prefiere inyectar el `PATH` sólo al hijo
+  del task y ofrecer el fix permanente **después**, como opción explícita.
+
 ### Directory removal (Windows)
 `cmd::remove_dir()` usa `Remove-Item -Recurse -Force` (con `-LiteralPath` entrecomillado) en el shell activo, para rutas largas que `std::fs::remove_dir_all` no puede manejar.
 
@@ -1481,7 +1506,7 @@ usaba `wails.json` y otro CLI, así que no se mezcla (`context::is_wails_v3`).
 | AAB (release) | El mismo pipeline (arm64 + armv7, sin splits) + `bundleRelease` → `bin/<Product>-v<ver>.aab` |
 | Install (debug) | APK debug (arm64) + `adb install` + `am start`; la ventana se cierra sola a los 10 s tras compilar bien |
 | Debug Andr | `adb logcat --pid=<pid de la app>` (sin `grep`, así que funciona en Windows) |
-| Version | Bump de `version:` en `build/config.yml` (formato YAML, conserva indentación y comentario) |
+| Version | Bump de la versión del proyecto: `build/config.yml` (YAML, conserva indentación y comentario) +, si existen, `main.go` (`const version`), `frontend/package.json`, NSIS (`project.nsi`), `build/windows/info.json` (incluye `file_version`/`product_version` a cuatro partes), Android (`versionName` + `versionCode` +1) y plists de iOS/macOS. Si un opcional falta se omite; si existe y no encaja, no se escribe nada |
 | Clean | `bin/`, `frontend/dist`, `frontend/bindings`, `build/android/app/build`, `build/android/.gradle`, `jniLibs/` |
 
 La card **APK armv7** ya no existe en el menú principal (la release por
@@ -1511,10 +1536,32 @@ encadena tres pasos y copia cada artefacto en cuanto termina:
   **inmediatamente después de cada paso**: si se copiara al final, las tres
   arquitecturas acabarían siendo el mismo binario. Ya no hace falta filtrar
   "el artefacto más reciente": se conocen las rutas exactas del Taskfile.
-- **`makensis` no suele estar en el PATH.** `winget install NSIS.NSIS` lo deja en
-  `C:\Program Files (x86)\NSIS\` y **sin** tocar el PATH, así que `makensis` a
-  secas falla. El Taskfile de Wails ya lo resuelve con un `MAKENSIS` que prueba
-  `command -v`, `Program Files (x86)` y `Program Files`; no hay que parchear nada.
+- **`makensis` NO está en el PATH y la plantilla no lo busca.** `winget install
+  NSIS.NSIS` deja el binario en `C:\Program Files (x86)\NSIS\` **sin tocar el
+  PATH**, y el Taskfile de Wails invoca `makensis` **a pelo**
+  (`build/windows/Taskfile.yml` → `windows:create:nsis:installer`); **no existe**
+  ninguna variable `MAKENSIS` con rutas alternativas. El resultado es un
+  `exit status 127` con `"makensis": executable file not found in $PATH` **ya
+  compilado el portable**, que encima aborta el paso de `package` y hace perder
+  la copia a `bin/`. Lo resuelve `gowails::ensure_nsis()`, que corre antes de cada
+  `wails3 task package` y devuelve el entorno del hijo:
+
+  | Sonda | Acción |
+  |-------|--------|
+  | `makensis` resuelve desde el PATH | entorno vacío |
+  | `makensis.exe` bajo `$(ProgramFiles(x86))\NSIS`, `$(ProgramFiles)\NSIS` o `$(ProgramW6432)\NSIS` | se inyecta `PATH = "<esa carpeta>;<PATH actual>"` **sólo** en el proceso del task — sin tocar el registro |
+  | ausente | pregunta `[S/n]` (default **S**) si instalar con `winget install NSIS.NSIS --exact --accept-*`; tras instalar, segunda pregunta `[S/n]` para fijar la carpeta en el PATH del usuario, y **siempre** inyecta el `PATH` de este hijo |
+
+  Si se rechaza la instalación, el `bail!` lleva `NSIS_INSTALL_HINT`: el comando
+  de winget y el fallback `wails3 task build ARCH=amd64` (portable sin instalador),
+  para no dejar el usuario con el error crudo de go-task.
+  ⚠️ La inyección **no** arregla una consola abierta antes de fijar el PATH: ésa
+  hay que reiniciarla (`cmd::refresh_environment()` avisa a Explorer con
+  `ie4uinit.exe -show`, que cubre los procesos nuevos heredados de él).
+  Cubierto por `gowails::tests` (el prefijo va delante y conserva el PATH previo,
+  la inyección se claves en `PATH`, los candidatos son carpetas `NSIS`, y el hint
+  menciona winget y el fallback) y por los dos tests del guion de registro en
+  `cmd::tests`.
 - **El binario de dev lleva el icono de la app.** `wails3 dev` no genera el
   `.syso` (icono/version de Windows) por defecto, así que el `.exe` salía con el
   icono genérico de Go. `gowails::dev()` ejecuta antes `wails3 generate syso`
@@ -1825,7 +1872,9 @@ prefijos del submenú, comandos de instalación de cada herramienta, nombre del
 binario, shell de instalación, fallbacks fuera del PATH (incluido `HOME/` de
 Qoder), la marca `CompassStamp`, el comando que aloja la TUI en PowerShell y el
 detector de `cmd.exe`/`pwsh` que comparte con la sonda del instalador. De
-`cmd.rs` se cubren `ps_quote`, el script y los
+`cmd.rs` se cubren `ps_quote`, el guion de `add_user_path_dir` (valor crudo
+`ExpandString`, sin `SetEnvironmentVariable`, y el `'` de una ruta entrecomillado),
+el script y los
 argumentos de las ventanas (`&`, `Read-Host`, `-NoProfile`, sin sintaxis de
 cmd), la resolución del shell, `newest_artifact` y la secuencia de color de
 pestaña (`DECAC` antes del `OSC 4` del índice 264). De `platform.rs`, que el
@@ -1842,7 +1891,10 @@ en el buffer). De `console_guard.rs`, que sin `install()` el contador no toca
 Win32. De `environment.rs`, los marcadores de los scripts embebidos (que sean los reales),
 la idempotencia de `materialize()`, la elección del respaldo más reciente, las
 entradas del submenú y el parseo de respuestas afirmativas. De `gowails.rs` se
-cubren `version_code` (semver → entero monótono de Play), los nombres
+cubren `version_code` (semver → entero monótono de Play), la sonda de NSIS (el
+`PATH` inyectado va delante y conserva el previo, los candidatos son carpetas
+`NSIS` de `ProgramFiles`/`ProgramFiles (x86)`, y el hint de instalación menciona
+winget y el fallback portable), los nombres
 versionados de APK/AAB y escritorio, el contenido del init script (versión,
 ABIs, splits, `doNotStrip` y que use `beforeProject`/`afterEvaluate` y no
 `projectsEvaluated`), `release_meta` contra `build/config.yml` y la selección

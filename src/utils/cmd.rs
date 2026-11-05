@@ -784,6 +784,58 @@ pub fn clear_screen() {
     );
 }
 
+// ── PATH persistente del usuario ──────────────────────────────────────────
+
+/// Script que añade `dir` al final del `Path` **persistente** del usuario.
+///
+/// ⚠️ Lee y escribe el **valor crudo** con `DoNotExpandEnvironmentNames` y tipo
+/// `ExpandString`, y concatena sobre el valor original en vez de reconstruir la
+/// lista: `[Environment]::SetEnvironmentVariable()` aplana el valor a `String`,
+/// así que un `%USERPROFILE%\go\bin` del PATH quedaría expandido de forma
+/// irreversible. Tampoco se filtran las entradas vacías, porque significan «el
+/// directorio actual» para algunos buscadores de Windows.
+///
+/// El marcador impreso permite al llamador distinguir «añadido» de «ya estaba».
+fn user_path_append_script(dir: &str) -> String {
+    let q = ps_quote(dir);
+    format!(
+        "$ErrorActionPreference = 'Stop'\n\
+         $dir = {q}\n\
+         $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment', $true)\n\
+         $raw = $key.GetValue('Path', '', 'DoNotExpandEnvironmentNames')\n\
+         $lista = @($raw -split ';')\n\
+         if ($lista -notcontains $dir) {{\n\
+         $nuevo = if ($raw) {{ \"$raw;$dir\" }} else {{ $dir }}\n\
+         $key.SetValue('Path', $nuevo, [Microsoft.Win32.RegistryValueKind]::ExpandString)\n\
+         'COMPASS_PATH_ADDED'\n\
+         }} else {{ 'COMPASS_PATH_PRESENT' }}\n\
+         $key.Close()"
+    )
+}
+
+/// Añade `dir` al `Path` del usuario (HKCU\Environment). Devuelve `true` si lo
+/// escribió; `false` si ya estaba.
+pub fn add_user_path_dir(dir: &Path) -> Result<bool> {
+    let script = user_path_append_script(&dir.to_string_lossy());
+    let out = run_ps(&script)?;
+    if !out.status.success() {
+        anyhow::bail!(
+            "No se pudo escribir el PATH del usuario: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        );
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).contains("COMPASS_PATH_ADDED"))
+}
+
+/// Notifica a Explorer el cambio de entorno (`WM_SETTINGCHANGE`).
+///
+/// Sin esto, los procesos nuevos heredados de Explorer siguen viendo el PATH
+/// viejo hasta cerrar sesión. **No** refresca las ventanas ya abiertas: ésas
+/// hay que reiniciarlas.
+pub fn refresh_environment() {
+    let _ = run_ps("ie4uinit.exe -show");
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -939,5 +991,30 @@ mod tests {
     fn shell_resolution_returns_a_runnable_name_and_path() {
         assert!(["pwsh", "powershell"].contains(&shell()));
         assert!(!shell_path().is_empty());
+    }
+
+    #[test]
+    fn user_path_append_writes_the_raw_value_as_expand_string() {
+        let script = user_path_append_script(r"C:\Program Files (x86)\NSIS");
+        // `[Environment]::SetEnvironmentVariable()` aplana a String y expandiría
+        // %USERPROFILE% sin retorno: hay que leer el valor crudo y reescribirlo
+        // con su tipo original.
+        assert!(
+            !script.contains("SetEnvironmentVariable"),
+            "SetEnvironmentVariable expande los %VAR% del PATH: {script}"
+        );
+        assert!(script.contains("DoNotExpandEnvironmentNames"), "{script}");
+        assert!(script.contains("RegistryValueKind]::ExpandString"), "{script}");
+        // Se concatena sobre el valor original, no se reconstruye la lista.
+        assert!(script.contains(r#""$raw;$dir""#), "{script}");
+        assert!(script.contains(r"'C:\Program Files (x86)\NSIS'"), "{script}");
+    }
+
+    #[test]
+    fn user_path_append_survives_a_directory_with_an_apostrophe() {
+        // Un `'` sin duplicar cerraría el literal de PowerShell y rompería el
+        // script del instalador.
+        let script = user_path_append_script(r"D:\O'Brien\NSIS");
+        assert!(script.contains(r"'D:\O''Brien\NSIS'"), "{script}");
     }
 }

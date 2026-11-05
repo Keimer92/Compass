@@ -373,7 +373,7 @@ impl MenuItem {
                 Self::Signing => "Firmas y huellas",
                 Self::Git => "Init · gitignore",
                 Self::BuildWhatsApp => "Compila WhatsApp",
-                Self::Version => "build/config.yml",
+                Self::Version => "main.go + config.yml + metadatos",
                 Self::ConfigureTerminal => "Autocompletado",
                 Self::Environment => "Backup y restauracion",
                 Self::FlutterProfile => "",

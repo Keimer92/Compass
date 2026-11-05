@@ -296,7 +296,7 @@ fn run_restore(work: &Path, validate_only: bool) -> Result<()> {
             "Restaurar tambien archivos (git/ssh/VS Code)? (s/N)",
             Some("n"),
         )?;
-        if is_yes(&files) {
+        if ui::is_yes(&files) {
             args.push("-RestaurarArchivos".to_string());
         }
     }
@@ -310,13 +310,6 @@ fn run_restore(work: &Path, validate_only: bool) -> Result<()> {
     println!();
     ui::pause();
     Ok(())
-}
-
-fn is_yes(answer: &str) -> bool {
-    matches!(
-        answer.trim().to_lowercase().as_str(),
-        "s" | "si" | "sí" | "y" | "yes"
-    )
 }
 
 /// Respaldo más reciente (`EnvBackup_*`) de la carpeta de Compass. Los nombres
@@ -443,10 +436,10 @@ mod tests {
     #[test]
     fn yes_answers_are_accepted() {
         for answer in ["s", "S", "si", "sí", "y", "yes", " Si "] {
-            assert!(is_yes(answer), "{answer:?} debería contar como sí");
+            assert!(ui::is_yes(answer), "{answer:?} debería contar como sí");
         }
         for answer in ["", "n", "no", "nel"] {
-            assert!(!is_yes(answer), "{answer:?} no debería contar como sí");
+            assert!(!ui::is_yes(answer), "{answer:?} no debería contar como sí");
         }
     }
 }

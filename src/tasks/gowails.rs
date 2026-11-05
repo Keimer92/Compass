@@ -316,6 +316,145 @@ fn ensure_wails_cli() -> Result<()> {
     Ok(())
 }
 
+// ── NSIS: el instalador de `wails3 task package` ──────────────────────────
+
+/// Dónde está `makensis.exe`, el compilador de `build/windows/nsis/project.nsi`.
+enum Nsis {
+    /// Resuelve desde el PATH: no hay que inyectar nada.
+    OnPath,
+    /// Instalado, pero **fuera** del PATH de este proceso.
+    OutsidePath(PathBuf),
+    /// Ningún candidato tiene `makensis.exe`.
+    Missing,
+}
+
+/// Carpetas donde el instalador de NSIS deja `makensis.exe` por defecto.
+///
+/// ⚠️ `winget install NSIS.NSIS` **no** agrega la carpeta al PATH, así que una
+/// sonda de PATH a secas diría que falta estando instalado. Es justo el caso que
+/// este módulo resuelve.
+fn nsis_candidates() -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    for var in ["ProgramFiles(x86)", "ProgramFiles", "ProgramW6432"] {
+        let Some(root) = std::env::var_os(var) else {
+            continue;
+        };
+        let dir = Path::new(&root).join("NSIS");
+        if !dirs.contains(&dir) {
+            dirs.push(dir);
+        }
+    }
+    dirs
+}
+
+fn locate_makensis() -> Nsis {
+    if command_exists("makensis") {
+        return Nsis::OnPath;
+    }
+    match nsis_candidates().into_iter().find(|d| d.join("makensis.exe").is_file()) {
+        Some(dir) => Nsis::OutsidePath(dir),
+        None => Nsis::Missing,
+    }
+}
+
+/// `PATH` con `dir` delante y el resto intacto.
+fn path_with_prefix(dir: &Path, current: &str) -> String {
+    let mut value = dir.to_string_lossy().into_owned();
+    if !current.is_empty() {
+        value.push(';');
+        value.push_str(current);
+    }
+    value
+}
+
+/// Variables para el hijo, con la carpeta de NSIS en el PATH si hace falta.
+fn nsis_env(dir: &Path) -> (String, String) {
+    let current = std::env::var("PATH").unwrap_or_default();
+    ("PATH".to_string(), path_with_prefix(dir, &current))
+}
+
+/// Asegura que el `package` de Wails encontrará `makensis`.
+///
+/// La plantilla de Wails invoca `makensis` **a pelo** desde
+/// `build/windows/Taskfile.yml` (`windows:create:nsis:installer`), sin variable
+/// con rutas alternativas. Cuando NSIS está instalado pero fuera del PATH, el
+/// task muere con `exit status 127` **después** de compilar el binario, y el
+/// mensaje (`"makensis": executable file not found in $PATH`) no dice cómo
+/// arreglarlo.
+///
+/// Devuelve el entorno que hay que pasarle a `wails3 task package`:
+///
+/// | Caso | Acción |
+/// |------|--------|
+/// | en el PATH | entorno vacío |
+/// | instalado fuera del PATH | `PATH` con la carpeta delante, **sólo** para ese hijo; no se toca el registro |
+/// | ausente | pregunta si instala con winget y, después, si fija la carpeta en el PATH del usuario |
+///
+/// Los dos últimos casos devuelven el `PATH` inyectado aunque se rechace fijarlo
+/// en el registro: la compilación presente funciona igual.
+fn ensure_nsis() -> Result<Vec<(String, String)>> {
+    match locate_makensis() {
+        Nsis::OnPath => Ok(Vec::new()),
+        Nsis::OutsidePath(dir) => {
+            println!(
+                "[INFO] NSIS: {} (fuera del PATH). Se le pasa a esta compilacion sin tocar el registro.",
+                dir.display()
+            );
+            Ok(vec![nsis_env(&dir)])
+        }
+        Nsis::Missing => install_nsis(),
+    }
+}
+
+/// Qué decir cuando NSIS no aparece en ninguna parte.
+///
+/// Va en el error por defecto porque es la única pista accionable: el mensaje
+/// del Taskfile (`"makensis": executable file not found in $PATH`) no distingue
+/// «no instalado» de «instalado y fuera del PATH», y el portable sí se compila.
+const NSIS_INSTALL_HINT: &str = "Instálalo con:\n  winget install NSIS.NSIS --exact --accept-source-agreements --accept-package-agreements\no compila sólo el portable con `wails3 task build ARCH=amd64`.";
+
+/// Instalación interactiva de NSIS cuando no está en ninguna parte.
+fn install_nsis() -> Result<Vec<(String, String)>> {
+    println!();
+    println!("[ERROR] Falta NSIS (`makensis`): es lo que compila el instalador de `wails3 task package`.");
+    println!("        El `.exe` portable se genera igual; lo que falla es el paso `windows:create:nsis:installer`.");
+    if !ui::is_yes(&ui::ask_text("¿Instalar NSIS ahora con winget?", Some("s"))?) {
+        anyhow::bail!("[ERROR] Sin NSIS no se puede empaquetar. {NSIS_INSTALL_HINT}");
+    }
+
+    let instalacion = cmd::run_ps_in_dir_status(
+        "winget install NSIS.NSIS --exact --accept-source-agreements --accept-package-agreements",
+        Path::new("."),
+    );
+    if instalacion.is_err() {
+        println!("[AVISO] winget termino con fallo (o se cancelo).");
+    }
+
+    let dir = match locate_makensis() {
+        Nsis::OnPath => return Ok(Vec::new()),
+        Nsis::OutsidePath(dir) => dir,
+        Nsis::Missing => anyhow::bail!(
+            "[ERROR] NSIS sigue sin aparecer tras la intentona de instalacion.\n\
+             {NSIS_INSTALL_HINT}"
+        ),
+    };
+
+    println!("[OK] NSIS instalado en {}", dir.display());
+    if ui::is_yes(&ui::ask_text(
+        "¿Añadir esa carpeta al PATH del usuario para que tambien funcione desde una consola normal?",
+        Some("s"),
+    )?) {
+        if cmd::add_user_path_dir(&dir)? {
+            cmd::refresh_environment();
+            println!("[OK] Añadido al PATH del usuario (HKCU\\Environment).");
+            println!("[AVISO] Las ventanas de terminal abiertas conservan el PATH viejo: hay que reiniciarlas.");
+        } else {
+            println!("[INFO] Esa carpeta ya estaba en el PATH del usuario.");
+        }
+    }
+    Ok(vec![nsis_env(&dir)])
+}
+
 /// NDK: `ANDROID_NDK_HOME` → la de `ctx` → la más reciente bajo `$ANDROID_HOME/ndk`.
 fn ndk_root(ctx: &ProjectContext) -> Option<PathBuf> {
     if let Ok(dir) = std::env::var("ANDROID_NDK_HOME") {
@@ -518,10 +657,11 @@ pub fn build_desktop_arch(ctx: &ProjectContext, arch: DesktopArch) -> Result<Vec
             println!(
                 "[INFO] Windows {label}: portable + instalador NSIS (`wails3 task package ARCH={arg}`)."
             );
+            let envs = ensure_nsis()?;
             if !cmd::run_shell_status(
                 &format!("wails3 task package ARCH={arg}"),
                 &ctx.script_dir,
-                &[],
+                &envs,
             )? {
                 anyhow::bail!(
                     "[ERROR] Fallo el paquete {label} (`wails3 task package ARCH={arg}`)."
@@ -1578,6 +1718,52 @@ pub fn clean(ctx: &ProjectContext) -> Result<()> {
 mod tests {
     use super::*;
     use crate::utils::context::ProjectType;
+
+    #[test]
+    fn path_prefix_goes_first_and_keeps_the_current_entries() {
+        let merged = path_with_prefix(Path::new(r"C:\Program Files (x86)\NSIS"), r"C:\a;C:\b");
+        assert_eq!(
+            merged,
+            r"C:\Program Files (x86)\NSIS;C:\a;C:\b",
+            "makensis tiene que resolver antes que nada, sin perder el PATH previo"
+        );
+        assert_eq!(
+            path_with_prefix(Path::new(r"C:\NSIS"), ""),
+            r"C:\NSIS",
+            "sin PATH previo no hay que dejar un ; suelto"
+        );
+    }
+
+    #[test]
+    fn nsis_injection_is_keyed_by_the_path_variable() {
+        let (key, value) = nsis_env(Path::new(r"C:\NSIS"));
+        assert_eq!(key, "PATH");
+        assert!(value.starts_with(r"C:\NSIS;"), "la carpeta va delante: {value}");
+    }
+
+    #[test]
+    fn nsis_candidates_are_nsis_folders_of_the_program_files_roots() {
+        let dirs = nsis_candidates();
+        for dir in &dirs {
+            assert_eq!(dir.file_name().map(|n| n.to_string_lossy().into_owned()), Some("NSIS".to_string()), "cada candidato debe ser una carpeta NSIS: {}", dir.display());
+        }
+        if cfg!(windows) {
+            assert!(
+                !dirs.is_empty(),
+                "sin candidatos no hay sonda posible: winget instala NSIS fuera del PATH"
+            );
+        }
+    }
+
+    #[test]
+    fn the_nsis_hint_names_the_winget_command_and_the_portable_fallback() {
+        // El caso que originó todo esto: el Taskfile muere con `exit status 127`
+        // y el mensaje de Wails no dice ni cómo instalar NSIS ni que el portable
+        // se compila igual.
+        assert!(NSIS_INSTALL_HINT.contains("winget install NSIS.NSIS"));
+        assert!(NSIS_INSTALL_HINT.contains("--accept-package-agreements"));
+        assert!(NSIS_INSTALL_HINT.contains("wails3 task build ARCH=amd64"));
+    }
 
     fn ctx(root: &Path) -> ProjectContext {
         ProjectContext {
